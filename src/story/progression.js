@@ -117,14 +117,9 @@ function normalizeSaved(saved, story) {
     }
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
   if (record(saved.textFiles)) {
-    for (const [oldPath, newPath] of [['user-desktop/a_faire.txt', 'folder/a_faire.txt']]) {
-      const previousKey = Object.keys(saved.textFiles).find(
-        (key) => key.replaceAll('\\', '/').toLowerCase() === oldPath,
-      );
-      if (!previousKey) continue;
-      if (!Object.hasOwn(saved.textFiles, newPath)) saved.textFiles[newPath] = saved.textFiles[previousKey];
-      delete saved.textFiles[previousKey];
-    }
+    for (const key of Object.keys(saved.textFiles))
+      if (key.replaceAll('\\', '/').toLowerCase().startsWith('user-desktop/'))
+        delete saved.textFiles[key];
   }
   for (const [id, state] of Object.entries(saved.dialogues)) {
     if (

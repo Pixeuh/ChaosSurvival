@@ -41,6 +41,9 @@ export function mountDesktop(root, best) {
       <button data-shortcut="browser">
         ${icon('browser')}<span>${applicationName('browser')}</span>
       </button>
+      <button data-shortcut="windows-media-play">
+        ${icon('media')}<span>${applicationName('media')}</span>
+      </button>
       <button data-shortcut="arcade">
         ${icon(arcadeLauncher.icon)}<span>${arcadeLauncher.name}</span>
       </button>

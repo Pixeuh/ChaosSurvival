@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   DesktopIcons,
+  discardLegacyAutomaticPositions,
   groupIconCells,
   iconCellLeft,
+  iconCellTop,
   rectanglesTouch,
   iconGrid,
   layoutIconCells,
@@ -116,6 +118,108 @@ test('the bin defaults to top left while personal and legacy saved positions rem
   assert.deepEqual(layoutIconCells(ids, saved, grid).get('shortcut:bin'), saved['shortcut:bin']);
   const legacy = Object.fromEntries(ids.map((id, row) => [id, { col: 0, row }]));
   assert.deepEqual(Object.fromEntries(layoutIconCells(ids, legacy, grid)), legacy);
+});
+
+test('a fresh desktop lays out the seven launch icons in the requested visual order', () => {
+  const ids = [
+    'shortcut:computer',
+    'shortcut:folder',
+    'shortcut:msn',
+    'shortcut:browser',
+    'shortcut:windows-media-play',
+    'shortcut:music',
+    'shortcut:bin',
+  ];
+  const grid = iconGrid(1280, 800, 40, 90, 100);
+  const cells = layoutIconCells(ids, {}, grid);
+  const expected = [
+    'shortcut:bin',
+    'shortcut:computer',
+    'shortcut:folder',
+    'shortcut:msn',
+    'shortcut:browser',
+    'shortcut:windows-media-play',
+    'shortcut:music',
+  ];
+  assert.equal(grid.rows, 7, 'the initial 1280×800 desktop fits seven icon rows');
+  expected.forEach((id, row) => {
+    assert.deepEqual(cells.get(id), { col: 0, row });
+    assert.equal(iconCellTop(cells.get(id)), 20 + row * 104);
+  });
+  assert.equal(new Set([...cells.values()].map(({ col, row }) => `${col}:${row}`)).size, 7);
+
+  const withNarrativeFile = layoutIconCells([...ids, 'file:media-files/bombarena.exe'], {}, grid);
+  assert.deepEqual(withNarrativeFile.get('file:media-files/bombarena.exe'), { col: 1, row: 0 });
+  for (const id of expected) assert.deepEqual(withNarrativeFile.get(id), cells.get(id));
+
+  const shortGrid = layoutIconCells(ids, {}, { cols: 4, rows: 5 });
+  assert.equal(new Set([...shortGrid.values()].map(({ col, row }) => `${col}:${row}`)).size, 7);
+  assert.ok([...shortGrid.values()].every(({ col, row }) => col < 4 && row < 5));
+});
+
+test('DesktopIcons applies the initial cells as actual aligned CSS coordinates', (t) => {
+  const previous = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class { observe() {} };
+  t.after(() => { globalThis.ResizeObserver = previous; });
+  const shortcuts = ['computer', 'folder', 'msn', 'browser', 'windows-media-play', 'arcade', 'bin'];
+  const buttons = shortcuts.map((shortcut) => ({
+    dataset: { shortcut },
+    style: {},
+    attrs: {},
+    offsetWidth: 100,
+    offsetHeight: 90,
+    classList: { add() {}, remove() {} },
+    setAttribute(name, value) { this.attrs[name] = value; },
+    closest() { return this; },
+    setPointerCapture() {},
+    hasPointerCapture() { return false; },
+  }));
+  const desktop = {
+    classList: { add() {} },
+    addEventListener() {},
+    querySelectorAll: () => buttons,
+    querySelector: () => ({ getBoundingClientRect: () => ({ height: 40, top: 760 }) }),
+    getBoundingClientRect: () => ({ width: 1280, height: 800, top: 0 }),
+  };
+  const progression = new Progression(story, { getItem: () => null, setItem() {} });
+  new DesktopIcons(desktop, progression);
+  const order = ['bin', 'computer', 'folder', 'msn', 'browser', 'windows-media-play', 'arcade'];
+  const orderedButtons = order.map((name) => buttons.find(({ dataset }) => dataset.shortcut === name));
+  assert.deepEqual(orderedButtons.map(({ style }) => style.top), order.map((_, row) => `${20 + row * 104}px`));
+  assert.equal(new Set(orderedButtons.map(({ style }) => style.left)).size, 1);
+});
+
+test('legacy automatic icon cells migrate to the new order while custom and new-game positions behave correctly', () => {
+  const oldAuto = Object.fromEntries([
+    ['shortcut:bin', { col: 0, row: 0 }],
+    ['shortcut:computer', { col: 0, row: 1 }],
+    ['shortcut:folder', { col: 0, row: 2 }],
+    ['shortcut:msn', { col: 0, row: 3 }],
+    ['shortcut:browser', { col: 0, row: 6 }],
+    ['shortcut:windows-media-play', { col: 0, row: 4 }],
+    ['shortcut:music', { col: 0, row: 5 }],
+  ]);
+  oldAuto['shortcut:browser'] = { col: 2, row: 2, custom: true };
+  assert.equal(discardLegacyAutomaticPositions(oldAuto), true);
+  assert.deepEqual(oldAuto, { 'shortcut:browser': { col: 2, row: 2, custom: true } });
+
+  const grid = iconGrid(1280, 800, 40, 90, 100);
+  const expectedOrder = [
+    'shortcut:bin', 'shortcut:computer', 'shortcut:folder', 'shortcut:msn',
+    'shortcut:browser', 'shortcut:windows-media-play', 'shortcut:music',
+  ];
+  const ids = [...expectedOrder];
+  const savedGame = { 'shortcut:music': { col: 3, row: 4, custom: true } };
+  const personalized = layoutIconCells(ids, savedGame, grid);
+  assert.deepEqual(personalized.get('shortcut:music'), { col: 3, row: 4 });
+  assert.deepEqual(personalized.get('shortcut:windows-media-play'), { col: 3, row: 3 });
+
+  const progression = new Progression(story, { getItem: () => null, setItem() {} });
+  progression.data.desktopIcons = savedGame;
+  progression.newGame();
+  assert.equal(progression.data.desktopIcons, undefined);
+  const reset = layoutIconCells(ids, progression.data.desktopIcons ?? {}, grid);
+  assert.deepEqual(expectedOrder.map((id) => reset.get(id)), expectedOrder.map((_, row) => ({ col: 0, row })));
 });
 
 test('the final grid row fits real icon heights above the taskbar at every resolution', () => {
@@ -242,7 +346,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   handlers.pointermove(event(270, 134));
   assert.match(button.style.transform, /translate/);
   handlers.pointerup(event(270, 134));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1, custom: true });
   let blocked = false;
   handlers.dblclick({
     target: button,
@@ -255,7 +359,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   handlers.pointerdown(event(270, 134));
   handlers.pointermove(event(30, 30));
   handlers.pointerup(event(30, 30));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1, custom: true });
   assert.equal(button.attrs['aria-pressed'], 'true');
   handlers.pointerdown(event(270, 134));
   handlers.pointerup(event(270, 134));
@@ -270,6 +374,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   assert.deepEqual(new Progression(story, storage).data.desktopIcons['shortcut:music'], {
     col: 2,
     row: 1,
+    custom: true,
   });
   desktop.width = 240;
   icons.refresh();
@@ -291,6 +396,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
     col: icons.grid.cols - 1,
     row: 1,
     edge: 'right',
+    custom: true,
   });
   for (const width of [1600, 800, 1600]) {
     desktop.width = width;
@@ -443,18 +549,18 @@ test('empty-area dragging selects icons without moving them and clears the box o
   icons.down(event(40, 40, buttons[0]));
   icons.move(event(160, 40, buttons[0]));
   icons.up(event(160, 40, buttons[0]));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 1, row: 0 });
-  assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 1, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 1, row: 0, custom: true });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 1, row: 1, custom: true });
   phaseClass = 'rhythm-active';
   icons.select(buttons[0]);
   icons.down(event(160, 40, buttons[0]));
   icons.move(event(280, 40, buttons[0]));
   icons.up(event(280, 40, buttons[0]));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 2, row: 0 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 2, row: 0, custom: true });
   phaseClass = 'story-desktop';
   const restored = new Progression(story, storage);
-  assert.deepEqual(restored.data.desktopIcons['shortcut:computer'], { col: 2, row: 0 });
-  assert.deepEqual(restored.data.desktopIcons['shortcut:folder'], { col: 1, row: 1 });
+  assert.deepEqual(restored.data.desktopIcons['shortcut:computer'], { col: 2, row: 0, custom: true });
+  assert.deepEqual(restored.data.desktopIcons['shortcut:folder'], { col: 1, row: 1, custom: true });
   assert.equal(icons.selectedIds.size, 1);
   icons.down(event(500, 500));
   icons.up(event(500, 500));

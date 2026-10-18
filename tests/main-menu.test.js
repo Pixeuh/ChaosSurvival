@@ -6,6 +6,7 @@ import { Progression } from '../src/story/progression.js';
 import { resetGameToInitialState } from '../src/story/reset-game.js';
 
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
+const menuConfig = JSON.parse(readFileSync(new URL('../src/config/menu.json', import.meta.url)));
 const STORAGE_KEY = 'chaos-survival-story-v1';
 
 function memoryStorage() {
@@ -18,6 +19,50 @@ function memoryStorage() {
     key: (index) => [...values.keys()][index] ?? null,
   };
 }
+
+function showInitialMenu(progression) {
+  const elements = new Map();
+  for (const selector of [
+    '.menu-logo', '.menu-tagline', '#menu-play', '#menu-new-game', '#menu-options',
+    '.menu-checkpoint', '.menu-status', '#option-music', '#music-output',
+    '#option-effects', '#effects-output', '#option-fullscreen', '.menu-home',
+    '.menu-options-panel',
+  ]) {
+    elements.set(selector, {
+      hidden: false,
+      textContent: '',
+      setAttribute() {},
+      focus() {},
+    });
+  }
+  const menu = Object.assign(Object.create(MainMenu.prototype), {
+    progression,
+    settings: { data: { musicVolume: 0.5, effectsVolume: 0.75, fullscreen: false } },
+    element: { hidden: true, dataset: {} },
+    find: (selector) => elements.get(selector),
+    syncDesktopIcons() {},
+  });
+  menu.show();
+  return { menu, elements };
+}
+
+test('first menu show renders the configured labels with and without a saved game', () => {
+  const fresh = new Progression(story, memoryStorage());
+  const freshMenu = showInitialMenu(fresh);
+  assert.equal(freshMenu.elements.get('#menu-play').textContent, menuConfig.labels.play);
+  assert.equal(freshMenu.elements.get('#menu-options').textContent, menuConfig.labels.options);
+  assert.equal(freshMenu.elements.get('#menu-new-game').textContent, menuConfig.labels.newGame);
+  assert.equal(freshMenu.elements.get('#menu-new-game').hidden, true);
+  assert.equal(freshMenu.menu.element.hidden, false);
+
+  fresh.begin();
+  const savedMenu = showInitialMenu(fresh);
+  assert.equal(savedMenu.elements.get('#menu-play').textContent, menuConfig.labels.continue);
+  assert.equal(savedMenu.elements.get('#menu-options').textContent, menuConfig.labels.options);
+  assert.equal(savedMenu.elements.get('#menu-new-game').textContent, menuConfig.labels.newGame);
+  assert.equal(savedMenu.elements.get('#menu-new-game').hidden, false);
+  assert.equal(savedMenu.menu.element.hidden, false);
+});
 
 function menuFixture(t, actions = {}) {
   const previousDocument = globalThis.document;

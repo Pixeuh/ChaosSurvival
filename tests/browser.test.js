@@ -34,6 +34,7 @@ test('Internet Adventurer opts into managed resizing at its existing initial siz
   const form = { addEventListener() {} };
   const classes = new Set();
   const element = {
+    isConnected: true,
     classList: { add: (...names) => names.forEach((name) => classes.add(name)) },
     addEventListener() {},
     querySelector(selector) {
@@ -42,10 +43,12 @@ test('Internet Adventurer opts into managed resizing at its existing initial siz
     },
   };
   let spawnOptions;
+  let spawnCount = 0;
   const manager = {
     dragged: new Set(),
     spawn(type, options) {
       assert.equal(type, 'desktopapp');
+      spawnCount++;
       spawnOptions = options;
       return 1;
     },
@@ -69,6 +72,13 @@ test('Internet Adventurer opts into managed resizing at its existing initial siz
   assert.equal(spawnOptions.minHeight, 240);
   assert.ok(classes.has('internet-adventurer'));
   assert.equal(browser.session.address, HOME_URL);
+
+  const openInstance = browser.instance;
+  browser.session.navigate('http://www.xdsearch.fr/?q=depuis-explorer');
+  browser.open();
+  assert.equal(browser.instance, openInstance);
+  assert.equal(browser.session.address, 'http://www.xdsearch.fr/?q=depuis-explorer');
+  assert.equal(spawnCount, 1);
 });
 
 test('Internet Adventurer layout keeps its toolbars fixed while the page area scrolls and grows', () => {

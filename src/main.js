@@ -3,6 +3,7 @@ import './styles-story.css';
 import './styles-menu.css';
 import './styles-buddy.css';
 import './styles-browser.css';
+import './styles-media-player.css';
 import './browser/sites/skypage/styles.css';
 import './browser/sites/forumjeu/styles.css';
 import './browser/sites/flashzone/styles.css';
@@ -31,6 +32,7 @@ import { DesktopIcons } from './ui/desktop-icons.js';
 import { StartMenuOrder } from './ui/start-menu-order.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
+import { WindowsMediaPlay } from './ui/media-player.js';
 import { arcadeLauncher } from './ui/arcade-launcher.js';
 import { createMusicToggle } from './ui/music-toggle.js';
 import story from './config/story.json';
@@ -161,6 +163,7 @@ const manager = new WindowManager(ui.playfield, ({ preview, x, y, openedAt }) =>
 let activeDialogue = pixelgirlDialogue;
 let conversation = createConversation(activeDialogue);
 let plumberGroupThread;
+let mediaPlayer;
 const desktopApplications = new DesktopApplications(
   manager,
   ui.desktop.querySelector('.taskbar'),
@@ -170,7 +173,13 @@ const desktopApplications = new DesktopApplications(
   virtualFilesystem,
   renderDesktopFiles,
   openDesktopFile,
+  (applicationId, file, fileId) => {
+    if (applicationId === 'windows-love-messenger') return openMessenger();
+    if (applicationId === 'internet-adventurer') return openBrowser();
+    if (applicationId === 'windows-media-play') return launchMediaPlay(file, fileId);
+  },
 );
+mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 let narrativeOrchestrator;
 let turboConversationThread;
 const turboEvents = () =>
@@ -376,7 +385,10 @@ narrativeOrchestrator = new NarrativeOrchestrator({
     return shown || notifications.has(id);
   },
 });
-virtualFilesystem.onDelete = (change) => narrativeOrchestrator?.onVirtualFilesDeleted(change);
+virtualFilesystem.onDelete = (change) => {
+  narrativeOrchestrator?.onVirtualFilesDeleted(change);
+  mediaPlayer?.onFilesDeleted(change);
+};
 browser.onSuperPlombierStart = () => narrativeOrchestrator.onSuperPlombierStart();
 browser.onSuperPlombierVictory = () => narrativeOrchestrator.onSuperPlombierVictory();
 let restoringStory = false;
@@ -1076,6 +1088,17 @@ async function openBrowser(url) {
   ui.playfield.inert = false;
   return browser.open(url);
 }
+async function launchMediaPlay(file = null, fileId = file?.fileId) {
+  if (['menu', 'loading', 'resuming'].includes(phase)) return;
+  if (phase === 'playing') await pauseGame();
+  ui.playfield.inert = false;
+  return mediaPlayer.open(file, fileId);
+}
+function openMediaPlayExecutable() {
+  const location = virtualFilesystem.getLocation('media-files');
+  const executable = location.items.find((item) => item.name.toLowerCase() === 'media-play.exe');
+  if (executable) return desktopApplications.openFile(location, executable);
+}
 document.addEventListener('windows-xd:open-url', (event) => {
   if (typeof event.detail?.url === 'string') openBrowser(event.detail.url);
 });
@@ -1194,6 +1217,7 @@ const shortcutActions = {
   computer: () => openSystemApplication('computer'),
   folder: () => openSystemApplication('folder'),
   bin: () => openSystemApplication('bin'),
+  'windows-media-play': openMediaPlayExecutable,
   arcade: replayLevelOne,
 };
 ui.shortcuts.forEach((button) => {

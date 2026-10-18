@@ -211,12 +211,6 @@
         "icon": "folder",
         "detail": "Dossier",
         "location": "folder"
-      },
-      {
-        "name": "Bureau",
-        "icon": "folder",
-        "detail": "Dossier",
-        "location": "user-desktop"
       }
     ]
   },
@@ -232,12 +226,6 @@
         "text": "Merci de ne pas changer le fond d'écran toutes les cinq minutes.\n— Tout le monde"
       }
     ]
-  },
-  "user-desktop": {
-    "address": "C:\\Documents and Settings\\Joueur\\Bureau",
-    "parent": "user-profile",
-    "description": "C:\\Documents and Settings\\Joueur\\Bureau",
-    "items": []
   },
   "images": {
     "address": "C:\\Documents and Settings\\Joueur\\Mes documents\\Mes images",
@@ -270,6 +258,39 @@
         "deletable": true,
         "size": 853,
         "text": "Chiptune, bandes originales de jeux et tubes improbables.\nNe pas mélanger avec la playlist de Noël."
+      },
+      {
+        "name": "Sport Dubstep.mp3",
+        "icon": "music",
+        "detail": "Fichier MP3 · Kulakovka",
+        "title": "Sport Dubstep",
+        "artist": "Kulakovka",
+        "audioRef": "sport-dubstep-kulakovka",
+        "source": "https://pixabay.com/fr/music/dubstep-sport-dubstep-283969/",
+        "deletable": true,
+        "size": 4162037
+      },
+      {
+        "name": "I Love Chiptune Punk.mp3",
+        "icon": "music",
+        "detail": "Fichier MP3 · Brutaldesign",
+        "title": "I Love Chiptune Punk",
+        "artist": "Brutaldesign",
+        "audioRef": "i-love-chiptune-punk-brutaldesign",
+        "source": "https://pixabay.com/fr/music/%C3%A9lectronique-i-love-chiptune-punk-506083/",
+        "deletable": true,
+        "size": 5680065
+      },
+      {
+        "name": "Lost In Time-Nightcore.mp3",
+        "icon": "music",
+        "detail": "Fichier MP3 · NightcoreFreeMusic4u",
+        "title": "Lost In Time-Nightcore",
+        "artist": "NightcoreFreeMusic4u",
+        "audioRef": "lost-in-time-nightcore-nightcorefreemusic4u",
+        "source": "https://pixabay.com/fr/music/populaire-lost-in-time-nightcore-310196/",
+        "deletable": true,
+        "size": 5909760
       }
     ]
   },

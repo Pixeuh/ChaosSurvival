@@ -1,6 +1,37 @@
 const WIDTH = 120;
 const HEIGHT = 104;
 const MARGIN = 20;
+const INITIAL_ICON_ORDER = [
+  'shortcut:bin',
+  'shortcut:computer',
+  'shortcut:folder',
+  'shortcut:msn',
+  'shortcut:browser',
+  'shortcut:windows-media-play',
+  'shortcut:music',
+];
+const LEGACY_AUTOMATIC_LAYOUTS = [
+  {
+    'shortcut:bin': { col: 0, row: 0 },
+    'shortcut:computer': { col: 0, row: 1 },
+    'shortcut:folder': { col: 0, row: 2 },
+    'shortcut:msn': { col: 0, row: 3 },
+    'shortcut:windows-media-play': { col: 0, row: 4 },
+    'shortcut:music': { col: 0, row: 5 },
+    'shortcut:browser': { col: 0, row: 6 },
+  },
+  {
+    'shortcut:bin': { col: 0, row: 0 },
+    'shortcut:computer': { col: 0, row: 1 },
+    'shortcut:folder': { col: 0, row: 2 },
+    'shortcut:msn': { col: 0, row: 3 },
+    'shortcut:browser': { col: 0, row: 4 },
+    'shortcut:music': { col: 0, row: 5 },
+  },
+];
+export function iconCellTop(cell) {
+  return MARGIN + cell.row * HEIGHT;
+}
 const validCell = (cell) =>
   cell &&
   Number.isInteger(cell.col) &&
@@ -28,6 +59,21 @@ export function nearestIconCell(x, y, grid) {
 export function iconCellLeft(cell, grid, width, iconWidth, edge = 'left') {
   const col = edge === 'right' ? grid.cols - 1 : cell.col;
   return MARGIN + col * grid.step;
+}
+export function discardLegacyAutomaticPositions(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  let best = null;
+  for (const layout of LEGACY_AUTOMATIC_LAYOUTS) {
+    const matches = Object.entries(layout).filter(([id, cell]) => {
+      const position = saved[id];
+      return validCell(position) && position.custom !== true && position.edge !== 'right' && same(position, cell);
+    });
+    if (matches.length >= 4 && (!best || matches.length > best.matches.length))
+      best = { layout, matches };
+  }
+  if (!best) return false;
+  for (const [id] of best.matches) delete saved[id];
+  return best.matches.length > 0;
 }
 export function layoutIconCells(ids, saved, grid) {
   const cells = [];
@@ -64,12 +110,19 @@ export function layoutIconCells(ids, saved, grid) {
           .find(free);
     if (cell) result.set(id, cell);
   }
-  // Default bin placement is the first free cell. Personal cells always win.
-  if (ids.includes('shortcut:bin') && !result.has('shortcut:bin')) {
-    const cell = cells.find(free);
-    if (cell) result.set('shortcut:bin', cell);
+  const mediaId = 'shortcut:windows-media-play';
+  const arcadeId = 'shortcut:music';
+  if (ids.includes(mediaId) && !result.has(mediaId) && result.has(arcadeId)) {
+    const gameCell = result.get(arcadeId);
+    const cellAbove = { col: gameCell.col, row: gameCell.row - 1 };
+    if (cellAbove.row >= 0 && free(cellAbove)) result.set(mediaId, cellAbove);
   }
-  for (const id of ids)
+  const initialIds = INITIAL_ICON_ORDER.filter((id) => ids.includes(id));
+  const assignmentOrder = [
+    ...initialIds,
+    ...ids.filter((id) => !INITIAL_ICON_ORDER.includes(id)),
+  ];
+  for (const id of assignmentOrder)
     if (!result.has(id)) {
       const cell = cells.find(free);
       if (cell) result.set(id, cell);
@@ -187,6 +240,7 @@ export class DesktopIcons {
       Math.max(0, ...buttons.map((button) => button.offsetWidth)),
     );
     let changed = false;
+    if (discardLegacyAutomaticPositions(this.saved)) changed = true;
     // Legacy saves store absolute cells only. Treat their former last column as
     // right-anchored once, then retain that intent on later resizes.
     if (!this.hasRefreshed) {
@@ -216,11 +270,7 @@ export class DesktopIcons {
       button.style.visibility = cell ? '' : 'hidden';
       if (!cell) continue;
       button.style.left = `${iconCellLeft(cell, this.grid, rect.width, button.offsetWidth, this.saved[id]?.edge)}px`;
-      button.style.top = `${MARGIN + cell.row * HEIGHT}px`;
-      if (!validCell(this.saved[id])) {
-        this.saved[id] = { ...cell };
-        changed = true;
-      }
+      button.style.top = `${iconCellTop(cell)}px`;
     }
     if (changed && this.progression.hasSave) this.persist();
   }
@@ -358,7 +408,9 @@ export class DesktopIcons {
       if (moved) {
         for (const [id, cell] of moved) {
           this.saved[id] =
-            cell.col === this.grid.cols - 1 ? { ...cell, edge: 'right' } : { ...cell };
+            cell.col === this.grid.cols - 1
+              ? { ...cell, edge: 'right', custom: true }
+              : { ...cell, custom: true };
         }
         this.persist();
       }

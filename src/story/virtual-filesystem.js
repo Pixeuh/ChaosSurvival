@@ -68,7 +68,7 @@ function normalizeAdded(added) {
   for (const [key, file] of Object.entries(added)) {
     const match = keyPattern.exec(key);
     if (
-      !match || key.toLowerCase() === 'user-desktop/a_faire.txt' ||
+      !match ||
       unsafeKeys.has(match[1]) || match[1] === 'bin' ||
       !Object.hasOwn(locations, match[1]) ||
       !Array.isArray(locations[match[1]].items) || !safeName(match[2]) ||
@@ -121,11 +121,10 @@ export function normalizeVirtualFilesystemState(state, files = {}) {
     ...receivedPaths,
     ...receivedTokens,
   ]);
-  const aliases = new Map([['user-desktop/a_faire.txt', 'folder/a_faire.txt']]);
   const deleted = [];
   for (const value of Array.isArray(state?.deleted) ? state.deleted : []) {
     if (typeof value !== 'string') continue;
-    const key = aliases.get(value.toLowerCase()) ?? value.toLowerCase();
+    const key = value.toLowerCase();
     if (reusableReceivedPaths.has(key) && !staticFiles().has(key)) {
       for (const file of completedReceives)
         if (virtualFileId('downloads', file.name) === key)

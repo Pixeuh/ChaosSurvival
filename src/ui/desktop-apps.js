@@ -6,6 +6,8 @@ import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
 import { attachNotepad } from './notepad.js';
+import { executableAssociation } from './executable-registry.js';
+import { isMediaTrack } from './media-library.js';
 
 export const desktopApps = definitions;
 
@@ -64,6 +66,7 @@ export class DesktopApplications {
     virtualFilesystem = null,
     onFilesystemChange = () => {},
     onOpenReceived = null,
+    onLaunchExecutable = null,
   ) {
     Object.assign(this, {
       manager,
@@ -72,6 +75,7 @@ export class DesktopApplications {
       onLaunchArcade,
       onFilesystemChange,
       onOpenReceived,
+      onLaunchExecutable,
     });
     this.textFiles = textFiles;
     this.virtualFilesystem = virtualFilesystem;
@@ -161,14 +165,23 @@ export class DesktopApplications {
     return instance;
   }
   openFile(location, item) {
-    const viewer = fileViewer(item);
-    if (!viewer) return;
     const fileId = item.fileId ?? virtualFileId(location.id, item.name);
     if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) return;
-    if (item.virtualApp === 'bomb-arena') return this.openBombArena(item, fileId);
-    if (item.receivedFile && item.launch && this.onOpenReceived)
+    if (isMediaTrack(item) && this.onLaunchExecutable)
+      return this.onLaunchExecutable('windows-media-play', item, fileId);
+    const executable = executableAssociation(item, fileId);
+    if (executable === 'bomb-arena') return this.openBombArena(item, fileId);
+    if (executable === 'mini-game' && item.receivedFile && this.onOpenReceived)
       return this.onOpenReceived(item);
+    if (
+      ['windows-love-messenger', 'internet-adventurer', 'windows-media-play'].includes(executable) &&
+      this.onLaunchExecutable
+    ) return this.onLaunchExecutable(executable, item, fileId);
     if (isArcadeExecutable(item) && this.onLaunchArcade) return this.onLaunchArcade();
+    if (executable === 'unknown')
+      item = { ...item, text: 'Impossible d’ouvrir cette application.' };
+    const viewer = fileViewer(item);
+    if (!viewer) return;
     const key = `file:${location.id}/${item.name}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {

@@ -511,6 +511,40 @@ test('text and picture viewers have independent windows and task controls withou
     }
   }
   assert.equal(JSON.stringify(filesystem), before);
+  const launchedApplications = [];
+  const applicationInstances = new Map();
+  let applicationRestores = 0;
+  app.onLaunchExecutable = (applicationId) => {
+    launchedApplications.push(applicationId);
+    if (applicationInstances.has(applicationId)) {
+      applicationRestores++;
+      return applicationInstances.get(applicationId);
+    }
+    const instance = { applicationId };
+    applicationInstances.set(applicationId, instance);
+    return instance;
+  };
+  for (const [locationId, executableName, applicationId] of [
+    ['messenger-files', 'love-messenger.exe', 'windows-love-messenger'],
+    ['browser-files', 'adventurer.exe', 'internet-adventurer'],
+  ]) {
+    const executableLocation = explorerLocation(locationId);
+    const executable = executableLocation.items.find((item) => item.name === executableName);
+    app.render(explorer, executableLocation);
+    const row = explorer.element.querySelector('.explorer-items').children.find(
+      (item) => item.children[0].textContent === executableName,
+    );
+    const callsBefore = manager.calls.length;
+    row.handlers.dblclick();
+    const firstInstance = app.openFile(executableLocation, executable);
+    assert.equal(firstInstance.applicationId, applicationId);
+    assert.deepEqual(launchedApplications.slice(-2), [applicationId, applicationId]);
+    assert.equal(app.openFile(executableLocation, executable), firstInstance);
+    assert.equal(manager.calls.length, callsBefore, `${executableName} never opens a generic viewer`);
+  }
+  assert.equal(applicationInstances.size, 2);
+  assert.equal(applicationRestores, 4);
+
   const unknown = { name: 'new-file.unrecognized' };
   const synthetic = { ...location, id: 'test', items: [unknown] };
   app.render(explorer, synthetic);
@@ -519,6 +553,11 @@ test('text and picture viewers have independent windows and task controls withou
   assert.equal(fallback.element.querySelector('.generic-file-content pre').textContent, '');
   assert.equal(fallback.element.querySelector('.generic-file-unavailable').hidden, false);
   assert.equal(explorer.current, synthetic);
+  const unknownExecutable = app.openFile(synthetic, { name: 'unknown.exe', text: 'ignored file payload' });
+  assert.equal(
+    unknownExecutable.element.querySelector('.generic-file-content pre').textContent,
+    'Impossible d’ouvrir cette application.',
+  );
   let launches = 0;
   app.onLaunchArcade = () => {
     launches++;
@@ -885,6 +924,22 @@ test('Messenger keeps one independent window per contact including future contac
     'offline:skater',
     'open:future',
   ]);
+});
+
+test('opening Windows Love Messenger reuses and restores its existing contacts window', () => {
+  const instance = { element: { isConnected: true } };
+  let restored = 0;
+  let rendered = 0;
+  const messenger = Object.assign(Object.create(Messenger.prototype), {
+    views: new Map([['contacts', instance]]),
+    applications: { restore: (view) => { assert.equal(view, instance); restored++; } },
+    roster: { renderContacts: () => rendered++ },
+  });
+
+  assert.equal(messenger.open(), instance);
+  assert.equal(messenger.open(), instance);
+  assert.equal(restored, 2);
+  assert.equal(rendered, 2);
 });
 
 test('only the main Messenger contacts panel opts into resize and maximize', () => {

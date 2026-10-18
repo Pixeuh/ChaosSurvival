@@ -81,6 +81,8 @@ test('virtual files have stable path IDs, protect system files, delete permanent
   assert.deepEqual(files.getLocation('bin').items, []);
   assert.deepEqual(files.getLocation('my-games').items, []);
   assert.throws(() => files.getLocation('games'), /inconnu/);
+  assert.deepEqual(files.getLocation('user-profile').items.map((item) => item.location), ['folder']);
+  assert.throws(() => files.getLocation('user-desktop'), /inconnu/);
   assert.equal(files.addFile('games', {
     name: 'old-game.txt', icon: 'document', detail: 'Document texte',
   }).ok, false);
@@ -91,8 +93,11 @@ test('virtual files have stable path IDs, protect system files, delete permanent
   assert.deepEqual(restored.getLocation('bin').items, []);
   assert.deepEqual(restored.getLocation('my-games').items, []);
   restored.progression.newGame();
-  assert.equal(new VirtualFilesystem(restored.progression).exists(deletable), true);
-  assert.deepEqual(new VirtualFilesystem(restored.progression).getLocation('my-games').items, []);
+  const fresh = new VirtualFilesystem(restored.progression);
+  assert.equal(fresh.exists(deletable), true);
+  assert.deepEqual(fresh.getLocation('my-games').items, []);
+  assert.deepEqual(fresh.getLocation('user-profile').items.map((item) => item.location), ['folder']);
+  assert.throws(() => fresh.getLocation('user-desktop'), /inconnu/);
 });
 
 test('XP personal folders are rooted in Mes documents without legacy Games or Downloads paths', () => {
@@ -383,7 +388,7 @@ test('legacy and malformed filesystem save data normalize without hiding unrelat
   assert.ok(normalized.exists(virtualFileId('system32', 'desktop.dll')));
 });
 
-test('old folder paths migrate idempotently and retain file deletions, received files and text edits', () => {
+test('legacy virtual Bureau references are discarded without recreating the folder or moving its saved text', () => {
   const disk = memory();
   const source = new Progression(story);
   const received = source.receiveFile({
@@ -393,6 +398,7 @@ test('old folder paths migrate idempotently and retain file deletions, received 
   source.data.virtualFilesystem = {
     deleted: ['user-desktop/a_faire.txt', 'downloads/installation_a_lire.txt', 'games/old.exe'],
     added: {
+      'user-desktop/extra.txt': { name: 'extra.txt', icon: 'document', detail: 'Texte' },
       'games/old-save.txt': { name: 'old-save.txt', icon: 'document', detail: 'Document texte' },
     },
   };
@@ -404,16 +410,17 @@ test('old folder paths migrate idempotently and retain file deletions, received 
 
   const restoredProgression = new Progression(story, disk);
   const filesystem = new VirtualFilesystem(restoredProgression);
-  assert.ok(filesystem.state.deleted.includes('folder/a_faire.txt'));
+  assert.ok(!filesystem.state.deleted.some((fileId) => fileId.startsWith('user-desktop/')));
   assert.ok(filesystem.state.deleted.includes('downloads/installation_a_lire.txt'));
   assert.ok(!filesystem.state.deleted.some((fileId) => fileId.startsWith('games/')));
   assert.equal(restoredProgression.data.textFiles['user-desktop\\a_faire.txt'], undefined);
-  assert.equal(restoredProgression.data.textFiles['folder/a_faire.txt'].text, 'modification conservée');
+  assert.equal(restoredProgression.data.textFiles['folder/a_faire.txt'], undefined);
   assert.deepEqual(restoredProgression.data.desktopIcons['file:downloads/received.txt'], {
     col: 2, row: 3, anchor: 'right',
   });
   assert.equal(restoredProgression.data.desktopIcons['file:test-received'], undefined);
-  assert.equal(filesystem.exists('folder/a_faire.txt'), false);
+  assert.equal(filesystem.exists('folder/a_faire.txt'), true);
+  assert.throws(() => filesystem.getLocation('user-desktop'), /inconnu/);
   assert.equal(filesystem.exists('downloads/installation_a_lire.txt'), false);
   const receivedId = virtualFileId('downloads', 'received.txt');
   assert.ok(filesystem.exists(receivedId));
