@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { Progression } from '../src/story/progression.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { SmileyPackInstaller } from '../src/ui/smiley-pack-installer.js';
-import { createExecutableLauncher } from '../src/ui/executable-launcher.js';
 import { executableAssociation } from '../src/ui/executable-registry.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 
@@ -274,13 +273,12 @@ test('opening the extracted EXE through the explorer reaches the real Smiley Pac
   const explorer = Object.assign(Object.create(DesktopApplications.prototype), {
     virtualFilesystem: filesystem,
     instances: applications.instances,
-    onLaunchExecutable: createExecutableLauncher({
-      'smiley-pack-installer': (_file, fileId) => {
-        assert.equal(fileId, executableId);
-        routed++;
-        return installer.open(fileId);
-      },
-    }),
+    onLaunchExecutable: (applicationId, _file, fileId) => {
+      assert.equal(applicationId, 'smiley-pack-installer');
+      assert.equal(fileId, executableId);
+      routed++;
+      return installer.open(fileId);
+    },
   });
 
   const executable = filesystem.getFile(executableId);
@@ -333,6 +331,32 @@ test('closing during installation cancels its timer and restores the normal curs
   intervals[0].callback();
   assert.equal(instance.step, 'closed');
   assert.equal(instance.element.isConnected, false);
+});
+
+test('a Smiley Pack progress exception is logged and cannot leave an orphaned interval', () => {
+  const { manager, intervals, cleared, installer } = installerSetup();
+  const instance = installer.open('smiley-pack-2009-folder/smiley pack 2009.exe');
+  const content = instance.element.querySelector('.smiley-pack-installer-content');
+  content.querySelector('[data-action="install"]').click();
+  const originalQuerySelector = instance.element.querySelector;
+  instance.element.querySelector = (selector) => {
+    if (selector === '.smiley-pack-installer-content progress') throw new Error('DOM unavailable');
+    return originalQuerySelector(selector);
+  };
+  const logged = [];
+  const originalError = console.error;
+  console.error = (...args) => logged.push(args);
+  try { intervals[0].callback(); }
+  finally { console.error = originalError; }
+  assert.equal(instance.step, 'technical-error');
+  assert.equal(instance.timer, null);
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+  assert.deepEqual(cleared, [1]);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0][0], /Smiley Pack 2009/);
+  assert.equal(logged[0][1].message, 'DOM unavailable');
+  assert.doesNotMatch(content.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
+  manager.close(instance.id);
 });
 
 test('an old extracted installer remains launchable while its legacy installed flag has no effect', () => {

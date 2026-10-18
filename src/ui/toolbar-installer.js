@@ -39,8 +39,7 @@ export class ToolbarInstaller {
         body: '<main class="toolbar-installer-content"></main>',
       },
       onDismiss: () => {
-        if (instance.timer !== null) this.clearInterval(instance.timer);
-        instance.timer = null;
+        this.clearTimer(instance);
         instance.element.classList.remove('is-installing');
         instance.step = 'closed';
         this.applications.instances.delete(key);
@@ -121,13 +120,13 @@ export class ToolbarInstaller {
 
   startInstallation(instance) {
     if (instance.step !== 'options' || instance.timer) return;
-    instance.step = 'installing';
-    instance.elapsed = 0;
-    instance.stalledAt = null;
-    instance.startedAt = this.now();
-    instance.element.classList.add('is-installing');
-    this.render(instance);
     try {
+      instance.step = 'installing';
+      instance.elapsed = 0;
+      instance.stalledAt = null;
+      instance.startedAt = this.now();
+      instance.element.classList.add('is-installing');
+      this.render(instance);
       instance.timer = this.setInterval(() => {
         if (!instance.element.isConnected || instance.step !== 'installing') {
           this.clearTimer(instance);
@@ -138,7 +137,8 @@ export class ToolbarInstaller {
           instance.elapsed = Math.min(DOWNLOAD_DURATION_MS, Math.max(0, now - instance.startedAt));
           const progress = instance.element.querySelector('.toolbar-installer-content progress');
           const status = instance.element.querySelector('.toolbar-installer-status');
-          if (progress) progress.value = (instance.elapsed / DOWNLOAD_DURATION_MS) * STOP_PERCENT;
+          if (!progress) throw new Error('La barre de progression SUPER TOOLBAR est absente du DOM.');
+          progress.value = (instance.elapsed / DOWNLOAD_DURATION_MS) * STOP_PERCENT;
           if (status) status.textContent = 'Téléchargement de SUPER TOOLBAR 2009...';
           if (instance.elapsed < DOWNLOAD_DURATION_MS) return;
           if (instance.stalledAt === null) {
@@ -150,20 +150,20 @@ export class ToolbarInstaller {
           instance.step = 'failure';
           instance.element.classList.remove('is-installing');
           this.render(instance);
-        } catch {
-          this.clearTimer(instance);
-          if (!instance.element.isConnected) return;
-          instance.step = 'failure';
-          instance.element.classList.remove('is-installing');
-          this.render(instance);
+        } catch (error) {
+          this.failTechnically(instance, error);
         }
       }, INSTALL_TICK_MS);
-    } catch {
-      this.clearTimer(instance);
-      instance.step = 'failure';
-      instance.element.classList.remove('is-installing');
-      this.render(instance);
+    } catch (error) {
+      this.failTechnically(instance, error);
     }
+  }
+
+  failTechnically(instance, error) {
+    console.error('[SUPER TOOLBAR 2009] Erreur technique pendant la progression.', error);
+    this.clearTimer(instance);
+    instance.element.classList.remove('is-installing');
+    instance.step = 'technical-error';
   }
 
   clearTimer(instance) {

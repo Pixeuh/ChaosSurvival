@@ -93,32 +93,48 @@ export class SmileyPackInstaller {
 
   startInstallation(instance) {
     if (instance.step !== 'welcome' || instance.timer !== null) return;
-    instance.step = 'installing';
-    instance.startedAt = this.now();
-    instance.stalledAt = null;
-    instance.element.classList.add('is-installing');
-    this.render(instance);
-    instance.timer = this.setInterval(() => {
-      if (!instance.element.isConnected || instance.step !== 'installing') {
-        this.clearTimer(instance);
-        instance.element.classList.remove('is-installing');
-        return;
-      }
-      const now = this.now();
-      const elapsed = Math.min(DOWNLOAD_DURATION_MS, Math.max(0, now - instance.startedAt));
-      const progress = instance.element.querySelector('.smiley-pack-installer-content progress');
-      if (progress) progress.value = (elapsed / DOWNLOAD_DURATION_MS) * STOP_PERCENT;
-      if (elapsed < DOWNLOAD_DURATION_MS) return;
-      if (instance.stalledAt === null) {
-        instance.stalledAt = now;
-        return;
-      }
-      if (now - instance.stalledAt < STALL_DURATION_MS) return;
-      this.clearTimer(instance);
-      instance.element.classList.remove('is-installing');
-      instance.step = 'failure';
+    try {
+      instance.step = 'installing';
+      instance.startedAt = this.now();
+      instance.stalledAt = null;
+      instance.element.classList.add('is-installing');
       this.render(instance);
-    }, INSTALL_TICK_MS);
+      instance.timer = this.setInterval(() => {
+        if (!instance.element.isConnected || instance.step !== 'installing') {
+          this.clearTimer(instance);
+          instance.element.classList.remove('is-installing');
+          return;
+        }
+        try {
+          const now = this.now();
+          const elapsed = Math.min(DOWNLOAD_DURATION_MS, Math.max(0, now - instance.startedAt));
+          const progress = instance.element.querySelector('.smiley-pack-installer-content progress');
+          if (!progress) throw new Error('La barre de progression Smiley Pack est absente du DOM.');
+          progress.value = (elapsed / DOWNLOAD_DURATION_MS) * STOP_PERCENT;
+          if (elapsed < DOWNLOAD_DURATION_MS) return;
+          if (instance.stalledAt === null) {
+            instance.stalledAt = now;
+            return;
+          }
+          if (now - instance.stalledAt < STALL_DURATION_MS) return;
+          this.clearTimer(instance);
+          instance.element.classList.remove('is-installing');
+          instance.step = 'failure';
+          this.render(instance);
+        } catch (error) {
+          this.failTechnically(instance, error);
+        }
+      }, INSTALL_TICK_MS);
+    } catch (error) {
+      this.failTechnically(instance, error);
+    }
+  }
+
+  failTechnically(instance, error) {
+    console.error('[Smiley Pack 2009] Erreur technique pendant la progression.', error);
+    this.clearTimer(instance);
+    instance.element.classList.remove('is-installing');
+    instance.step = 'technical-error';
   }
 
   clearTimer(instance) {

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Progression } from '../src/story/progression.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
-import { createExecutableLauncher } from '../src/ui/executable-launcher.js';
 import { ToolbarInstaller } from '../src/ui/toolbar-installer.js';
 import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
 
@@ -196,13 +195,12 @@ test('opening toolbar_setup.exe through the explorer reaches the real wizard and
   const explorer = Object.assign(Object.create(DesktopApplications.prototype), {
     virtualFilesystem: filesystem,
     instances: applications.instances,
-    onLaunchExecutable: createExecutableLauncher({
-      'toolbar-installer': (_file, fileId) => {
-        assert.equal(fileId, 'downloads/toolbar_setup.exe');
-        routed++;
-        return installer.open(fileId);
-      },
-    }),
+    onLaunchExecutable: (applicationId, _file, fileId) => {
+      assert.equal(applicationId, 'toolbar-installer');
+      assert.equal(fileId, 'downloads/toolbar_setup.exe');
+      routed++;
+      return installer.open(fileId);
+    },
   });
   const downloads = filesystem.getLocation('downloads');
   const executable = downloads.items.find((item) => item.name === 'toolbar_setup.exe');
@@ -270,7 +268,7 @@ test('canceling during setup closes the window and removes any running timer', (
   assert.equal(root.markup, markupAtClose, 'a canceled callback cannot render the failure screen later');
 });
 
-test('a progress rendering error clears the timer and shows the download error', () => {
+test('a progress rendering exception is logged and does not masquerade as a failed download', () => {
   const { manager, intervals, cleared, installer } = setup();
   const instance = installer.open();
   const root = instance.element.querySelector('.toolbar-installer-content');
@@ -281,11 +279,18 @@ test('a progress rendering error clears the timer and shows the download error',
     if (selector === '.toolbar-installer-content progress') throw new Error('DOM unavailable');
     return originalQuerySelector(selector);
   };
-  intervals[0].callback();
-  assert.equal(instance.step, 'failure');
+  const logged = [];
+  const originalError = console.error;
+  console.error = (...args) => logged.push(args);
+  try { intervals[0].callback(); }
+  finally { console.error = originalError; }
+  assert.equal(instance.step, 'technical-error');
   assert.equal(instance.timer, null);
   assert.equal(instance.element.classList.contains('is-installing'), false);
   assert.deepEqual(cleared, [1]);
-  assert.match(root.markup, /Erreur de t\u00e9l\u00e9chargement/);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0][0], /SUPER TOOLBAR 2009/);
+  assert.equal(logged[0][1].message, 'DOM unavailable');
+  assert.doesNotMatch(root.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
   manager.close(instance.id);
 });
