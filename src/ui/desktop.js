@@ -1,6 +1,5 @@
 import { icon } from './icons.js';
 import { applicationName, trackIdentity } from './identity.js';
-import { arcadeLauncher } from './arcade-launcher.js';
 
 export function mountDesktop(root, best) {
   root.innerHTML = /* HTML */ ` <main class="desktop" id="desktop">
@@ -32,18 +31,9 @@ export function mountDesktop(root, best) {
       <button class="hud-control" id="pause-button" disabled aria-label="Mettre en pause">Ⅱ</button>
       <button class="hud-control" id="help-button" aria-label="Comment jouer">?</button>
     </header>
-    <nav class="desktop-icons" aria-label="Raccourcis du bureau">
+    <nav class="desktop-icons" aria-label="Icônes système du bureau">
       <button data-shortcut="computer">${icon('computer')}<span>Poste de travail</span></button>
       <button data-shortcut="folder">${icon('folder')}<span>Mes documents</span></button>
-      <button data-shortcut="msn">
-        ${icon('msn')}<span>${applicationName('messenger')}</span>
-      </button>
-      <button data-shortcut="browser">
-        ${icon('browser')}<span>${applicationName('browser')}</span>
-      </button>
-      <button data-shortcut="arcade">
-        ${icon(arcadeLauncher.icon)}<span>${arcadeLauncher.name}</span>
-      </button>
       <button data-shortcut="bin">${icon('bin')}<span>Corbeille</span></button>
     </nav>
     <div class="desktop-note">

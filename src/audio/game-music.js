@@ -1,3 +1,5 @@
+import { claimMusicFocus, releaseMusicFocus } from './music-focus.js';
+
 const GAME_MUSIC_VOLUME = 0.35;
 
 export function createGameMusic(url, AudioConstructor = () => new Audio(url), masterVolume = 1) {
@@ -5,6 +7,7 @@ export function createGameMusic(url, AudioConstructor = () => new Audio(url), ma
   let active = false;
   let paused = false;
   let disposed = false;
+  let hasMusicFocus = false;
   let volumeScale = Number.isFinite(masterVolume) ? Math.max(0, Math.min(1, masterVolume)) : 1;
 
   function updateVolume() {
@@ -32,6 +35,10 @@ export function createGameMusic(url, AudioConstructor = () => new Audio(url), ma
       audio.currentTime = 0;
       active = true;
       paused = false;
+      if (!hasMusicFocus) {
+        claimMusicFocus(audio);
+        hasMusicFocus = true;
+      }
       return play();
     } catch {
       active = false;
@@ -59,6 +66,10 @@ export function createGameMusic(url, AudioConstructor = () => new Audio(url), ma
   function stop() {
     active = false;
     paused = false;
+    if (hasMusicFocus) {
+      releaseMusicFocus(audio);
+      hasMusicFocus = false;
+    }
     if (!audio) return;
     try {
       audio.pause();

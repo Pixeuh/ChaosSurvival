@@ -146,10 +146,9 @@ export class DesktopIcons {
     return button?.closest('.desktop-icons, .desktop-files') ? button : null;
   }
   id(button) {
-    return button.dataset.fileId
-      ? `file:${button.dataset.fileId}`
-      : // Keep the previous saved cell when the music launcher becomes an EXE.
-        `shortcut:${button.dataset.shortcut === 'arcade' ? 'music' : button.dataset.shortcut}`;
+    return button.dataset.shortcut
+      ? `shortcut:${['arcade', 'chaos-survival'].includes(button.dataset.shortcut) ? 'music' : button.dataset.shortcut}`
+      : `file:${button.dataset.fileId}`;
   }
   buttons() {
     return [...this.desktop.querySelectorAll('.desktop-icons button, .desktop-files button')];

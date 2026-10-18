@@ -2,7 +2,6 @@ import definitions from '../config/desktop-apps.json' with { type: 'json' };
 import filesystem from '../config/filesystem.json' with { type: 'json' };
 import { bindFileActivation } from '../utils/activation.js';
 import { icon } from './icons.js';
-import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
 import { attachNotepad } from './notepad.js';
@@ -59,19 +58,24 @@ export class DesktopApplications {
     manager,
     taskbar,
     onWindowState = () => {},
-    onLaunchArcade = null,
+    _legacyArcadeLauncher = null,
     textFiles = new VirtualTextFiles({ data: {}, save: () => true }),
     virtualFilesystem = null,
     onFilesystemChange = () => {},
     onOpenReceived = null,
+    onLaunchExecutable = null,
+    onOpenAudioFile = null,
+    onLaunchShortcut = null,
   ) {
     Object.assign(this, {
       manager,
       taskbar,
       onWindowState,
-      onLaunchArcade,
       onFilesystemChange,
       onOpenReceived,
+      onLaunchExecutable,
+      onOpenAudioFile,
+      onLaunchShortcut,
     });
     this.textFiles = textFiles;
     this.virtualFilesystem = virtualFilesystem;
@@ -160,15 +164,37 @@ export class DesktopApplications {
     task.addEventListener('click', () => this.restore(instance));
     return instance;
   }
-  openFile(location, item) {
-    const viewer = fileViewer(item);
-    if (!viewer) return;
+  openFile(location, item, { source = 'explorer' } = {}) {
+    if (!item || item.location) return;
     const fileId = item.fileId ?? virtualFileId(location.id, item.name);
     if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) return;
-    if (item.virtualApp === 'bomb-arena') return this.openBombArena(item, fileId);
-    if (item.receivedFile && item.launch && this.onOpenReceived)
-      return this.onOpenReceived(item);
-    if (isArcadeExecutable(item) && this.onLaunchArcade) return this.onLaunchArcade();
+    if (item.shortcut) {
+      if (item.shortcutId) {
+        const launch = this.onLaunchShortcut?.(item.shortcutId, { source });
+        return launch?.status === 'launched' ? launch.value : launch;
+      }
+      const target = this.virtualFilesystem?.getFile(item.targetFileId);
+      if (!target) return;
+      return this.openFile(this.virtualFilesystem.getLocation(target.locationId), target, { source });
+    }
+    if (/\.(mp3|ogg|wav|m4a)$/i.test(item.name ?? '') && this.onOpenAudioFile)
+      return this.onOpenAudioFile(fileId, { autoplay: true, source });
+    if (/\.exe$/i.test(item.name ?? '') && this.onLaunchExecutable) {
+      const launch = this.onLaunchExecutable(fileId, { source });
+      if (launch?.status === 'launched') return launch.value;
+      if (launch?.status === 'missing') return;
+      if (launch?.status === 'unrecognized' || launch?.status === 'unimplemented')
+        item = {
+          ...(launch.file ?? item),
+          text: launch.message ?? 'Impossible d’ouvrir cette application.',
+        };
+    } else {
+      if (item.virtualApp === 'bomb-arena') return this.openBombArena(item, fileId);
+      if (item.receivedFile && item.launch && this.onOpenReceived)
+        return this.onOpenReceived(item);
+    }
+    const viewer = fileViewer(item);
+    if (!viewer) return;
     const key = `file:${location.id}/${item.name}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {

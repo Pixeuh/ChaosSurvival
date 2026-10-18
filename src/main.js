@@ -3,6 +3,7 @@ import './styles-story.css';
 import './styles-menu.css';
 import './styles-buddy.css';
 import './styles-browser.css';
+import './styles-media-player.css';
 import './browser/sites/skypage/styles.css';
 import './browser/sites/forumjeu/styles.css';
 import './browser/sites/flashzone/styles.css';
@@ -22,6 +23,7 @@ import { WINDOW_TYPES } from './config/popups.js';
 import { GameState } from './game/state.js';
 import { WindowManager } from './ui/windows.js';
 import { bindFileActivation } from './utils/activation.js';
+import { ExecutableRegistry } from './ui/executable-registry.js';
 import { icon } from './ui/icons.js';
 import { mountDesktop, updateRhythmHud } from './ui/desktop.js';
 import { GameRules } from './ui/game-rules.js';
@@ -31,6 +33,7 @@ import { DesktopIcons } from './ui/desktop-icons.js';
 import { StartMenuOrder } from './ui/start-menu-order.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
+import { MediaPlayer } from './ui/media-player.js';
 import { arcadeLauncher } from './ui/arcade-launcher.js';
 import { createMusicToggle } from './ui/music-toggle.js';
 import story from './config/story.json';
@@ -161,15 +164,26 @@ const manager = new WindowManager(ui.playfield, ({ preview, x, y, openedAt }) =>
 let activeDialogue = pixelgirlDialogue;
 let conversation = createConversation(activeDialogue);
 let plumberGroupThread;
+let executableRegistry;
+let mediaPlayer;
 const desktopApplications = new DesktopApplications(
   manager,
   ui.desktop.querySelector('.taskbar'),
   syncSystemWindows,
-  replayLevelOne,
+  null,
   new VirtualTextFiles(progression, virtualFilesystem),
   virtualFilesystem,
   renderDesktopFiles,
   openDesktopFile,
+  (fileId, options) => executableRegistry?.launch(fileId, options),
+  (fileId, options) => mediaPlayer?.open(fileId, options),
+  (shortcutId, options) => executableRegistry?.launchShortcut(shortcutId, null, options),
+);
+mediaPlayer = new MediaPlayer(
+  manager,
+  ui.desktop.querySelector('.taskbar'),
+  virtualFilesystem,
+  { onWindowState: syncSystemWindows },
 );
 let narrativeOrchestrator;
 let turboConversationThread;
@@ -254,6 +268,22 @@ const messenger = new Messenger({
             );
     return createConversation(definition, contact.id, thread);
   },
+});
+executableRegistry = new ExecutableRegistry(virtualFilesystem, {
+  messenger: () => openMessenger(),
+  browser: () => openBrowser(),
+  'media-player': () => mediaPlayer.open(),
+  'received-minigame': (file) => {
+    try {
+      return miniGameLauncher.open(file);
+    } catch (error) {
+      showStoryError(error);
+      return null;
+    }
+  },
+  'bomb-arena': (file, fileId) =>
+    virtualFilesystem.exists(fileId) ? desktopApplications.openBombArena(file, fileId) : null,
+  'level-one': () => replayLevelOne(),
 });
 function handleMessengerMessage(contact, incoming = [], messages = [], view, state = {}) {
   if (!contact) return;
@@ -553,7 +583,12 @@ const desktopIcons = new DesktopIcons(ui.desktop, progression);
 const desktopFiles = new DesktopFiles(ui.desktop, progression, openDesktopFile, () =>
   desktopIcons.refresh(),
   virtualFilesystem,
+  () => desktopApplications.refreshExplorers(),
 );
+virtualFilesystem.onChange = () => {
+  renderDesktopFiles();
+  desktopApplications.refreshExplorers();
+};
 const returnMenu = ui.menuPlay;
 returnMenu.id = 'return-main-menu';
 returnMenu.innerHTML = `${icon('menu-computer')}<span>Menu principal<small>Continuer / nouvelle partie / options</small></span>`;
@@ -1088,18 +1123,43 @@ function replayLevelOne() {
 }
 function renderDesktopFiles() {
   desktopFiles.render();
+  mediaPlayer?.refreshLibrary();
 }
 function openDesktopFile(file) {
   if (phase !== 'desktop') return;
-  if (file.virtualApp === 'bomb-arena') {
-    if (virtualFilesystem.exists(file.fileId)) desktopApplications.openBombArena(file, file.fileId);
+  if (file.shortcutId) {
+    executableRegistry?.launchShortcut(file.shortcutId);
     return;
   }
-  if (!virtualFilesystem.exists(virtualFileId('downloads', file.name))) return;
-  try {
-    miniGameLauncher.open(file);
-  } catch (error) {
-    showStoryError(error);
+  const targetFileId = file.targetFileId ?? file.fileId ?? virtualFileId('downloads', file.name);
+  if (file.shortcut && virtualFilesystem.exists(targetFileId)) {
+    const target = virtualFilesystem.getFile(targetFileId);
+    desktopApplications.openFile(virtualFilesystem.getLocation(target.locationId), target, { source: 'desktop' });
+    return;
+  }
+  const fileId = targetFileId;
+  if (virtualFilesystem.exists(fileId)) {
+    const resolved = virtualFilesystem.getFile(fileId);
+    if (/\.exe$/i.test(resolved.name)) {
+      const location = virtualFilesystem.getLocation(
+        resolved.locationId ?? fileId.slice(0, fileId.indexOf('/')),
+      );
+      desktopApplications.openFile(location, resolved, { source: 'desktop' });
+      return;
+    }
+    if (resolved.receivedFile && resolved.launch) {
+      try {
+        miniGameLauncher.open(resolved);
+      } catch (error) {
+        showStoryError(error);
+      }
+      return;
+    }
+    const location = virtualFilesystem.getLocation(
+      resolved.locationId ?? fileId.slice(0, fileId.indexOf('/')),
+    );
+    desktopApplications.openFile(location, resolved, { source: 'desktop' });
+    return;
   }
 }
 function formatTime(value) {
@@ -1194,7 +1254,7 @@ const shortcutActions = {
   computer: () => openSystemApplication('computer'),
   folder: () => openSystemApplication('folder'),
   bin: () => openSystemApplication('bin'),
-  arcade: replayLevelOne,
+  arcade: () => executableRegistry?.launchShortcut(arcadeLauncher.shortcutId),
 };
 ui.shortcuts.forEach((button) => {
   const activate = shortcutActions[button.dataset.shortcut];

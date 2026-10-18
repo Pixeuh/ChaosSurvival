@@ -5,20 +5,19 @@ import { applications, applicationLogo, brandedText, trackIdentity } from '../sr
 import { icon } from '../src/ui/icons.js';
 import { createPopupContent } from '../src/ui/popup-content.js';
 import { popupContent } from '../src/config/popups.js';
-import { arcadeLauncher, isArcadeExecutable } from '../src/ui/arcade-launcher.js';
+import { arcadeLauncher } from '../src/ui/arcade-launcher.js';
 import { mountDesktop } from '../src/ui/desktop.js';
 
-test('the desktop exposes the game EXE and keeps MP3 metadata separate from its launcher', () => {
+test('the desktop keeps system icons special and leaves application shortcuts to their shared source', () => {
   const root = { querySelector: () => ({}), querySelectorAll: () => [] };
   mountDesktop(root, 0);
   assert.equal(arcadeLauncher.name, 'ChaosSurvival.exe');
-  assert.match(root.innerHTML, /data-shortcut="arcade"/);
+  assert.equal(arcadeLauncher.shortcutId, 'chaos-survival');
+  assert.match(root.innerHTML, /data-shortcut="computer"/);
+  assert.match(root.innerHTML, /data-shortcut="bin"/);
+  assert.doesNotMatch(root.innerHTML, /data-shortcut="arcade"/);
   assert.doesNotMatch(root.innerHTML, /data-shortcut="music"/);
-  assert.ok(root.innerHTML.includes(arcadeLauncher.name));
-  assert.ok(isArcadeExecutable({ name: arcadeLauncher.name }));
-  for (const name of ['DJARTMUSIC__Best_Game_Console.mp3', 'another.exe', 'ChaosSurvival.exe.txt'])
-    assert.equal(isArcadeExecutable({ name }), false);
-  assert.equal(isArcadeExecutable({ name: arcadeLauncher.name, location: 'folder' }), false);
+  assert.doesNotMatch(root.innerHTML, /data-shortcut="msn"|data-shortcut="browser"/);
   assert.equal(trackIdentity.displayName, 'DJARTMUSIC__Best_Game_Console.mp3');
   const resource = icon(arcadeLauncher.icon).match(/src="([^"]+)"/)[1];
   const svg = readFileSync(new URL(`../public/${resource.slice(2)}`, import.meta.url), 'utf8');

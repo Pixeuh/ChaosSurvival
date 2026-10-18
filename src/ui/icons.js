@@ -29,6 +29,7 @@ const paths = {
     '<path d="M24 3 42 10v13c0 11-10 19-18 23C16 42 6 34 6 23V10z" fill="#f4c74f" stroke="#967018" stroke-width="2"/><path d="M24 8v31c6-4 13-10 13-17V14z" fill="#ef9737"/><path d="M24 15v12m0 5v3" stroke="#7b4318" stroke-width="4"/>',
   download:
     '<path d="M6 29h36v15H6z" fill="#dce7ed" stroke="#5f798b" stroke-width="2"/><path d="M9 34h30v6H9z" fill="#91adc1"/><path d="M18 4h12v17h8L24 34 10 21h8z" fill="#7ccb47" stroke="#41812c" stroke-width="2"/><path d="M21 7v16" stroke="#d7f59c" stroke-width="3"/>',
+  'media-play': '<rect x="4" y="5" width="40" height="31" rx="3" fill="#d9f3ff" stroke="#38678d" stroke-width="2"/><path d="M7 9h34v22H7z" fill="#1876b9"/><path d="M18 36v5m12-5v5m-16 0h24" stroke="#748b9b" stroke-width="3"/><circle cx="24" cy="20" r="9" fill="#78d246" stroke="#f4ffdf" stroke-width="2"/><path d="m22 15 7 5-7 5z" fill="#fff"/>',
   help: '<circle cx="24" cy="24" r="20" fill="#58a8ee" stroke="#1b63b7"/><path d="M17 16c0-9 18-9 16 1-1 5-9 5-9 12m0 5v3" fill="none" stroke="white" stroke-width="4"/>',
 };
 export function icon(name, className = '') {

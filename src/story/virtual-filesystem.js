@@ -1,8 +1,15 @@
 import fileDefinitions from '../config/filesystem.json' with { type: 'json' };
 import appDefinitions from '../config/desktop-apps.json' with { type: 'json' };
+import { DESKTOP_SHORTCUTS } from '../ui/executable-registry.js';
 
 const locations = Object.freeze({ ...fileDefinitions, ...appDefinitions });
 const unsafeKeys = new Set(['__proto__', 'constructor', 'prototype']);
+const retiredFictionalMusicFiles = new Set([
+  'music/pixel dreams.mp3',
+  'music/cyberlove.mp3',
+  'music/midnight.exe.mp3',
+  'music/summer 2009.mp3',
+]);
 const keyPattern = /^([a-z0-9-]+)\/([^/\\]+)$/i;
 const safeName = (name) =>
   typeof name === 'string' &&
@@ -69,6 +76,7 @@ function normalizeAdded(added) {
     const match = keyPattern.exec(key);
     if (
       !match || key.toLowerCase() === 'user-desktop/a_faire.txt' ||
+      retiredFictionalMusicFiles.has(key.toLowerCase()) ||
       unsafeKeys.has(match[1]) || match[1] === 'bin' ||
       !Object.hasOwn(locations, match[1]) ||
       !Array.isArray(locations[match[1]].items) || !safeName(match[2]) ||
@@ -120,6 +128,8 @@ export function normalizeVirtualFilesystemState(state, files = {}) {
     ...Object.entries(added).filter(([, file]) => isDeletableFile(file)).map(([key]) => key),
     ...receivedPaths,
     ...receivedTokens,
+    ...DESKTOP_SHORTCUTS.map((shortcut) => virtualFileId('user-desktop', shortcut.name)),
+    ...completedReceives.map((file) => virtualFileId('user-desktop', `${file.name}.lnk`)),
   ]);
   const aliases = new Map([['user-desktop/a_faire.txt', 'folder/a_faire.txt']]);
   const deleted = [];
@@ -171,13 +181,55 @@ export class VirtualFilesystem {
     if (id === 'downloads')
       for (const [fileId, file] of receivedFiles(this.progression.data.files, this.state.deleted))
         if (!deleted.has(fileId) && !present.has(fileId)) items.push(file);
+    if (id === 'user-desktop')
+      for (const item of this.desktopShortcuts())
+        if (!present.has(item.fileId)) items.push(item);
     return { ...base, id, items };
+  }
+  desktopShortcuts() {
+    const deleted = new Set(this.state.deleted);
+    const shortcuts = [];
+    for (const definition of DESKTOP_SHORTCUTS) {
+      const fileId = virtualFileId('user-desktop', definition.name);
+      if (deleted.has(fileId)) continue;
+      if (definition.target && !this.getFile(definition.target)) continue;
+      shortcuts.push({
+        name: definition.name,
+        detail: 'Raccourci',
+        icon: definition.icon,
+        fileId,
+        locationId: 'user-desktop',
+        deletable: true,
+        shortcut: true,
+        shortcutId: definition.id,
+        label: definition.label,
+        targetFileId: definition.target,
+        targetAction: definition.action,
+      });
+    }
+    for (const file of Object.values(this.progression.data.files ?? {})) {
+      if (file?.status !== 'complete' || file.direction !== 'receive' || !safeName(file.name)) continue;
+      const targetFileId = virtualFileId('downloads', file.name);
+      const fileId = virtualFileId('user-desktop', `${file.name}.lnk`);
+      if (deleted.has(fileId) || !this.getFile(targetFileId)) continue;
+      if (shortcuts.some((item) => item.fileId === fileId)) continue;
+      shortcuts.push({
+        name: `${file.name}.lnk`, detail: 'Raccourci vers un fichier reçu', icon: 'download',
+        fileId, locationId: 'user-desktop', deletable: true, shortcut: true,
+        targetFileId, label: file.name,
+      });
+    }
+    return shortcuts;
   }
   getFile(fileId) {
     if (typeof fileId !== 'string') return null;
     const key = fileId.toLowerCase();
     if (this.state.deleted.includes(key)) return null;
     const added = this.state.added[key];
+    if (!added && key.startsWith('user-desktop/')) {
+      const shortcut = this.desktopShortcuts().find((item) => item.fileId === key);
+      if (shortcut) return { ...shortcut, fileId: key, deletable: true };
+    }
     const file = added ?? staticFiles().get(key) ?? receivedFiles(this.progression.data.files, this.state.deleted).get(key);
     return file ? { ...file, fileId: key, deletable: isDeletableFile(file) } : null;
   }
@@ -223,6 +275,7 @@ export class VirtualFilesystem {
       this.progression.data.virtualFilesystem = previous;
       return { ok: false, reason: 'save' };
     }
+    this.onChange?.({ origin: 'manual', added: key });
     return { ok: true, fileId: key };
   }
   addDirectory(parentId, name, locationId) {
@@ -253,6 +306,7 @@ export class VirtualFilesystem {
       this.progression.data.virtualFilesystem = previous;
       return { ok: false, reason: 'save' };
     }
+    this.onChange?.({ origin: 'manual', added: key });
     return { ok: true, fileId: key };
   }
   extractBombArena(archiveFileId) {
@@ -281,7 +335,7 @@ export class VirtualFilesystem {
     const key = typeof fileId === 'string' ? fileId.toLowerCase() : fileId;
     const file = this.getFile(key);
     if (!file) return { ok: false, reason: 'missing' };
-    if (!['manual', 'system'].includes(origin)) return { ok: false, reason: 'invalid-origin' };
+    if (!['manual', 'system', 'desktop'].includes(origin)) return { ok: false, reason: 'invalid-origin' };
     if (!this.canDelete(key)) return { ok: false, reason: 'protected' };
     const previousState = this.state;
     const previousTextFiles = this.progression.data.textFiles;
@@ -318,6 +372,7 @@ export class VirtualFilesystem {
     }
     const result = { ok: true, fileId: key, removedFileIds, origin };
     this.onDelete?.(result);
+    this.onChange?.(result);
     return result;
   }
 }

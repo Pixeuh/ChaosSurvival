@@ -120,6 +120,27 @@ test('New Game confirmation closes immediately on No and reopens without duplica
   assert.equal(elements.get('.menu-confirm-layer').hidden, true);
 });
 
+test('the first menu click and the post-return click reach the same play action with current save state', async (t) => {
+  const progression = new Progression(story, memoryStorage());
+  const saveStates = [];
+  const { menu, elements, listeners } = menuFixture(t, {
+    play: (hasSave) => saveStates.push(hasSave),
+  });
+  menu.progression = progression;
+  menu.bindPlayEvent();
+
+  elements.get('#menu-play').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(saveStates, [false], 'the initial action starts a fresh run');
+  assert.equal(menu.busy, false);
+
+  progression.begin();
+  elements.get('#menu-play').click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(saveStates, [false, true], 'the same handler continues the saved run after return');
+  assert.equal(listeners.get('#menu-play:click').length, 1, 'returning does not duplicate the handler');
+});
+
 test('New Game confirmation closes before the asynchronous reset and launch action', async (t) => {
   const progression = new Progression(story, memoryStorage());
   progression.begin();

@@ -158,9 +158,7 @@ export class MainMenu {
       .querySelector('.menu-music-credit')
       .append(document.createElement('br'), graphicCredit);
     this.find = (selector) => this.element.querySelector(selector);
-    this.find('#menu-play').addEventListener('click', () =>
-      this.run(() => this.actions.play(this.progression.hasSave)),
-    );
+    this.bindPlayEvent();
     this.find('#menu-options').addEventListener('click', () => this.options(true));
     this.find('#options-back').addEventListener('click', () => this.options(false));
     for (const [id, key, output] of [
@@ -213,6 +211,11 @@ export class MainMenu {
       }
     });
     this.bindConfirmationEvents();
+  }
+  bindPlayEvent() {
+    this.find('#menu-play').addEventListener('click', () =>
+      this.run(() => this.actions.play(this.progression.hasSave)),
+    );
   }
   bindConfirmationEvents() {
     this.find('#menu-new-game').addEventListener('click', () =>

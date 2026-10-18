@@ -11,6 +11,7 @@ import {
   nearestIconCell,
 } from '../src/ui/desktop-icons.js';
 import { Progression } from '../src/story/progression.js';
+import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 
 test('the arcade EXE keeps the legacy music shortcut position without changing other saved icon IDs', () => {
@@ -39,6 +40,78 @@ test('desktop icons fill the first column before the next and preserve existing 
   const withNew = layoutIconCells([...ids, 'new-file'], saved, grid);
   for (const id of ids) assert.deepEqual(withNew.get(id), saved[id]);
   assert.deepEqual(withNew.get('new-file'), { col: 0, row: 3 });
+});
+
+test('New Game resets saved icon cells and positions Media Play above ChaosSurvival in the real desktop grid', (t) => {
+  const previousObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class { observe() {} };
+  t.after(() => {
+    if (previousObserver === undefined) delete globalThis.ResizeObserver;
+    else globalThis.ResizeObserver = previousObserver;
+  });
+
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+    get length() { return values.size; },
+    key: (index) => [...values.keys()][index] ?? null,
+  };
+  const progression = new Progression(story, storage);
+  progression.begin();
+  progression.data.desktopIcons = {
+    'shortcut:media-player': { col: 2, row: 2 },
+    'shortcut:music': { col: 3, row: 3 },
+  };
+  progression.save();
+  const filesystem = new VirtualFilesystem(progression);
+  const items = filesystem.getLocation('user-desktop').items;
+  const buttons = [
+    ...['computer', 'folder', 'bin'].map((shortcut) => ({ dataset: { shortcut } })),
+    ...items.map((item) => ({ dataset: { shortcut: item.shortcutId, fileId: item.fileId } })),
+  ].map((button) => ({
+    ...button,
+    style: {},
+    offsetHeight: 90,
+    offsetWidth: 100,
+    setAttribute() {},
+    getBoundingClientRect() {
+      const left = parseFloat(this.style.left);
+      const top = parseFloat(this.style.top);
+      return { left, top, right: left + 100, bottom: top + 90 };
+    },
+  }));
+  const desktop = {
+    classList: { add() {} },
+    addEventListener() {},
+    querySelectorAll: () => buttons,
+    querySelector: () => ({ getBoundingClientRect: () => ({ height: 40 }) }),
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }),
+  };
+  const icons = new DesktopIcons(desktop, progression);
+  const cellFor = (shortcutId) => icons.cells.get(
+    `shortcut:${shortcutId === 'chaos-survival' ? 'music' : shortcutId}`,
+  );
+  const oldMedia = cellFor('media-player');
+  const oldGame = cellFor('chaos-survival');
+  assert.deepEqual(oldMedia, { col: 2, row: 2 }, 'an existing save keeps Media Play in its custom cell');
+  assert.deepEqual(oldGame, { col: 3, row: 3 }, 'an existing save keeps ChaosSurvival in its custom cell');
+
+  progression.newGame();
+  icons.reset();
+
+  const media = cellFor('media-player');
+  const game = cellFor('chaos-survival');
+  assert.ok(media.row < game.row, 'Media Play must be in the higher desktop row');
+  assert.equal(media.col, game.col, 'both shortcuts keep the same column');
+  assert.equal(buttons.find((button) => button.dataset.shortcut === 'media-player').style.top, '540px');
+  assert.equal(buttons.find((button) => button.dataset.shortcut === 'chaos-survival').style.top, '644px');
+  assert.deepEqual(cellFor('msn'), { col: 0, row: 3 });
+  assert.deepEqual(cellFor('browser'), { col: 0, row: 4 });
+  assert.equal(buttons.find((button) => button.dataset.shortcut === 'media-player').style.left,
+    buttons.find((button) => button.dataset.shortcut === 'chaos-survival').style.left);
+  assert.equal(new Set([...icons.cells.values()].map(({ col, row }) => `${col}:${row}`)).size, icons.cells.size);
 });
 
 test('desktop columns use one even pitch and keep the right margin at each width', () => {

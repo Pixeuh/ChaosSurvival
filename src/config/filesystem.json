@@ -264,6 +264,27 @@
     "description": "C:\\Documents and Settings\\Joueur\\Mes documents\\Ma musique",
     "items": [
       {
+        "name": "Sport Dubstep.mp3",
+        "icon": "document",
+        "detail": "Fichier audio · Kulakovka",
+        "deletable": true,
+        "size": 4162037
+      },
+      {
+        "name": "I Love Chiptune Punk.mp3",
+        "icon": "document",
+        "detail": "Fichier audio · Brutaldesign",
+        "deletable": true,
+        "size": 5680065
+      },
+      {
+        "name": "Lost In Time-Nightcore.mp3",
+        "icon": "document",
+        "detail": "Fichier audio · NightcoreFreeMusic4u",
+        "deletable": true,
+        "size": 5909760
+      },
+      {
         "name": "playlist_ete_2009.txt",
         "icon": "document",
         "detail": "Document texte",

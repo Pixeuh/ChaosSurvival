@@ -19,6 +19,7 @@ import {
 } from '../src/ui/desktop-apps.js';
 import { icon } from '../src/ui/icons.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
+import { ExecutableRegistry } from '../src/ui/executable-registry.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const intro = read('../src/dialogues/pixelgirl-intro.json');
@@ -519,31 +520,48 @@ test('text and picture viewers have independent windows and task controls withou
   assert.equal(fallback.element.querySelector('.generic-file-content pre').textContent, '');
   assert.equal(fallback.element.querySelector('.generic-file-unavailable').hidden, false);
   assert.equal(explorer.current, synthetic);
-  let launches = 0;
-  app.onLaunchArcade = () => {
-    launches++;
-    return 'arcade-started';
-  };
-  const calls = manager.calls.length;
-  assert.equal(app.openFile(location, { name: 'ChaosSurvival.exe' }), 'arcade-started');
-  assert.equal(launches, 1);
-  assert.equal(manager.calls.length, calls); // Never open the generic viewer for this executable.
-  const launcherLocation = {
-    ...location,
-    id: 'launcher-test',
-    items: [{ name: 'ChaosSurvival.exe' }],
-  };
-  app.render(explorer, launcherLocation);
-  explorer.element.querySelector('.explorer-items').children[0].handlers.dblclick();
-  assert.equal(launches, 2);
-  assert.equal(manager.calls.length, calls);
-  app.openFile(location, { name: 'DJARTMUSIC__Best_Game_Console.mp3' });
   app.openFile(location, { name: 'another.exe', text: 'message conservé' });
-  assert.equal(launches, 2);
 
   const progression = new Progression(read('../src/config/story.json'));
   const virtualFilesystem = new VirtualFilesystem(progression);
   app.virtualFilesystem = virtualFilesystem;
+  const openMessenger = { id: 'messenger-window' };
+  const openBrowser = { id: 'browser-window', currentUrl: 'http://local.test/page' };
+  const registry = new ExecutableRegistry(virtualFilesystem, {
+    messenger: () => openMessenger,
+    browser: () => openBrowser,
+  });
+  app.onLaunchExecutable = (fileId, options) => registry.launch(fileId, options);
+  const messengerLocation = virtualFilesystem.getLocation('messenger-files');
+  const messengerFile = virtualFilesystem.getFile('messenger-files/love-messenger.exe');
+  assert.equal(app.openFile(messengerLocation, messengerFile), openMessenger);
+  assert.equal(app.openFile(messengerLocation, messengerFile), openMessenger);
+  const browserLocation = virtualFilesystem.getLocation('browser-files');
+  const browserFile = virtualFilesystem.getFile('browser-files/adventurer.exe');
+  assert.equal(app.openFile(browserLocation, browserFile), openBrowser);
+  openBrowser.currentUrl = 'http://local.test/second-page';
+  assert.equal(
+    app.openFile(browserLocation, browserFile).currentUrl,
+    'http://local.test/second-page',
+  );
+
+  const unknownExecutable = virtualFilesystem.addFile('downloads', {
+    name: 'unknown.exe', detail: 'Programme', icon: 'document', deletable: true,
+  });
+  const unknownItem = virtualFilesystem.getFile(unknownExecutable.fileId);
+  const unknownView = app.openFile(virtualFilesystem.getLocation('downloads'), unknownItem);
+  assert.equal(
+    unknownView.element.querySelector('.generic-file-content pre').textContent,
+    'Impossible d’ouvrir cette application.',
+  );
+  const unsupportedView = app.openFile(
+    virtualFilesystem.getLocation('media-files'),
+    virtualFilesystem.getFile('media-files/media-play.exe'),
+  );
+  assert.equal(
+    unsupportedView.element.querySelector('.generic-file-content pre').textContent,
+    'Cette application virtuelle n’est pas encore disponible.',
+  );
   app.textFiles = new VirtualTextFiles(progression, virtualFilesystem);
   const downloads = virtualFilesystem.getLocation('downloads');
   const deletableText = downloads.items.find((item) => item.name === 'installation_a_lire.txt');

@@ -7,6 +7,7 @@ import { VirtualTextFiles } from '../src/story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { DesktopFiles } from '../src/ui/desktop-files.js';
+import { ExecutableRegistry } from '../src/ui/executable-registry.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const groupDialogue = JSON.parse(readFileSync(new URL('../src/dialogues/pixelgirl-super-plombier-group.json', import.meta.url)));
 
@@ -521,22 +522,43 @@ test('explorer selects files, provides XP properties and confirmation, and refre
     desktopItems = items[0];
   };
   const openedDesktopFiles = [];
-  const recordDesktopOpen = (file) => {
+  const launchCalls = [];
+  const appInstances = new Map();
+  let app;
+  const registry = new ExecutableRegistry(filesystem, {
+    'received-minigame': (file, fileId, { source }) => {
+      launchCalls.push({ action: 'received-minigame', fileId, source });
+      if (!appInstances.has('received-minigame'))
+        appInstances.set('received-minigame', { app: 'received-minigame' });
+      return appInstances.get('received-minigame');
+    },
+    'bomb-arena': (file, fileId, { source }) => {
+      launchCalls.push({ action: 'bomb-arena', fileId, source });
+      if (!appInstances.has('bomb-arena')) appInstances.set('bomb-arena', { app: 'bomb-arena' });
+      return appInstances.get('bomb-arena');
+    },
+  });
+  const openDesktopFile = (file) => {
     openedDesktopFiles.push(file);
-    return file;
+    if (file.shortcutId) return registry.launchShortcut(file.shortcutId);
+    const current = filesystem.getFile(file.targetFileId ?? file.fileId);
+    if (!current) return;
+    const locationId = current.locationId ?? (file.targetFileId ?? file.fileId).slice(0, (file.targetFileId ?? file.fileId).indexOf('/'));
+    return app.openFile(filesystem.getLocation(locationId), current, { source: 'desktop' });
   };
   const desktopFiles = new DesktopFiles(
-    desktop, progression, recordDesktopOpen, () => {}, filesystem,
+    desktop, progression, openDesktopFile, () => {}, filesystem,
   );
   desktopFiles.render();
-  const desktopButton = desktopItems.children[0];
-  assert.equal(desktopButton.dataset.fileId, virtualFileId('downloads', 'SUPER_MEGA_GAME.exe'));
+  const desktopButton = desktopItems.children.find((item) => item.dataset.targetFileId === virtualFileId('downloads', 'SUPER_MEGA_GAME.exe'));
+  assert.ok(desktopButton);
   let activeWindow = null;
-  const app = new DesktopApplications({
+  app = new DesktopApplications({
     windows: new Map(), close() {}, isActive: (element) => activeWindow === element,
   }, null, () => {}, null,
     new VirtualTextFiles(progression, filesystem), filesystem,
-    () => desktopFiles.render(), recordDesktopOpen);
+    () => desktopFiles.render(), openDesktopFile,
+    (fileId, options) => registry.launch(fileId, options));
   const makeExplorer = () => {
     const body = new FakeElement();
     const fields = new Map();
@@ -601,8 +623,15 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   const receivedId = virtualFileId('downloads', 'SUPER_MEGA_GAME.exe');
   const receivedItem = filesystem.getLocation('downloads').items.find((item) => item.fileId === receivedId);
   assert.ok(receivedItem?.receivedFile);
-  assert.equal(app.openFile(filesystem.getLocation('downloads'), receivedItem), receivedItem);
+  const receivedWindow = app.openFile(filesystem.getLocation('downloads'), receivedItem);
+  assert.equal(receivedWindow, appInstances.get('received-minigame'));
+  assert.equal(openedDesktopFiles.length, 0);
+  desktopButton.handlers.dblclick();
   assert.equal(openedDesktopFiles.length, 1);
+  assert.deepEqual(launchCalls.slice(0, 2).map(({ fileId, source }) => [fileId, source]), [
+    [receivedId, 'explorer'],
+    [receivedId, 'desktop'],
+  ]);
   const receivedRow = first.element.querySelector('.explorer-items').children.find(
     (item) => item.dataset.fileId === receivedId,
   );
@@ -611,7 +640,7 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   assert.equal(dispatchDelete(receivedRow), true, 'Delete opens the existing confirmation for the selected file');
   first.explorerConfirmation.querySelector('[data-delete-answer="yes"]').handlers.click();
   assert.equal(filesystem.exists(receivedId), false);
-  assert.equal(desktopItems.children.length, 0, 'Explorer deletion refreshes the desktop from the same transfer state');
+  assert.equal(desktopItems.children.some((item) => item.dataset.targetFileId === receivedId), false, 'Explorer deletion refreshes the desktop from the same transfer state');
   desktopButton.handlers.dblclick();
   assert.equal(openedDesktopFiles.length, 1, 'a stale desktop icon cannot reopen a deleted transfer');
   const archiveTransfer = progression.receiveFile({
@@ -636,7 +665,9 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   assert.equal(bombArenaShortcut().length, 1);
   assert.equal(bombArenaShortcut()[0].children.at(-1).textContent, 'BombArena.exe');
   bombArenaShortcut()[0].handlers.dblclick();
-  assert.equal(openedDesktopFiles.at(-1).virtualApp, 'bomb-arena');
+  assert.equal(openedDesktopFiles.at(-1).targetFileId, virtualFileId('bomb-arena-folder', 'BombArena.exe'));
+  assert.equal(launchCalls.at(-1).action, 'bomb-arena');
+  assert.equal(launchCalls.at(-1).source, 'desktop');
   assert.equal(filesystem.deleteFile(virtualFileId('bomb-arena-folder', 'BombArena.exe')).ok, true);
   desktopFiles.render();
   assert.equal(bombArenaShortcut().length, 0);
