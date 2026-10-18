@@ -207,6 +207,24 @@ export class DesktopIcons {
   buttons() {
     return [...this.desktop.querySelectorAll('.desktop-icons button, .desktop-files button')];
   }
+  removedIds() {
+    return Array.isArray(this.progression.data.desktopIconsRemoved)
+      ? this.progression.data.desktopIconsRemoved
+      : [];
+  }
+  remove(button) {
+    const id = this.id(button);
+    if (!id || this.removedIds().includes(id)) return false;
+    // Pin the current layout before an icon leaves the grid so its neighbors stay put.
+    for (const [savedId, cell] of this.cells ?? [])
+      if (!this.saved[savedId]) this.saved[savedId] = { ...cell, custom: true };
+    this.progression.data.desktopIcons = this.saved;
+    this.progression.data.desktopIconsRemoved = [...this.removedIds(), id];
+    this.selectedIds.delete(id);
+    this.progression.save();
+    this.refresh();
+    return true;
+  }
   select(button) {
     this.selectMany(button ? [button] : []);
   }
@@ -230,7 +248,10 @@ export class DesktopIcons {
     this.runId = this.progression.data.runId;
     const saved = this.progression.data.desktopIcons;
     this.saved = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-    const buttons = this.buttons();
+    const removed = new Set(this.removedIds());
+    const allButtons = this.buttons();
+    for (const button of allButtons) button.hidden = removed.has(this.id(button));
+    const buttons = allButtons.filter((button) => !button.hidden);
     const rect = this.desktop.getBoundingClientRect();
     this.grid = iconGrid(
       rect.width,

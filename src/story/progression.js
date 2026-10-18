@@ -21,6 +21,7 @@ function freshData(story) {
     choiceOffers: {},
     files: {},
     virtualFilesystem: { deleted: [], added: {} },
+    desktopIconsRemoved: [],
     anomalies: {},
     dialogueArchives: {},
     unlockedConversations: [],
@@ -115,6 +116,10 @@ function normalizeSaved(saved, story) {
         delete saved.desktopIcons[oldKey];
       }
     }
+  if (!Array.isArray(saved.desktopIconsRemoved)) saved.desktopIconsRemoved = [];
+  saved.desktopIconsRemoved = [...new Set(saved.desktopIconsRemoved.filter(
+    (id) => typeof id === 'string' && /^(?:shortcut|file):[a-z0-9_./ -]{1,180}$/i.test(id),
+  ))];
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
   if (record(saved.textFiles)) {
     for (const key of Object.keys(saved.textFiles))

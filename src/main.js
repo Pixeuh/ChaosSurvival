@@ -31,6 +31,7 @@ import { GameRules } from './ui/game-rules.js';
 import { DesktopFiles } from './ui/desktop-files.js';
 import { MiniGameLauncher } from './ui/minigame-launcher.js';
 import { DesktopIcons } from './ui/desktop-icons.js';
+import { WindowsXdContextMenus } from './ui/windows-xd-context-menu.js';
 import { StartMenuOrder } from './ui/start-menu-order.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
@@ -577,6 +578,14 @@ const desktopFiles = new DesktopFiles(ui.desktop, progression, openDesktopFile, 
   desktopIcons.refresh(),
   virtualFilesystem,
 );
+const desktopContextMenus = new WindowsXdContextMenus({
+  desktop: ui.desktop,
+  manager,
+  desktopIcons,
+  virtualFilesystem,
+  desktopApplications,
+  onFilesystemChange: renderDesktopFiles,
+});
 const returnMenu = ui.menuPlay;
 returnMenu.id = 'return-main-menu';
 returnMenu.innerHTML = `${icon('menu-computer')}<span>Menu principal<small>Continuer / nouvelle partie / options</small></span>`;

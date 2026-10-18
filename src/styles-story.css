@@ -425,6 +425,58 @@ button.messenger-contact-row:hover {
 .explorer-context-menu button:disabled {
   color: #888;
 }
+.windows-xd-context-menu {
+  position: absolute;
+  z-index: 1200;
+  min-width: 158px;
+  padding: 3px;
+  border: 1px solid #7f7f7f;
+  background: #fff;
+  box-shadow: 2px 3px 7px #0005;
+}
+.windows-xd-context-menu[hidden],
+.windows-xd-context-confirmation[hidden] {
+  display: none;
+}
+.windows-xd-context-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 18px;
+  border: 0;
+  background: transparent;
+  color: #111;
+  text-align: left;
+  font: 12px Tahoma, sans-serif;
+}
+.windows-xd-context-menu button:hover,
+.windows-xd-context-menu button:focus-visible {
+  background: #316ac5;
+  color: white;
+}
+.windows-xd-context-confirmation {
+  position: absolute;
+  z-index: 1201;
+  top: 50%;
+  left: 50%;
+  width: min(360px, calc(100% - 24px));
+  padding: 14px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #2258c4;
+  border-radius: 5px;
+  background: #ece9d8;
+  color: #111;
+  box-shadow: 3px 5px 12px #0005;
+  font: 12px Tahoma, sans-serif;
+}
+.windows-xd-context-confirmation p {
+  margin: 6px 0 18px;
+  overflow-wrap: anywhere;
+}
+.windows-xd-context-confirmation > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .explorer-dialog {
   position: absolute;
   z-index: 9;

@@ -13,7 +13,16 @@ import {
   nearestIconCell,
 } from '../src/ui/desktop-icons.js';
 import { Progression } from '../src/story/progression.js';
+import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
+function memory() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+}
 
 test('the arcade EXE keeps the legacy music shortcut position without changing other saved icon IDs', () => {
   assert.equal(
@@ -28,6 +37,42 @@ test('the arcade EXE keeps the legacy music shortcut position without changing o
     DesktopIcons.prototype.id.call({}, { dataset: { fileId: 'smiley' } }),
     'file:smiley',
   );
+});
+
+test('removing a shortcut persists its tombstone, pins remaining positions and New Game restores defaults', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const mediaExecutable = virtualFileId('media-files', 'media-play.exe');
+  assert.equal(filesystem.exists(mediaExecutable), true);
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    progression,
+    saved: {},
+    cells: new Map([
+      ['shortcut:computer', { col: 0, row: 0 }],
+      ['shortcut:msn', { col: 0, row: 1 }],
+      ['shortcut:browser', { col: 0, row: 2 }],
+    ]),
+    selectedIds: new Set(['shortcut:msn']),
+    refresh() {},
+  });
+  const button = { dataset: { shortcut: 'msn' } };
+  assert.equal(icons.remove(button), true);
+  assert.deepEqual(progression.data.desktopIconsRemoved, ['shortcut:msn']);
+  assert.deepEqual(progression.data.desktopIcons, {
+    'shortcut:computer': { col: 0, row: 0, custom: true },
+    'shortcut:msn': { col: 0, row: 1, custom: true },
+    'shortcut:browser': { col: 0, row: 2, custom: true },
+  });
+  assert.equal(icons.selectedIds.has('shortcut:msn'), false);
+  assert.equal(filesystem.exists(mediaExecutable), true, 'removing a launcher never removes its executable');
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.desktopIconsRemoved, ['shortcut:msn']);
+  assert.deepEqual(restored.data.desktopIcons, progression.data.desktopIcons);
+  restored.newGame();
+  assert.deepEqual(restored.data.desktopIconsRemoved, []);
+  assert.equal(restored.data.desktopIcons, undefined);
 });
 
 test('desktop icons fill the first column before the next and preserve existing custom cells', () => {

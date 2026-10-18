@@ -715,6 +715,12 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   globalThis.document.activeElement = protectedRow;
   assert.equal(dispatchDelete(protectedRow), false, 'Delete cannot bypass protected-file permissions');
   assert.equal(filesystem.exists(protectedFile.fileId), true);
+  const bombArenaExecutableId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
+  assert.equal(filesystem.exists(bombArenaExecutableId), true);
+  progression.data.desktopIconsRemoved = [`file:${bombArenaExecutableId}`];
+  desktopFiles.render();
+  assert.equal(bombArenaShortcut().length, 0, 'a removed narrative shortcut stays hidden across desktop refreshes');
+  assert.equal(filesystem.exists(bombArenaExecutableId), true, 'removing its shortcut preserves the virtual executable');
   for (const instance of [first, second, systemExplorer]) app.teardownExplorer(instance);
   assert.equal(listeners.size, 0);
 });

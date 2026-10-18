@@ -44,7 +44,9 @@ export class DesktopFiles {
     }
     const bombArenaId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
     const executable = this.virtualFilesystem?.getFile(bombArenaId);
-    if (executable?.virtualApp === 'bomb-arena') {
+    const bombArenaShortcutId = `file:${bombArenaId}`;
+    const removedShortcuts = this.progression.data.desktopIconsRemoved ?? [];
+    if (executable?.virtualApp === 'bomb-arena' && !removedShortcuts.includes(bombArenaShortcutId)) {
       const shortcut = document.createElement('button');
       shortcut.className = 'desktop-file desktop-virtual-shortcut';
       shortcut.dataset.fileId = bombArenaId;
