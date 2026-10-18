@@ -188,11 +188,27 @@ export class ConversationThread {
       if (!message || message.speaker !== 'contact' || !Number.isFinite(state.receiveDueAt))
         continue;
       const total = message.delayMs + message.typingMs;
-      const typingEndsAt = state.receiveDueAt - (message.typingPauseMs ?? 0);
-      // Reuse the existing wait budget, including scripts with typingMs = 0.
-      const typing =
-        message.typingMs ||
-        Math.min(total, Math.max(180, Math.min(900, (message.text?.length ?? 20) * 18)));
+      // A connection can reserve a first-message deadline outside the dialogue's
+      // own delay/typing fields (for example, a 3-second post-connection wait).
+      // Reuse that existing wait for a brief typing cue when the first message
+      // itself has zero duration; do not move its receive deadline.
+      const connectionWait = Object.values(
+        this.progression.data.pendingConnectionMessages ?? {},
+      ).find(
+        (pending) =>
+          pending.runId === this.progression.data.runId &&
+          pending.dialogueId === event.id,
+      );
+      const receiveDueAt = Math.max(state.receiveDueAt, connectionWait?.dueAt ?? -Infinity);
+      const typingEndsAt = receiveDueAt - (message.typingPauseMs ?? 0);
+      const firstContactMessage =
+        state.cursor === 0 && !(state.transcript ?? []).some((entry) => entry.speaker === 'contact');
+      const connectionBudget =
+        firstContactMessage && Number.isFinite(connectionWait?.connectedAt)
+          ? Math.max(0, receiveDueAt - connectionWait.connectedAt)
+          : 0;
+      const fallbackTyping = Math.max(180, Math.min(900, (message.text?.length ?? 20) * 18));
+      const typing = message.typingMs || Math.min(total || connectionBudget, fallbackTyping);
       if (
         now >= typingEndsAt - typing &&
         now < typingEndsAt &&

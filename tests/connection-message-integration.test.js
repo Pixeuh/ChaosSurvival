@@ -8,6 +8,7 @@ import { NarrativeOrchestrator, DEFERRED_CONNECTION_DIALOGUES } from '../src/sto
 import { ConnectionMessages } from '../src/story/connection-messages.js';
 import { ReplayReactions } from '../src/story/replays.js';
 import { Messenger } from '../src/ui/messenger.js';
+import { ConversationWindow } from '../src/ui/conversation.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -49,6 +50,11 @@ function createHarness() {
     dialogue: definitions['pixelgirl-intro'],
     offlineContact: null,
     element: { isConnected: false, hidden: true, style: { zIndex: '1' } },
+    typingIndicator: {
+      textContent: '',
+      hidden: true,
+      classList: { toggle() {} },
+    },
     refresh() {},
     openMinimized() {
       this.element.isConnected = true;
@@ -60,6 +66,11 @@ function createHarness() {
     dialogue: definitions['turbo-smiley-catcher'],
     offlineContact: null,
     element: { isConnected: true, hidden: true, style: { zIndex: '1' } },
+    typingIndicator: {
+      textContent: '',
+      hidden: true,
+      classList: { toggle() {} },
+    },
     refresh() {},
   };
   const messenger = new Messenger({
@@ -101,6 +112,7 @@ function createHarness() {
     dialogueEvents,
     getContact: (id) => messenger.contacts().find((contact) => contact.id === id),
     prepareContact: (contact) => messenger.prepareContact(contact),
+    ensureBackground: (contact) => messenger.ensureBackground(contact),
     getTurboThread: () => turboThread,
     connectionMessages,
     showConnectionNotification: (id) => connectionNotifications.push({ id, at: now }),
@@ -165,6 +177,8 @@ test('real Turb0 connection update cycle cannot deliver early through Messenger.
     mainUpdateCycle(game);
     assert.equal(game.progression.data.dialogues['turbo-smiley-catcher'].transcript.length, 0);
     assert.equal(game.received.length, 0);
+    ConversationWindow.prototype.renderTyping.call(game.turboView, game.now);
+    assert.equal(game.turboView.typingIndicator.textContent, "Turb0 est en train d'\u00e9crire...");
 
     game.now = 15_000;
     mainUpdateCycle(game);
@@ -174,6 +188,8 @@ test('real Turb0 connection update cycle cannot deliver early through Messenger.
     assert.equal(game.received[0].active, false);
     assert.equal(game.received[0].messages.length, 1);
     assert.equal(game.received[0].messages[0].text, 'mdrrrr noob');
+    ConversationWindow.prototype.renderTyping.call(game.turboView, game.now);
+    assert.equal(game.turboView.typingIndicator.textContent, '');
     mainUpdateCycle(game);
     assert.equal(game.received.length, 1);
   } finally {
@@ -187,6 +203,8 @@ test('PixelGirl first message follows her connection event with or without an op
     try {
       game.progression.complete('arcade-1', { score: 100, closed: 4 }, game.now);
       game.narrativeOrchestrator.onContactConnected('pixelgirl', game.now);
+      assert.equal(game.primaryView.element.isConnected, true, 'the first-message conversation is attached in the background');
+      assert.equal(game.primaryView.element.hidden, true);
       mainUpdateCycle(game);
       assert.equal(game.progression.data.dialogues['pixelgirl-intro'].transcript.length, 0);
 
@@ -197,6 +215,24 @@ test('PixelGirl first message follows her connection event with or without an op
       game.now += 2999;
       mainUpdateCycle(game);
       assert.equal(game.progression.data.dialogues['pixelgirl-intro'].transcript.length, 0);
+      ConversationWindow.prototype.renderTyping.call(game.primaryView, game.now);
+      assert.equal(
+        game.primaryView.typingIndicator.textContent,
+        "xX_PixelGirl_Xx est en train d'\u00e9crire...",
+        'the same typing indicator is visible before the scheduled first message',
+      );
+      if (!openDuringWait) {
+        game.primaryView.element.isConnected = false;
+        game.messenger.ensureBackground(
+          game.messenger.contacts().find((entry) => entry.id === 'pixelgirl'),
+        );
+        ConversationWindow.prototype.renderTyping.call(game.primaryView, game.now);
+        assert.equal(
+          game.primaryView.typingIndicator.textContent,
+          "xX_PixelGirl_Xx est en train d'\u00e9crire...",
+          'closing and reopening during typing keeps the same pending cue',
+        );
+      }
 
       game.now += 1;
       mainUpdateCycle(game);
@@ -205,6 +241,8 @@ test('PixelGirl first message follows her connection event with or without an op
       assert.equal(game.received[0].at, 13_000);
       assert.equal(game.received[0].active, openDuringWait);
       assert.equal(game.progression.data.pendingConnectionMessages['pixelgirl-first-desktop'], undefined);
+      ConversationWindow.prototype.renderTyping.call(game.primaryView, game.now);
+      assert.equal(game.primaryView.typingIndicator.textContent, '');
     } finally {
       game.close();
     }

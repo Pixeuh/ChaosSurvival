@@ -15,6 +15,7 @@ export class NarrativeOrchestrator {
     dialogueEvents,
     getContact,
     prepareContact,
+    ensureBackground = () => {},
     showConnectionNotification,
     sendWizz = () => false,
     getGroupThread = () => null,
@@ -32,6 +33,7 @@ export class NarrativeOrchestrator {
       dialogueEvents,
       getContact,
       prepareContact,
+      ensureBackground,
       showConnectionNotification,
       sendWizz,
       getGroupThread,
@@ -641,7 +643,25 @@ export class NarrativeOrchestrator {
     const contact = this.getContact(contactId);
     if (!contact) return;
     if (notify) this.showConnectionNotification(contactId, notificationOptions);
-    this.connectionMessages?.connect(contactId, connectedAt);
+    if (!this.connectionMessages?.connect(contactId, connectedAt)) return;
+
+    // First-message typing is scheduled before a conversation window necessarily
+    // exists. Attach the owning thread's normal minimized view so the shared
+    // typing indicator can render during its existing deadline.
+    const events = this.connectionMessages.config?.events ?? {};
+    const pending = this.progression.data.pendingConnectionMessages ?? {};
+    const threadIds = new Set(
+      Object.entries(events)
+        .filter(([eventId, event]) =>
+          event.contactId === contactId &&
+          pending[eventId]?.runId === this.progression.data.runId,
+        )
+        .map(([, event]) => event.threadId),
+    );
+    for (const threadId of threadIds) {
+      const threadContact = this.getContact(threadId);
+      if (threadContact) this.ensureBackground(threadContact);
+    }
   }
 
   prepareSuperPlombierInvitation() {

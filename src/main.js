@@ -350,6 +350,7 @@ narrativeOrchestrator = new NarrativeOrchestrator({
   dialogueEvents,
   getContact: (contactId) => messenger.contacts().find((entry) => entry.id === contactId),
   prepareContact: (contact) => messenger.prepareContact(contact),
+  ensureBackground: (contact) => messenger.ensureBackground(contact),
   connectionMessages,
   showConnectionNotification: (contactId, options) => {
     const contact = messenger.contacts().find((entry) => entry.id === contactId);
