@@ -286,6 +286,38 @@ export class DesktopApplications {
     this.restore(instance);
     return instance;
   }
+  openMissingFileShortcut(file) {
+    if (this.virtualFilesystem?.exists(file?.fileId)) return null;
+    const fileId = typeof file?.fileId === 'string' ? file.fileId : '';
+    const key = `missing-shortcut:${fileId}`;
+    const existing = this.instances.get(key);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    const title = 'Windows XD';
+    const id = this.manager.spawn('desktopapp', {
+      preview: true,
+      content: {
+        title,
+        iconName: 'error',
+        body: '<section class="executable-error-dialog" role="alert"><span class="executable-error-symbol" aria-hidden="true">×</span><p class="missing-shortcut-message"></p><button type="button" class="xp-button">OK</button></section>',
+      },
+      onDismiss: () => {
+        this.instances.delete(key);
+        instance.task.remove();
+        this.onWindowState();
+      },
+    });
+    const instance = this.attachWindow(key, id, title, 'error');
+    instance.element.querySelector('.missing-shortcut-message').textContent =
+      `Impossible de trouver le fichier cible « ${String(file?.name ?? '')} ».`;
+    instance.element.querySelector('.executable-error-dialog button').addEventListener('click', () =>
+      this.manager.close(id),
+    );
+    this.restore(instance);
+    return instance;
+  }
   restore(instance) {
     instance.element.hidden = false;
     instance.element.style.zIndex = ++this.manager.z;
@@ -384,6 +416,7 @@ export class DesktopApplications {
   }
   setupExplorer(instance) {
     const body = instance.element.querySelector('.window-body');
+    const content = instance.element.querySelector('.explorer-items');
     const menu = document.createElement('div');
     menu.className = 'explorer-context-menu';
     menu.setAttribute('role', 'menu');
@@ -463,7 +496,68 @@ export class DesktopApplications {
       this.askDelete(instance, item);
     };
     document.addEventListener('keydown', deleteShortcut);
+    let fileDrag = null;
+    let suppressDragClick = null;
+    const onFileDragStart = (event) => {
+      if (event.button !== 0 || fileDrag) return;
+      const row = event.target.closest?.('.explorer-item');
+      const item = row && instance.current?.items.find((entry) => entry.fileId === row.dataset.fileId);
+      if (!item?.fileId || item.location || !this.virtualFilesystem?.exists(item.fileId)) return;
+      const selected = [...(content.querySelectorAll?.('.explorer-item[aria-selected="true"]') ?? [])];
+      if (selected.length > 1) return;
+      fileDrag = {
+        pointerId: event.pointerId,
+        row,
+        fileId: item.fileId,
+        startX: event.clientX,
+        startY: event.clientY,
+        started: false,
+      };
+    };
+    const onFileDragMove = (event) => {
+      const drag = fileDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const startsNow = !drag.started;
+      if (startsNow && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+      drag.started = true;
+      event.preventDefault();
+      if (startsNow)
+        try { drag.row.setPointerCapture?.(drag.pointerId); } catch { /* Pointer may already be released. */ }
+      this.onDesktopShortcutDrag?.('preview', drag.fileId, event.clientX, event.clientY);
+    };
+    const finishFileDrag = (event, canceled = false) => {
+      const drag = fileDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      fileDrag = null;
+      this.onDesktopShortcutDrag?.(
+        canceled || !drag.started ? 'cancel' : 'drop',
+        drag.fileId,
+        event.clientX,
+        event.clientY,
+      );
+      if (drag.started && !canceled) suppressDragClick = drag.row;
+    };
+    const onFileDragEnd = (event) => finishFileDrag(event);
+    const onFileDragCancel = (event) => finishFileDrag(event, true);
+    const onExplorerClick = (event) => {
+      if (!suppressDragClick || event.target.closest?.('.explorer-item') !== suppressDragClick) return;
+      suppressDragClick = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    content.addEventListener('pointerdown', onFileDragStart);
+    content.addEventListener('click', onExplorerClick, true);
+    document.addEventListener('pointermove', onFileDragMove);
+    document.addEventListener('pointerup', onFileDragEnd);
+    document.addEventListener('pointercancel', onFileDragCancel);
     instance.disposeExplorer = () => {
+      if (fileDrag) this.onDesktopShortcutDrag?.('cancel', fileDrag.fileId);
+      fileDrag = null;
+      content.removeEventListener('pointerdown', onFileDragStart);
+      content.removeEventListener('click', onExplorerClick, true);
+      document.removeEventListener('pointermove', onFileDragMove);
+      document.removeEventListener('pointerup', onFileDragEnd);
+      document.removeEventListener('pointercancel', onFileDragCancel);
       document.removeEventListener('click', closeOutside);
       document.removeEventListener('keydown', deleteShortcut);
     };

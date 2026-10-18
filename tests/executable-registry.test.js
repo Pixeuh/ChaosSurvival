@@ -130,6 +130,40 @@ test('deleting toolbar_setup.exe prevents a later launch and the file stays dele
   assert.equal(launches, 1);
 });
 
+test('a saved shortcut to a deleted virtual file reports the missing target without recreating it', () => {
+  const progression = new Progression(story);
+  const filesystem = new VirtualFilesystem(progression);
+  const fileId = virtualFileId('my-games', 'ChaosSurvival.exe');
+  const file = filesystem.getFile(fileId);
+  assert.equal(filesystem.deleteFile(fileId).ok, true);
+  let spawn;
+  const button = { addEventListener(_type, callback) { this.click = callback; } };
+  const message = {};
+  const instance = {
+    id: 1,
+    task: { remove() {} },
+    element: {
+      isConnected: true,
+      querySelector(selector) {
+        return selector === '.missing-shortcut-message' ? message : button;
+      },
+    },
+  };
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    manager: { spawn(_type, options) { spawn = options; return 1; }, close(id) { this.closed = id; } },
+    instances: new Map(),
+    attachWindow(key) { instance.key = key; return instance; },
+    restore() {},
+  });
+  app.openMissingFileShortcut(file);
+  assert.match(message.textContent, /Impossible de trouver le fichier cible « ChaosSurvival\.exe »/);
+  assert.equal(filesystem.exists(fileId), false, 'opening a broken shortcut never restores its file');
+  button.click();
+  assert.equal(app.manager.closed, 1);
+  assert.match(spawn.content.body, /missing-shortcut-message/);
+});
+
 test('legacy Smiley Pack saves remain readable and retain their virtual installer association', () => {
   const values = new Map();
   const storage = {

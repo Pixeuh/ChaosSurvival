@@ -64,6 +64,10 @@ class FakeElement {
     if (!this.fields.has(selector)) this.fields.set(selector, match(this) ?? new FakeElement());
     return this.fields.get(selector);
   }
+  querySelectorAll(selector) {
+    if (selector !== '.explorer-item[aria-selected="true"]') return [];
+    return this.children.filter((item) => item.className === 'explorer-item' && item.attrs['aria-selected'] === 'true');
+  }
 }
 
 test('virtual files have stable path IDs, protect system files, delete permanently and keep the bin empty', () => {
@@ -118,6 +122,49 @@ test('XP personal folders are rooted in Mes documents without legacy Games or Do
     'C:\\Documents and Settings\\Joueur\\Mes documents\\Mes fichiers reçus',
   );
   assert.equal(files.getLocation('music').address.endsWith('\\Ma musique'), true);
+});
+
+test('custom desktop shortcuts render from saved target IDs, route through the original folder, and remain broken after target deletion', (t) => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => Object.assign(new FakeElement(), { tagName: tag.toUpperCase() }) };
+  t.after(() => {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  });
+  const disk = memory();
+  const progression = new Progression(story, disk);
+  const fileId = virtualFileId('music', 'Sport Dubstep.mp3');
+  progression.data.desktopShortcuts = [{ id: 'user-a1', targetFileId: fileId, name: 'Sport Dubstep.mp3', icon: 'music' }];
+  progression.save();
+  const filesystem = new VirtualFilesystem(progression);
+  const nav = new FakeElement();
+  const desktop = new FakeElement();
+  desktop.querySelector = (selector) => selector === '#desktop-files' ? nav : null;
+  desktop.append = (element) => { desktop.children.push(element); };
+  const opened = [];
+  const files = new DesktopFiles(desktop, progression, (item, location) => opened.push({ item, location }), () => {}, filesystem);
+  files.render();
+  assert.equal(nav.children.length, 1);
+  const shortcut = nav.children[0];
+  assert.equal(shortcut.dataset.fileId, fileId);
+  assert.equal(shortcut.dataset.shortcutId, 'user-a1');
+  shortcut.handlers.dblclick();
+  assert.equal(opened[0].location.id, 'music');
+  assert.equal(opened[0].item.fileId, fileId);
+  assert.equal(opened[0].item.title, 'Sport Dubstep');
+
+  assert.equal(filesystem.deleteFile(fileId).ok, true);
+  files.render();
+  assert.equal(nav.children.length, 1, 'the shortcut remains as a broken link after its target is removed');
+  assert.equal(nav.children[0].children.at(-1).textContent, 'Sport Dubstep.mp3');
+  nav.children[0].handlers.dblclick();
+  assert.equal(opened[1].location, null);
+  assert.equal(opened[1].item.shortcutTarget, true);
+  assert.equal(filesystem.exists(opened[1].item.fileId), false);
+  const restored = new Progression(story, disk);
+  assert.deepEqual(restored.data.desktopShortcuts, progression.data.desktopShortcuts);
+  restored.newGame();
+  assert.deepEqual(restored.data.desktopShortcuts, []);
 });
 
 test('ChaosSurvival.exe launches from My Games and its deletion persists without affecting the desktop shortcut', () => {
@@ -607,10 +654,18 @@ test('filesystem changes roll back when the main save cannot be written', () => 
 test('explorer selects files, provides XP properties and confirmation, and refreshes each open view', (t) => {
   const oldDocument = globalThis.document;
   const listeners = new Set();
+  const eventListeners = new Map();
   globalThis.document = {
     createElement: (tag) => Object.assign(new FakeElement(), { tagName: tag.toUpperCase() }),
-    addEventListener(_type, callback) { listeners.add(callback); },
-    removeEventListener(_type, callback) { listeners.delete(callback); },
+    addEventListener(type, callback) {
+      listeners.add(callback);
+      if (!eventListeners.has(type)) eventListeners.set(type, new Set());
+      eventListeners.get(type).add(callback);
+    },
+    removeEventListener(type, callback) {
+      listeners.delete(callback);
+      eventListeners.get(type)?.delete(callback);
+    },
     activeElement: null,
   };
   t.after(() => {
@@ -624,6 +679,9 @@ test('explorer selects files, provides XP properties and confirmation, and refre
     };
     for (const listener of listeners) listener(event);
     return prevented;
+  };
+  const dispatch = (type, event) => {
+    for (const listener of eventListeners.get(type) ?? []) listener(event);
   };
   const progression = new Progression(story, memory());
   const transfer = progression.receiveFile({
@@ -677,6 +735,42 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   activeWindow = first.element;
   app.instances.set('downloads:first', first);
   app.instances.set('downloads:second', second);
+  const dragCalls = [];
+  app.onDesktopShortcutDrag = (...args) => dragCalls.push(args);
+  const explorerItems = first.element.querySelector('.explorer-items');
+  const dragRow = explorerItems.children.find((item) => item.dataset.fileId === virtualFileId('downloads', 'smileys_pack_2009.zip'));
+  explorerItems.handlers.pointerdown({ target: dragRow, button: 0, pointerId: 71, clientX: 10, clientY: 10 });
+  dispatch('pointermove', { pointerId: 71, clientX: 13, clientY: 13, preventDefault() {} });
+  dispatch('pointerup', { pointerId: 71, clientX: 13, clientY: 13 });
+  assert.deepEqual(dragCalls.map(([action]) => action), ['cancel'], 'a simple click-sized movement cannot create a shortcut');
+  dragCalls.length = 0;
+  explorerItems.handlers.pointerdown({ target: dragRow, button: 0, pointerId: 72, clientX: 10, clientY: 10 });
+  dispatch('pointermove', { pointerId: 72, clientX: 30, clientY: 14, preventDefault() {} });
+  dispatch('pointerup', { pointerId: 72, clientX: 690, clientY: 520 });
+  assert.deepEqual(dragCalls.map(([action]) => action), ['preview', 'drop']);
+  assert.equal(dragCalls[1][1], virtualFileId('downloads', 'smileys_pack_2009.zip'));
+  let dragClickPrevented = false;
+  let dragClickStopped = false;
+  explorerItems.handlers.click({
+    target: dragRow,
+    preventDefault() { dragClickPrevented = true; },
+    stopImmediatePropagation() { dragClickStopped = true; },
+  });
+  assert.equal(dragClickPrevented && dragClickStopped, true, 'a completed drag cannot trigger file activation');
+  const secondRow = explorerItems.children.find((item) => item !== dragRow && item.dataset.fileId);
+  dragRow.handlers.click();
+  secondRow.handlers.click();
+  dragRow.setAttribute('aria-selected', 'true');
+  secondRow.setAttribute('aria-selected', 'true');
+  assert.equal(explorerItems.querySelectorAll('.explorer-item[aria-selected="true"]').length, 2);
+  dragCalls.length = 0;
+  explorerItems.handlers.pointerdown({ target: dragRow, button: 0, pointerId: 73, clientX: 10, clientY: 10 });
+  dispatch('pointermove', { pointerId: 73, clientX: 30, clientY: 14, preventDefault() {} });
+  dispatch('pointerup', { pointerId: 73, clientX: 690, clientY: 520 });
+  assert.deepEqual(dragCalls, [], 'dragging a multi-selection does not create a partial shortcut');
+  dragRow.setAttribute('aria-selected', 'false');
+  secondRow.setAttribute('aria-selected', 'false');
+  first.selectedItem = null;
   assert.equal(dispatchDelete(), false, 'Delete does nothing without a selected file');
   assert.equal(first.explorerConfirmation.hidden, true);
   const input = Object.assign(new FakeElement(), { tagName: 'INPUT' });

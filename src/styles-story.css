@@ -636,6 +636,26 @@ button.messenger-contact-row:hover {
 .desktop-file span {
   overflow-wrap: anywhere;
 }
+.shortcut-drop-preview {
+  position: absolute;
+  z-index: 4;
+  width: 100px;
+  padding: 7px;
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  box-sizing: border-box;
+  color: white;
+  font-size: 10px;
+  text-align: center;
+  text-shadow: 1px 1px #17345c;
+  opacity: 0.58;
+  outline: 1px dashed #e8f4ff;
+  pointer-events: none;
+}
+.shortcut-drop-preview span {
+  overflow-wrap: anywhere;
+}
 .desktop-file[aria-pressed='true'],
 .desktop-file:focus,
 .desktop-file:hover {

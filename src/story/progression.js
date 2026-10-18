@@ -21,6 +21,7 @@ function freshData(story) {
     choiceOffers: {},
     files: {},
     virtualFilesystem: { deleted: [], added: {} },
+    desktopShortcuts: [],
     desktopIconsRemoved: [],
     anomalies: {},
     dialogueArchives: {},
@@ -120,6 +121,19 @@ function normalizeSaved(saved, story) {
   saved.desktopIconsRemoved = [...new Set(saved.desktopIconsRemoved.filter(
     (id) => typeof id === 'string' && /^(?:shortcut|file):[a-z0-9_./ -]{1,180}$/i.test(id),
   ))];
+  if (!Array.isArray(saved.desktopShortcuts)) saved.desktopShortcuts = [];
+  saved.desktopShortcuts = saved.desktopShortcuts.filter((shortcut) =>
+    record(shortcut) &&
+    typeof shortcut.id === 'string' && /^[a-z0-9-]{1,80}$/i.test(shortcut.id) &&
+    typeof shortcut.targetFileId === 'string' && /^[a-z0-9-]{1,40}\/[^/\\]{1,160}$/i.test(shortcut.targetFileId) &&
+    typeof shortcut.name === 'string' && shortcut.name.length > 0 && shortcut.name.length <= 160 &&
+    typeof shortcut.icon === 'string' && /^[a-z0-9-]{1,40}$/i.test(shortcut.icon),
+  ).map((shortcut) => ({
+    id: shortcut.id.toLowerCase(),
+    targetFileId: shortcut.targetFileId.toLowerCase(),
+    name: shortcut.name,
+    icon: shortcut.icon.toLowerCase(),
+  }));
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
   if (record(saved.textFiles)) {
     for (const key of Object.keys(saved.textFiles))

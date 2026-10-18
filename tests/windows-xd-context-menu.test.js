@@ -94,11 +94,13 @@ function setup(t) {
     deselectMany(buttons) { this.selection = this.selection.filter((item) => !buttons.includes(item)); },
   };
   const virtualFilesystem = {
-    getFile(id) { return id ? { name: id.endsWith('.zip') ? 'BombArena.zip' : 'notes.txt', fileId: id, extractable: id.endsWith('.zip') ? 'bomb-arena' : undefined } : null; },
+    getFile(id) { return id ? { name: id.endsWith('.zip') ? 'BombArena.zip' : 'notes.txt', fileId: id, locationId: 'downloads', extractable: id.endsWith('.zip') ? 'bomb-arena' : undefined } : null; },
+    getLocation(id) { return { id, items: [] }; },
     canDelete(id) { return Boolean(id); },
     deleteFile(id) { calls.deleted = id; return { ok: true, removedFileIds: [id] }; },
   };
   const desktopApplications = {
+    openFile(location, file) { calls.opened = [location.id, file.fileId]; },
     extractWithWinRoar(file) { calls.extracted.push(file.fileId); },
     closeOpenFile(id) { calls.closedFile = id; },
     refreshExplorers() { calls.refresh = true; },
@@ -106,6 +108,23 @@ function setup(t) {
   const menus = new WindowsXdContextMenus({ desktop, manager, desktopIcons, virtualFilesystem, desktopApplications, onFilesystemChange: (result) => calls.filesystem.push(result) });
   return { desktop, taskbar, manager, calls, menus, listeners, desktopIcons };
 }
+
+test('a virtual shortcut to an extractable ZIP offers WinRoar for the original target and deletes only the shortcut', (t) => {
+  const { menus, calls } = setup(t);
+  const button = new Element('button');
+  button.className = 'desktop-file desktop-virtual-shortcut';
+  button.dataset.fileId = 'downloads/bombarena.zip';
+  const actions = menus.desktopActions(button);
+  assert.deepEqual(actions.map((action) => action.label), ['Ouvrir', 'Extraire avec WinRoar', 'Supprimer']);
+  actions[0].run();
+  assert.deepEqual(calls.opened, ['downloads', 'downloads/bombarena.zip']);
+  actions[1].run();
+  assert.deepEqual(calls.extracted, ['downloads/bombarena.zip']);
+  actions[2].run();
+  assert.deepEqual(calls.removed, [button]);
+  assert.equal(calls.deleted, undefined, 'the menu never deletes the ZIP target');
+  menus.dispose();
+});
 
 test('taskbar context menu closes only the clicked window, including minimized tabs, without restoring it', (t) => {
   const { desktop, taskbar, manager, menus } = setup(t);

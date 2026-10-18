@@ -1,3 +1,5 @@
+import { icon } from './icons.js';
+
 const WIDTH = 120;
 const HEIGHT = 104;
 const MARGIN = 20;
@@ -56,6 +58,17 @@ export function nearestIconCell(x, y, grid) {
     col: Math.max(0, Math.min(grid.cols - 1, Math.round((x - MARGIN) / grid.step))),
     row: Math.max(0, Math.min(grid.rows - 1, Math.round((y - MARGIN) / HEIGHT))),
   };
+}
+export function nearestFreeIconCell(x, y, grid, occupied) {
+  const cells = [];
+  for (let col = 0; col < grid.cols; col++)
+    for (let row = 0; row < grid.rows; row++)
+      if (!occupied.has(`${col}:${row}`)) cells.push({ col, row });
+  cells.sort((a, b) =>
+    (MARGIN + a.col * grid.step - x) ** 2 + (MARGIN + a.row * HEIGHT - y) ** 2 -
+    ((MARGIN + b.col * grid.step - x) ** 2 + (MARGIN + b.row * HEIGHT - y) ** 2),
+  );
+  return cells[0] ?? null;
 }
 export function iconCellLeft(cell, grid, width, iconWidth, edge = 'left') {
   const col = edge === 'right' ? grid.cols - 1 : cell.col;
@@ -159,14 +172,16 @@ export function groupIconCells(cells, ids, delta, grid) {
 
 export class DesktopIcons {
   reset() {
+    this.clearShortcutDropPreview();
     this.cancel();
     this.suppressClick = null;
     this.select(null);
     this.refresh();
   }
-  constructor(desktop, progression) {
+  constructor(desktop, progression, virtualFilesystem = null) {
     this.desktop = desktop;
     this.progression = progression;
+    this.virtualFilesystem = virtualFilesystem;
     this.selectedIds = new Set();
     desktop.classList.add('icon-grid');
     desktop.addEventListener('dragstart', (event) => {
@@ -200,7 +215,9 @@ export class DesktopIcons {
     return button?.closest('.desktop-icons, .desktop-files') ? button : null;
   }
   id(button) {
-    return button.dataset.fileId
+    return button.dataset.shortcutId
+      ? `shortcut:${button.dataset.shortcutId}`
+      : button.dataset.fileId
       ? `file:${button.dataset.fileId}`
       : // Keep the previous saved cell when the music launcher becomes an EXE.
         `shortcut:${button.dataset.shortcut === 'arcade' ? 'music' : button.dataset.shortcut}`;
@@ -227,10 +244,110 @@ export class DesktopIcons {
       if (!this.saved[savedId]) this.saved[savedId] = { ...cell, custom: true };
     this.progression.data.desktopIcons = this.saved;
     this.progression.data.desktopIconsRemoved = [...this.removedIds(), ...ids];
+    const removedCustom = new Set(ids.filter((id) => id.startsWith('shortcut:user-')));
+    if (removedCustom.size)
+      this.progression.data.desktopShortcuts = (this.progression.data.desktopShortcuts ?? [])
+        .filter((shortcut) => !removedCustom.has(`shortcut:${shortcut.id}`));
     for (const id of ids) this.selectedIds.delete(id);
     this.progression.save();
     this.refresh();
     return true;
+  }
+  dropTarget(fileId, clientX, clientY) {
+    if (this.desktop.inert || !this.virtualFilesystem?.exists(fileId)) return null;
+    const target = document.elementFromPoint?.(clientX, clientY);
+    if (!target || !this.desktop.contains(target)) return null;
+    if (target.closest?.('.popup, .taskbar, .start-menu, #start-menu, .start-panel, .windows-xd-context-menu, .windows-xd-context-confirmation'))
+      return null;
+    const iconButton = target.closest?.('.desktop-icons button, .desktop-files button');
+    if (iconButton)
+      return iconButton.dataset.fileId === fileId &&
+        (iconButton.dataset.shortcutId || iconButton.classList?.contains('desktop-virtual-shortcut'))
+        ? { duplicate: iconButton }
+        : null;
+    this.refresh();
+    const rect = this.desktop.getBoundingClientRect();
+    const taskbar = this.desktop.querySelector('.taskbar')?.getBoundingClientRect();
+    if (taskbar && clientY >= taskbar.top) return null;
+    const occupied = new Set([...this.cells.values()].map((cell) => `${cell.col}:${cell.row}`));
+    const cell = nearestFreeIconCell(clientX - rect.left, clientY - rect.top, this.grid, occupied);
+    return cell ? { cell } : null;
+  }
+  clearShortcutDropPreview() {
+    this.dropPreview?.remove();
+    this.dropPreview = null;
+  }
+  existingFileIcon(fileId) {
+    return this.buttons().find((button) =>
+      !button.hidden && button.style.visibility !== 'hidden' && button.dataset.fileId === fileId &&
+      (button.dataset.shortcutId || button.classList?.contains('desktop-virtual-shortcut')),
+    ) ?? null;
+  }
+  updateShortcutDropPreview(fileId, clientX, clientY) {
+    this.clearShortcutDropPreview();
+    const existing = this.existingFileIcon(fileId);
+    if (existing) {
+      this.select(existing);
+      return true;
+    }
+    const target = this.dropTarget(fileId, clientX, clientY);
+    if (!target) return false;
+    if (target.duplicate) {
+      this.select(target.duplicate);
+      return true;
+    }
+    const file = this.virtualFilesystem.getFile(fileId);
+    const rect = this.desktop.getBoundingClientRect();
+    const preview = document.createElement('div');
+    preview.className = 'shortcut-drop-preview';
+    preview.setAttribute('aria-hidden', 'true');
+    preview.innerHTML = icon(file.icon);
+    const label = document.createElement('span');
+    label.textContent = file.name;
+    preview.append(label);
+    preview.style.left = `${iconCellLeft(target.cell, this.grid, rect.width, 100)}px`;
+    preview.style.top = `${iconCellTop(target.cell)}px`;
+    this.desktop.append(preview);
+    this.dropPreview = preview;
+    return true;
+  }
+  createFileShortcut(fileId, clientX, clientY) {
+    this.clearShortcutDropPreview();
+    if (!this.virtualFilesystem?.exists(fileId)) return { ok: false, reason: 'missing' };
+    const existing = this.existingFileIcon(fileId);
+    if (existing) {
+      this.select(existing);
+      return { ok: true, existing: true };
+    }
+    const target = this.dropTarget(fileId, clientX, clientY);
+    if (!target) return { ok: false, reason: 'invalid-drop' };
+    if (target.duplicate) {
+      this.select(target.duplicate);
+      return { ok: true, existing: true };
+    }
+    const file = this.virtualFilesystem.getFile(fileId);
+    const id = `user-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+    const shortcut = { id, targetFileId: file.fileId, name: file.name, icon: file.icon };
+    const shortcuts = Array.isArray(this.progression.data.desktopShortcuts)
+      ? this.progression.data.desktopShortcuts
+      : [];
+    const previousSavedData = this.progression.data.desktopIcons;
+    const previousShortcuts = this.progression.data.desktopShortcuts;
+    const nextSaved = { ...this.saved };
+    for (const [existingId, cell] of this.cells)
+      if (!Object.hasOwn(nextSaved, existingId)) nextSaved[existingId] = { ...cell, custom: true };
+    nextSaved[`shortcut:${id}`] = { ...target.cell, custom: true };
+    this.saved = nextSaved;
+    this.progression.data.desktopIcons = nextSaved;
+    this.progression.data.desktopShortcuts = [...shortcuts, shortcut];
+    if (!this.progression.save()) {
+      this.progression.data.desktopIcons = previousSavedData;
+      this.progression.data.desktopShortcuts = previousShortcuts;
+      this.saved = previousSavedData && typeof previousSavedData === 'object' ? previousSavedData : {};
+      return { ok: false, reason: 'save' };
+    }
+    this.onShortcutsChanged?.();
+    return { ok: true, shortcut };
   }
   select(button) {
     this.selectMany(button ? [button] : []);

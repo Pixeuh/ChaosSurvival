@@ -91,8 +91,36 @@ export class WindowsXdContextMenus {
       if (SYSTEM_SHORTCUTS.has(shortcut)) return [];
       return [{ id: 'delete-shortcut', label: 'Supprimer', run: () => this.desktopIcons.remove(button) }];
     }
-    if (button.classList.contains('desktop-virtual-shortcut'))
-      return [{ id: 'delete-shortcut', label: 'Supprimer', run: () => this.desktopIcons.remove(button) }];
+    if (button.classList.contains('desktop-virtual-shortcut')) {
+      const file = this.virtualFilesystem?.getFile(button.dataset.fileId);
+      const actions = [{
+        id: 'open-shortcut',
+        label: 'Ouvrir',
+        run: () => {
+          const item = file ?? {
+            fileId: button.dataset.fileId,
+            name: button.querySelector?.('span')?.textContent ?? '',
+          };
+          const location = file ? this.virtualFilesystem.getLocation(file.locationId) : null;
+          if (this.desktopApplications.onOpenDesktopShortcut)
+            return this.desktopApplications.onOpenDesktopShortcut(item, location);
+          if (file) return this.desktopApplications.openFile(location, file);
+          return this.desktopApplications.openMissingFileShortcut(item);
+        },
+      }];
+      if (file && SUPPORTED_ARCHIVES.has(file.extractable))
+        actions.push({
+          id: 'extract',
+          label: 'Extraire avec WinRoar',
+          run: () => this.desktopApplications.extractWithWinRoar(file),
+        });
+      actions.push({
+        id: 'delete-shortcut',
+        label: 'Supprimer',
+        run: () => this.desktopIcons.remove(button),
+      });
+      return actions;
+    }
     const fileId = button.dataset.fileId;
     const file = this.virtualFilesystem?.getFile(fileId);
     if (!file) return [];

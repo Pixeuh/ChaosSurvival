@@ -574,11 +574,19 @@ const menu = new MainMenu(document.getElementById('app'), progression, settings,
     }
   },
 });
-const desktopIcons = new DesktopIcons(ui.desktop, progression);
+const desktopIcons = new DesktopIcons(ui.desktop, progression, virtualFilesystem);
 const desktopFiles = new DesktopFiles(ui.desktop, progression, openDesktopFile, () =>
   desktopIcons.refresh(),
   virtualFilesystem,
 );
+desktopIcons.onShortcutsChanged = renderDesktopFiles;
+desktopApplications.onOpenDesktopShortcut = (file, location) =>
+  openDesktopFile({ ...file, shortcutTarget: true }, location);
+desktopApplications.onDesktopShortcutDrag = (action, fileId, x, y) => {
+  if (action === 'cancel') return desktopIcons.clearShortcutDropPreview();
+  if (action === 'preview') return desktopIcons.updateShortcutDropPreview(fileId, x, y);
+  return desktopIcons.createFileShortcut(fileId, x, y);
+};
 const desktopContextMenus = new WindowsXdContextMenus({
   desktop: ui.desktop,
   manager,
@@ -1142,8 +1150,13 @@ function replayLevelOne() {
 function renderDesktopFiles() {
   desktopFiles.render();
 }
-function openDesktopFile(file) {
+function openDesktopFile(file, location = null) {
   if (phase !== 'desktop') return;
+  if (file.shortcutTarget) {
+    if (!virtualFilesystem.exists(file.fileId)) return desktopApplications.openMissingFileShortcut(file);
+    if (location) return desktopApplications.openFile(location, file);
+    return;
+  }
   if (file.virtualApp === 'bomb-arena') {
     if (virtualFilesystem.exists(file.fileId)) desktopApplications.openBombArena(file, file.fileId);
     return;
