@@ -592,7 +592,9 @@ export class ConversationWindow {
         this.typingIndicator.classList.remove('is-typing');
       }
 
-      const events = this.thread.getEvents();
+      // Ctrl+Shift+F finishes only the event shown in this conversation window.
+      // Other events in the same contact thread must remain scheduled normally.
+      const events = [this.dialogue];
       while (operations++ < maxOperations) {
         // Deliver one scripted message at a time through DialogueSession so its
         // transcript and save data stay identical to ordinary playback.
@@ -622,7 +624,10 @@ export class ConversationWindow {
         if (transferEvent) {
           const session = this.sessionFor(transferEvent);
           const file = session.activeTransfer;
-          const accepted = Number(random()) >= 0.5;
+          // Finishing the BombArena conversation must apply its scripted ZIP
+          // transfer; randomness remains for unrelated fictional transfers.
+          const accepted =
+            file.extractable === 'bomb-arena' || Number(random()) >= 0.5;
           if (accepted) {
             this.progression.finishTransfer(file.key);
             this.onFilesChanged();
@@ -652,18 +657,18 @@ export class ConversationWindow {
         }
         if (advanced) continue;
 
-        if (this.thread.hasPendingMessages) continue;
-        const group = this.thread.pendingResponses[0];
-        if (group) {
-          const session = this.sessionFor(group.definition);
-          const choices = session.offerChoices();
-          if (!choices.length) continue;
+        const currentSession = this.sessionFor(this.dialogue);
+        const pendingChoices = currentSession.choices;
+        if (pendingChoices.length) {
+          const session = currentSession;
+          const offeredChoices = session.offerChoices();
+          if (!offeredChoices.length) continue;
           const value = Number(random());
           const index = Number.isFinite(value)
-            ? Math.min(choices.length - 1, Math.max(0, Math.floor(value * choices.length)))
+            ? Math.min(offeredChoices.length - 1, Math.max(0, Math.floor(value * offeredChoices.length)))
             : 0;
-          const choice = choices[index];
-          this.chooseResponse(group.definition, session, choice.id);
+          const choice = offeredChoices[index];
+          this.chooseResponse(this.dialogue, session, choice.id);
           choiceNumber++;
           log(`[DEV] Choix ${choiceNumber} : "${choice.text}"`);
           this.thread.sync();
