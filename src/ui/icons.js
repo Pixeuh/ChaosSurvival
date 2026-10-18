@@ -6,6 +6,13 @@ const desktopIcons = {
   folder: './icons/folder.svg',
   bin: './icons/recycle-empty.svg',
 };
+const executableIcons = Object.freeze({
+  'my-games/chaossurvival.exe': 'arcade-game',
+  'messenger-files/love-messenger.exe': 'msn',
+  'browser-files/adventurer.exe': 'browser',
+  'media-files/media-play.exe': 'media',
+  'bomb-arena-folder/bombarena.exe': 'arcade-game',
+});
 const paths = {
   buddy:
     '<path d="M30 37V13c0-12-20-12-20 0v22c0 14 26 14 26 0V17c0-8-14-8-14 0v19" fill="none" stroke="#566473" stroke-width="6" stroke-linecap="round"/><path d="M30 37V13c0-12-20-12-20 0v22c0 14 26 14 26 0V17c0-8-14-8-14 0v19" fill="none" stroke="#c7d5e1" stroke-width="3" stroke-linecap="round"/><g class="buddy-eyes"><ellipse cx="18" cy="17" rx="5" ry="6" fill="#fff" stroke="#5b6673"/><ellipse cx="29" cy="17" rx="5" ry="6" fill="#fff" stroke="#5b6673"/><g class="buddy-pupils" fill="#24415b"><circle cx="19" cy="18" r="2"/><circle cx="28" cy="18" r="2"/></g></g>',
@@ -37,4 +44,15 @@ export function icon(name, className = '') {
   if (brandIcons[name])
     return `<img class="icon ${className}" src="${applicationLogo(brandIcons[name])}" alt="" aria-hidden="true" draggable="false" />`;
   return `<svg class="icon ${className}" viewBox="0 0 48 48" aria-hidden="true">${paths[name] ?? paths.computer}</svg>`;
+}
+
+export function fileIcon(file, fallback = file?.icon ?? 'document') {
+  if (!/\.exe$/i.test(file?.name ?? '')) return fallback;
+  const fileId = String(file.fileId ?? '')
+    .toLowerCase()
+    .replace(/^\//, '');
+  if (executableIcons[fileId]) return executableIcons[fileId];
+  if (file.launch?.game === 'smiley-catcher') return 'download';
+  if (file.virtualApp === 'bomb-arena') return 'arcade-game';
+  return fallback;
 }

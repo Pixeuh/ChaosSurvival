@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applications, applicationLogo, brandedText, trackIdentity } from '../src/ui/identity.js';
-import { icon } from '../src/ui/icons.js';
+import { fileIcon, icon } from '../src/ui/icons.js';
 import { createPopupContent } from '../src/ui/popup-content.js';
 import { popupContent } from '../src/config/popups.js';
 import { arcadeLauncher, isArcadeExecutable } from '../src/ui/arcade-launcher.js';
@@ -41,6 +41,24 @@ test('all five brands have distinct local SVGs and the legacy icon IDs still wor
   assert.ok(icon('msn').includes(applications.messenger.logo));
   assert.ok(icon('globe').includes(applications.browser.logo));
   assert.ok(icon('music').includes(applications.media.logo));
+});
+test('virtual executable icons reuse the exact local SVGs already used by desktop shortcuts', () => {
+  const cases = [
+    ['my-games/chaossurvival.exe', 'ChaosSurvival.exe', 'arcade-game'],
+    ['downloads/super_mega_game.exe', 'SUPER_MEGA_GAME.exe', 'download', { launch: { game: 'smiley-catcher' } }],
+    ['media-files/media-play.exe', 'media-play.exe', 'media'],
+    ['messenger-files/love-messenger.exe', 'love-messenger.exe', 'msn'],
+    ['browser-files/adventurer.exe', 'adventurer.exe', 'browser'],
+    ['bomb-arena-folder/bombarena.exe', 'BombArena.exe', 'arcade-game', { virtualApp: 'bomb-arena' }],
+  ];
+  for (const [fileId, name, desktopIcon, extra = {}] of cases) {
+    const explorerMarkup = icon(fileIcon({ fileId, name, icon: 'document', ...extra }));
+    assert.equal(explorerMarkup, icon(desktopIcon), `${fileId} uses the same actual icon resource`);
+    if (desktopIcon === 'download') assert.match(explorerMarkup, /<svg[^>]+><path/);
+    else assert.match(explorerMarkup, /src="(?:\.\/logos\/|\.\/icons\/)/);
+  }
+  assert.equal(fileIcon({ fileId: 'downloads/toolbar_setup.exe', name: 'toolbar_setup.exe' }), 'document');
+  assert.equal(fileIcon({ fileId: 'music/track.mp3', name: 'track.mp3', icon: 'music' }), 'music');
 });
 test('visible arcade app names are harmonized without rewriting their configuration or narrative', () => {
   const old =

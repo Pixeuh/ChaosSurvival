@@ -190,6 +190,7 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
   assert.equal(created.ok, true);
   assert.equal(filesystem.exists(targetId), true, 'creating a shortcut leaves its target in My Games');
   assert.deepEqual(progression.data.desktopShortcuts, [created.shortcut]);
+  assert.equal(created.shortcut.icon, 'arcade-game', 'the Chaos Survival file shortcut keeps the launcher icon ID');
   assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 0, row: 1, custom: true });
   assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 0, row: 2, custom: true });
   assert.equal(progression.data.desktopIcons[`shortcut:${created.shortcut.id}`].custom, true);

@@ -821,6 +821,8 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   const receivedRow = first.element.querySelector('.explorer-items').children.find(
     (item) => item.dataset.fileId === receivedId,
   );
+  assert.equal(receivedRow.innerHTML, desktopButton.innerHTML,
+    'the Explorer item reuses the exact icon markup shown on the desktop shortcut');
   receivedRow.handlers.click();
   globalThis.document.activeElement = receivedRow;
   assert.equal(dispatchDelete(receivedRow), true, 'Delete opens the existing confirmation for the selected file');

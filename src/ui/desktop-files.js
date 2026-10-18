@@ -1,5 +1,5 @@
 import { bindFileActivation } from '../utils/activation.js';
-import { icon } from './icons.js';
+import { fileIcon, icon } from './icons.js';
 import { virtualFileId } from '../story/virtual-filesystem.js';
 
 export class DesktopFiles {
@@ -42,7 +42,7 @@ export class DesktopFiles {
       if (smileyCatcherShortcut) renderedShortcutTargets.add(button.dataset.fileId);
       if (smileyCatcherShortcut) button.title = `Raccourci vers ${file.name}`;
       button.setAttribute('aria-pressed', 'false');
-      button.innerHTML = icon('download');
+      button.innerHTML = icon(fileIcon(file, 'download'));
       const name = document.createElement('span');
       name.textContent = file.name;
       button.append(name);
@@ -84,7 +84,7 @@ export class DesktopFiles {
       button.dataset.shortcutId = record.id;
       button.title = `Raccourci vers ${target?.name ?? record.name}`;
       button.setAttribute('aria-pressed', 'false');
-      button.innerHTML = icon(target?.icon ?? record.icon);
+      button.innerHTML = icon(target ? fileIcon(target, record.icon) : record.icon);
       const name = document.createElement('span');
       name.textContent = target?.name ?? record.name;
       button.append(name);

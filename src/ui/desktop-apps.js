@@ -1,7 +1,7 @@
 import definitions from '../config/desktop-apps.json' with { type: 'json' };
 import filesystem from '../config/filesystem.json' with { type: 'json' };
 import { bindFileActivation } from '../utils/activation.js';
-import { icon } from './icons.js';
+import { fileIcon, icon } from './icons.js';
 import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
@@ -353,7 +353,7 @@ export class DesktopApplications {
     for (const item of definition.items) {
       const button = document.createElement('button');
       button.className = 'explorer-item';
-      button.innerHTML = icon(item.icon);
+      button.innerHTML = icon(fileIcon(item));
       const label = document.createElement('strong');
       label.textContent = item.name;
       const detail = document.createElement('small');

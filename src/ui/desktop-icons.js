@@ -1,4 +1,4 @@
-import { icon } from './icons.js';
+import { fileIcon, icon } from './icons.js';
 
 const WIDTH = 120;
 const HEIGHT = 104;
@@ -301,7 +301,7 @@ export class DesktopIcons {
     const preview = document.createElement('div');
     preview.className = 'shortcut-drop-preview';
     preview.setAttribute('aria-hidden', 'true');
-    preview.innerHTML = icon(file.icon);
+    preview.innerHTML = icon(fileIcon(file));
     const label = document.createElement('span');
     label.textContent = file.name;
     preview.append(label);
@@ -327,7 +327,7 @@ export class DesktopIcons {
     }
     const file = this.virtualFilesystem.getFile(fileId);
     const id = `user-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
-    const shortcut = { id, targetFileId: file.fileId, name: file.name, icon: file.icon };
+    const shortcut = { id, targetFileId: file.fileId, name: file.name, icon: fileIcon(file) };
     const shortcuts = Array.isArray(this.progression.data.desktopShortcuts)
       ? this.progression.data.desktopShortcuts
       : [];
