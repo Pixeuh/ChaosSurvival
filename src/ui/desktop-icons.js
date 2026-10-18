@@ -4,6 +4,9 @@ const WIDTH = 120;
 const HEIGHT = 104;
 const MARGIN = 20;
 const SYSTEM_SHORTCUT_IDS = new Set(['shortcut:computer', 'shortcut:folder', 'shortcut:bin']);
+const INITIAL_SHORTCUT_TARGETS = new Map([
+  ['arcade', 'my-games/chaossurvival.exe'],
+]);
 const INITIAL_ICON_ORDER = [
   'shortcut:bin',
   'shortcut:computer',
@@ -225,6 +228,10 @@ export class DesktopIcons {
   buttons() {
     return [...this.desktop.querySelectorAll('.desktop-icons button, .desktop-files button')];
   }
+  targetFileId(button) {
+    const targetFileId = button?.dataset?.fileId ?? INITIAL_SHORTCUT_TARGETS.get(button?.dataset?.shortcut);
+    return typeof targetFileId === 'string' ? targetFileId.toLowerCase() : null;
+  }
   removedIds() {
     return Array.isArray(this.progression.data.desktopIconsRemoved)
       ? this.progression.data.desktopIconsRemoved
@@ -278,10 +285,14 @@ export class DesktopIcons {
     this.dropPreview = null;
   }
   existingFileIcon(fileId) {
-    return this.buttons().find((button) =>
-      !button.hidden && button.style.visibility !== 'hidden' && button.dataset.fileId === fileId &&
-      (button.dataset.shortcutId || button.classList?.contains('desktop-virtual-shortcut')),
-    ) ?? null;
+    const target = typeof fileId === 'string' ? fileId.toLowerCase() : '';
+    return this.buttons().find((button) => {
+      const isShortcut = button.dataset.shortcutId ||
+        button.classList?.contains('desktop-virtual-shortcut') ||
+        INITIAL_SHORTCUT_TARGETS.has(button.dataset.shortcut);
+      return !button.hidden && button.style.visibility !== 'hidden' && isShortcut &&
+        this.targetFileId(button) === target;
+    }) ?? null;
   }
   updateShortcutDropPreview(fileId, clientX, clientY) {
     this.clearShortcutDropPreview();

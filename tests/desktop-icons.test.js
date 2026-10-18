@@ -156,7 +156,7 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
   const storage = memory();
   const progression = new Progression(story, storage);
   const filesystem = new VirtualFilesystem(progression);
-  const targetId = virtualFileId('my-games', 'ChaosSurvival.exe');
+  const targetId = virtualFileId('music', 'Sport Dubstep.mp3');
   const nav = { children: [] };
   const desktop = {
     inert: false,
@@ -188,15 +188,15 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
   assert.notDeepEqual(nearest, { col: 0, row: 0 });
   const created = icons.createFileShortcut(targetId, 240, 200);
   assert.equal(created.ok, true);
-  assert.equal(filesystem.exists(targetId), true, 'creating a shortcut leaves its target in My Games');
+  assert.equal(filesystem.exists(targetId), true, 'creating a shortcut leaves its target file in place');
   assert.deepEqual(progression.data.desktopShortcuts, [created.shortcut]);
-  assert.equal(created.shortcut.icon, 'arcade-game', 'the Chaos Survival file shortcut keeps the launcher icon ID');
+  assert.equal(created.shortcut.icon, 'music');
   assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 0, row: 1, custom: true });
   assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 0, row: 2, custom: true });
   assert.equal(progression.data.desktopIcons[`shortcut:${created.shortcut.id}`].custom, true);
   assert.deepEqual(icons.createFileShortcut(targetId, 240, 200), { ok: true, existing: true });
   assert.equal(nav.children.length, 1, 'repeated drops reuse the existing shortcut');
-  const otherTarget = virtualFileId('music', 'Sport Dubstep.mp3');
+  const otherTarget = virtualFileId('music', 'I Love Chiptune Punk.mp3');
   globalThis.document.elementFromPoint = () => ({ closest: (selector) => selector.includes('.popup') ? {} : null });
   assert.deepEqual(icons.createFileShortcut(otherTarget, 300, 240), { ok: false, reason: 'invalid-drop' });
   assert.equal(progression.data.desktopShortcuts.length, 1, 'dropping on another window creates nothing');
@@ -207,18 +207,77 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
   const shortcutButton = nav.children[0];
   const restoredIcons = Object.create(DesktopIcons.prototype);
   Object.assign(restoredIcons, {
-    progression: restored, saved: restored.data.desktopIcons, cells: occupied,
-    selectedIds: new Set(), refresh() {},
+    desktop, progression: restored, virtualFilesystem: restoredFs,
+    saved: restored.data.desktopIcons, cells: occupied, selectedIds: new Set(),
+    buttons: () => nav.children, select(button) { this.selected = button; }, refresh() {},
   });
+  assert.deepEqual(restoredIcons.createFileShortcut(targetId, 240, 200), { ok: true, existing: true });
+  assert.equal(nav.children.length, 1, 'a saved shortcut is recognized after reload');
   assert.equal(restoredIcons.remove(shortcutButton), true);
   assert.equal(restoredFs.exists(targetId), true, 'deleting the shortcut never deletes its EXE');
   assert.deepEqual(restored.data.desktopShortcuts, []);
   assert.ok(restored.data.desktopIconsRemoved.includes(`shortcut:${created.shortcut.id}`));
   const afterDelete = new Progression(story, storage);
   assert.deepEqual(afterDelete.data.desktopIconsRemoved, restored.data.desktopIconsRemoved);
+  const recreated = Object.create(DesktopIcons.prototype);
+  globalThis.document.elementFromPoint = () => background;
+  Object.assign(recreated, {
+    desktop, progression: afterDelete, virtualFilesystem: new VirtualFilesystem(afterDelete),
+    saved: afterDelete.data.desktopIcons, cells: occupied, grid: iconGrid(1280, 800), selectedIds: new Set(),
+    buttons: () => [], select() {}, refresh() {}, onShortcutsChanged() {},
+  });
+  const recreatedShortcut = recreated.createFileShortcut(targetId, 240, 200);
+  assert.equal(recreatedShortcut.ok, true, 'a deleted shortcut can be recreated');
+  assert.equal(recreatedShortcut.shortcut.targetFileId, targetId);
+  assert.equal(recreated.virtualFilesystem.exists(targetId), true);
   afterDelete.newGame();
   assert.deepEqual(afterDelete.data.desktopShortcuts, []);
   assert.deepEqual(afterDelete.data.desktopIconsRemoved, []);
+});
+
+test('desktop file shortcut deduplication uses target paths and includes the initial ChaosSurvival.exe icon', (t) => {
+  const oldDocument = globalThis.document;
+  globalThis.document = { elementFromPoint: () => ({ closest: () => null }) };
+  t.after(() => {
+    if (oldDocument === undefined) delete globalThis.document;
+    else globalThis.document = oldDocument;
+  });
+  const progression = new Progression(story, memory());
+  const filesystem = new VirtualFilesystem(progression);
+  const gameId = virtualFileId('my-games', 'ChaosSurvival.exe');
+  const initialGameIcon = {
+    dataset: { shortcut: 'arcade' }, style: {}, hidden: false,
+    classList: { contains: () => false }, setAttribute() {},
+  };
+  const nav = { children: [] };
+  const desktop = {
+    inert: false, contains: () => true,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }),
+    querySelector: () => null,
+  };
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    desktop, progression, virtualFilesystem: filesystem, saved: {}, cells: new Map(),
+    grid: iconGrid(1280, 800), selectedIds: new Set(),
+    buttons: () => [initialGameIcon, ...nav.children],
+    select(button) { this.selected = button; }, refresh() {},
+  });
+  const savedPositions = progression.data.desktopIcons;
+  assert.deepEqual(icons.createFileShortcut(gameId, 240, 200), { ok: true, existing: true });
+  assert.equal(icons.selected, initialGameIcon, 'the existing desktop launcher is selected');
+  assert.equal(nav.children.length, 0);
+  assert.deepEqual(progression.data.desktopShortcuts, []);
+  assert.equal(progression.data.desktopIcons, savedPositions, 'existing icon positions are untouched');
+
+  const firstSameName = filesystem.addFile('music', { name: 'same-name.exe', detail: 'Application' });
+  const secondSameName = filesystem.addFile('my-games', { name: 'same-name.exe', detail: 'Application' });
+  assert.equal(firstSameName.ok, true);
+  assert.equal(secondSameName.ok, true);
+  icons.onShortcutsChanged = () => {};
+  assert.equal(icons.createFileShortcut(firstSameName.fileId, 240, 200).ok, true);
+  assert.equal(icons.createFileShortcut(secondSameName.fileId, 360, 200).ok, true);
+  assert.equal(progression.data.desktopShortcuts.length, 2, 'different target paths with the same name get separate shortcuts');
+  assert.notEqual(progression.data.desktopShortcuts[0].targetFileId, progression.data.desktopShortcuts[1].targetFileId);
 });
 
 test('desktop columns use one even pitch and keep the right margin at each width', () => {
