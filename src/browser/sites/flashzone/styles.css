@@ -90,21 +90,46 @@
   cursor: pointer;
 }
 .bubble-play,
-.bubble-replay {
+.bubble-replay,
+.bubble-change-difficulty,
+.bubble-difficulty {
   padding: 7px 24px;
   background: linear-gradient(#fff583, #ffb539);
   border: 2px outset #ffe795;
   color: #604010;
 }
 .bubble-play:hover,
-.bubble-replay:hover {
+.bubble-replay:hover,
+.bubble-change-difficulty:hover,
+.bubble-difficulty:hover {
   filter: brightness(1.1);
+}
+.bubble-difficulty {
+  min-width: 125px;
+  margin: 6px;
+  padding: 9px 16px;
+  background: linear-gradient(#fff583, #ffb539);
+  border: 2px outset #ffe795;
+  color: #604010;
+}
+.bubble-change-difficulty {
+  margin-left: 8px;
+  padding: 7px 14px;
+  background: linear-gradient(#fff, #c6d6e8);
+  border: 2px outset #dbe6f4;
+  color: #243852;
 }
 .bubble-stats {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
+}
+.bubble-stats strong {
+  color: #fff29a;
+}
+.bubble-result button {
+  margin: 4px;
 }
 .bubble-arena {
   position: relative;

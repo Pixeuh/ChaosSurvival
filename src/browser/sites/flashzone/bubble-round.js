@@ -3,12 +3,41 @@ export const BOARD_HEIGHT = 600;
 export const BUBBLE_RADIUS = 16;
 export const COLUMN_COUNT = 13;
 export const ROW_LIMIT = 24;
-export const COLORS = 4;
+export const COLORS = 6;
 const DX = BUBBLE_RADIUS * 2;
 const DY = Math.sqrt(3) * BUBBLE_RADIUS;
-const SHOT_SPEED = 430;
+const BASE_SHOT_SPEED = 430;
 const SHOOTER = { x: BOARD_WIDTH / 2, y: BOARD_HEIGHT - 34 };
 const LOSE_Y = BOARD_HEIGHT - 72;
+
+export const BUBBLE_DIFFICULTIES = Object.freeze({
+  facile: Object.freeze({
+    id: 'facile', label: 'FACILE', colorCount: 3, initialRows: 4,
+    missesBeforeRow: 8, speedMultiplier: 1,
+    pattern: '0000111122200',
+  }),
+  moyen: Object.freeze({
+    id: 'moyen', label: 'MOYEN', colorCount: 5, initialRows: 6,
+    missesBeforeRow: 5, speedMultiplier: 1.2,
+    pattern: '0001122233440',
+  }),
+  extreme: Object.freeze({
+    id: 'extreme', label: 'EXTR\u00caME', colorCount: 6, initialRows: 8,
+    missesBeforeRow: 3, speedMultiplier: 1.4,
+    pattern: '0011223344550',
+  }),
+});
+
+function initialRow(config, row) {
+  return [...config.pattern].map((value, col) => {
+    const base = Number(value);
+    if (config.id === 'facile') return base;
+    const offset = row % config.colorCount;
+    const reversed = config.id === 'extreme' && row % 2 === 1;
+    const source = reversed ? config.pattern.length - 1 - col : col;
+    return (Number(config.pattern[source]) + offset) % config.colorCount;
+  });
+}
 
 export function cellKey(row, col) {
   return `${row}:${col}`;
@@ -70,28 +99,26 @@ export function detachedCells(board) {
 }
 
 export class BubbleRound {
-  constructor(random = Math.random) {
+  constructor(random = Math.random, difficulty = 'moyen') {
     this.random = random;
+    this.difficulty = BUBBLE_DIFFICULTIES[difficulty] ? difficulty : 'moyen';
     this.active = false;
   }
 
-  start() {
+  start(difficulty = this.difficulty) {
+    this.difficulty = BUBBLE_DIFFICULTIES[difficulty] ? difficulty : 'moyen';
+    this.config = BUBBLE_DIFFICULTIES[this.difficulty];
+    this.shotSpeed = BASE_SHOT_SPEED * this.config.speedMultiplier;
     this.active = true;
     this.status = 'playing';
     this.score = 0;
     this.board = new Map();
     this.projectile = null;
     this.shotsSinceClear = 0;
-    this.aim = { x: SHOOTER.x, y: 0 };
-    // A compact staggered ceiling cluster gives the player immediate matches.
-    const rows = [
-      [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3],
-      [0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0, 0],
-      [0, 0, 0, 1, 1, 2, 2, 3, 3, 3, 0, 0, 0],
-      [1, 1, 1, 2, 2, 2, 3, 3, 0, 0, 0, 1, 1],
-      [1, 1, 2, 2, 2, 3, 3, 3, 0, 0, 1, 1, 1],
-    ];
-    rows.forEach((colors, row) => colors.forEach((color, col) => this.board.set(cellKey(row, col), color)));
+    this.aim = { x: 0, y: -1 };
+    for (let row = 0; row < this.config.initialRows; row++) {
+      initialRow(this.config, row).forEach((color, col) => this.board.set(cellKey(row, col), color));
+    }
     this.currentColor = this.pickColor();
     this.nextColor = this.pickColor();
     this._checkBottom();
@@ -99,7 +126,7 @@ export class BubbleRound {
 
   pickColor() {
     const colors = [...new Set(this.board.values())];
-    if (!colors.length) return Math.floor(this.random() * COLORS);
+    if (!colors.length) return Math.floor(this.random() * this.config.colorCount);
     return colors[Math.floor(this.random() * colors.length)];
   }
 
@@ -125,7 +152,7 @@ export class BubbleRound {
     if (!this.active || this.projectile || this.status !== 'playing') return false;
     this.projectile = {
       x: SHOOTER.x, y: SHOOTER.y,
-      vx: this.aim.x * SHOT_SPEED, vy: this.aim.y * SHOT_SPEED,
+      vx: this.aim.x * this.shotSpeed, vy: this.aim.y * this.shotSpeed,
       color: this.currentColor,
     };
     this.currentColor = this.nextColor;
@@ -136,7 +163,8 @@ export class BubbleRound {
   update(deltaSeconds) {
     if (!this.active || !this.projectile || this.status !== 'playing') return null;
     const dt = Math.max(0, Math.min(0.05, deltaSeconds));
-    const steps = Math.max(1, Math.ceil((SHOT_SPEED * dt) / (BUBBLE_RADIUS * 0.45)));
+    const speed = Math.hypot(this.projectile.vx, this.projectile.vy);
+    const steps = Math.max(1, Math.ceil((speed * dt) / (BUBBLE_RADIUS * 0.45)));
     const step = dt / steps;
     for (let i = 0; i < steps && this.projectile; i++) {
       const p = this.projectile;
@@ -207,7 +235,7 @@ export class BubbleRound {
       this.active = false;
       return;
     }
-    if (!popped && this.shotsSinceClear >= 6) {
+    if (!popped && this.shotsSinceClear >= this.config.missesBeforeRow) {
       this.shotsSinceClear = 0;
       this._addRow();
     }

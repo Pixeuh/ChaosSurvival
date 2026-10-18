@@ -5,6 +5,8 @@ import { localPages } from '../src/browser/registry.js';
 import { flashCatalog, FLASH_URL, renderFlashHome } from '../src/browser/sites/flashzone/index.js';
 import {
   BubbleRound,
+  BUBBLE_DIFFICULTIES,
+  BUBBLE_RADIUS,
   bestScore,
   cellCenter,
   cellKey,
@@ -189,7 +191,7 @@ test('BubblePop aims upward, permits one travelling shot, rebounds and attaches 
   assert.equal(r.projectile, null);
   assert.ok(r.board.has(cellKey(0, 6)) || r.board.has(cellKey(0, 7)));
 });
-test('BubblePop pops groups, scores detached bubbles, inserts a row after six misses, and detects victory/defeat', () => {
+test('BubblePop pops groups, scores detached bubbles, inserts rows at the configured threshold, and detects victory/defeat', () => {
   const r = new BubbleRound(() => 0);
   r.start();
   r.board = new Map([[cellKey(0, 6), 0], [cellKey(0, 5), 0], [cellKey(1, 5), 0],
@@ -205,14 +207,14 @@ test('BubblePop pops groups, scores detached bubbles, inserts a row after six mi
   assert.equal(r.status, 'won');
 
   const rows = new BubbleRound(() => 0);
-  rows.start();
-  for (let shot = 0; shot < 6; shot++) {
+  rows.start('facile');
+  for (let shot = 0; shot < 8; shot++) {
     rows.board = new Map([[cellKey(0, 0), 0]]);
     rows._attach({ x: 240, y: 500, color: 3 }, null);
     if (!rows.active) break;
   }
   assert.equal([...rows.board.keys()].filter((key) => key.startsWith('0:')).length, 13,
-    'a no-match shot adds a complete top row by the sixth miss');
+    'a no-match shot adds a complete top row by the eighth miss');
   assert.equal(rows.shotsSinceClear, 0);
   const danger = new BubbleRound(() => 0);
   danger.start();
@@ -220,6 +222,69 @@ test('BubblePop pops groups, scores detached bubbles, inserts a row after six mi
   danger._checkBottom();
   assert.equal(danger.status, 'lost');
   assert.equal(danger.active, false);
+});
+test('BubblePop difficulty configurations generate valid anchored hex rows and tune speed and row thresholds', () => {
+  const expected = [
+    ['facile', 3, 4, 8, 430],
+    ['moyen', 5, 6, 5, 430 * 1.2],
+    ['extreme', 6, 8, 3, 430 * 1.4],
+  ];
+  for (const [id, colors, rowCount, misses, speed] of expected) {
+    const round = new BubbleRound(() => 0, id);
+    round.start();
+    assert.deepEqual(
+      [round.config.colorCount, round.config.initialRows, round.config.missesBeforeRow, round.shotSpeed],
+      [colors, rowCount, misses, speed],
+    );
+    assert.equal(round.board.size, rowCount * 13);
+    assert.equal(new Set(round.board.values()).size, colors);
+    assert.deepEqual(detachedCells(round.board), [], `${id} starts fully connected to the ceiling`);
+    for (const color of new Set(round.board.values())) {
+      assert.ok(
+        [...round.board].some(([key, value]) => value === color && connectedGroup(round.board, key).length >= 3),
+        `${id} has a reachable-size match for color ${color}`,
+      );
+    }
+    for (const key of round.board.keys()) {
+      const [row, col] = key.split(':').map(Number);
+      assert.ok(row >= 0 && row < rowCount && col >= 0 && col < 13);
+      const { x, y } = cellCenter(row, col);
+      assert.ok(x >= BUBBLE_RADIUS && x <= 480 - BUBBLE_RADIUS);
+      assert.ok(y >= 0 && y < 600 - 72);
+    }
+    round.shoot();
+    assert.ok(Math.abs(Math.hypot(round.projectile.vx, round.projectile.vy) - speed) < 1e-6);
+  }
+  assert.equal(BUBBLE_DIFFICULTIES.extreme.pattern.length, 13);
+});
+test('each BubblePop difficulty keeps match, miss-row, and win/loss rules', () => {
+  for (const [id, config] of Object.entries(BUBBLE_DIFFICULTIES)) {
+    const misses = new BubbleRound(() => 0);
+    misses.start(id);
+    for (let shot = 0; shot < config.missesBeforeRow; shot++) {
+      misses.board = new Map([[cellKey(0, 0), 0]]);
+      misses._attach({ x: 240, y: 500, color: 1 }, null);
+      if (shot < config.missesBeforeRow - 1)
+        assert.ok([...misses.board.keys()].filter((key) => key.startsWith('0:')).length < 13);
+    }
+    assert.equal([...misses.board.keys()].filter((key) => key.startsWith('0:')).length, 13);
+    assert.equal(misses.shotsSinceClear, 0);
+
+    const match = new BubbleRound(() => 0);
+    match.start(id);
+    match.board = new Map([[cellKey(0, 5), 0], [cellKey(0, 6), 0]]);
+    match._attach({ ...cellCenter(0, 7), color: 0 }, null);
+    assert.equal(match.status, 'won');
+    assert.equal(match.score, 30);
+    assert.equal(match.shotsSinceClear, 0);
+
+    const loss = new BubbleRound(() => 0, id);
+    loss.start();
+    loss.board = new Map([[cellKey(17, 0), 1]]);
+    loss._checkBottom();
+    assert.equal(loss.status, 'lost');
+    assert.equal(loss.active, false);
+  }
 });
 test('only personal best is saved, corrupt scores fall back, restart restores and New Game clears without narrative events', () => {
   const { p, storage } = fixture();
@@ -237,7 +302,7 @@ test('only personal best is saved, corrupt scores fall back, restart restores an
   saveBestScore(p, 'bubble-pop', 10);
   assert.equal(bestScore(p, 'bubble-pop'), 10);
 });
-test('BubblePop starts from its real controls, advances a shooter frame, replays and cleans up', (t) => {
+test('BubblePop selects difficulty, starts from its real controls, replays and cleans up', (t) => {
   const clock = dom(t),
     { p } = fixture();
   let cleanup;
@@ -246,7 +311,9 @@ test('BubblePop starts from its real controls, advances a shooter frame, replays
   const find = (cls) => walk(root).find((n) => n.className === cls);
   assert.equal(clock.audios.length, 0);
   assert.equal(clock.frames.size, 0);
-  find('bubble-play').handlers.click();
+  assert.equal(find('bubble-intro').children[0].textContent, 'BUBBLEPOP');
+  assert.match(find('bubble-intro').children[1].textContent, /^Choisissez votre/);
+  find('bubble-difficulty bubble-difficulty-moyen').handlers.click();
   assert.equal(clock.audios.length, 1);
   const music = clock.audios[0];
   assert.match(music.src, /jakob_welik-roblox-time-to-win-skyline-run-1-442119\.mp3$/);
@@ -269,6 +336,12 @@ test('BubblePop starts from its real controls, advances a shooter frame, replays
   assert.equal(music.playCount, 2);
   assert.equal(find('bubble-stats').children[0].textContent, 'Score : 0');
   assert.equal(clock.frames.size, 1);
+  find('bubble-change-difficulty').handlers.click();
+  assert.equal(clock.frames.size, 0);
+  assert.equal(find('bubble-intro').hidden, false);
+  find('bubble-difficulty bubble-difficulty-extreme').handlers.click();
+  assert.equal(clock.frames.size, 1);
+  assert.equal(find('bubble-stats').children[2].textContent, 'EXTRÊME');
   cleanup();
   cleanup();
   assert.equal(clock.frames.size, 0);
@@ -277,7 +350,7 @@ test('BubblePop starts from its real controls, advances a shooter frame, replays
   const second = route.page.render({ progression: p, onDispose: (fn) => (cleanup2 = fn) });
   assert.equal(walk(second).find((n) => n.className === 'bubble-intro').hidden, undefined);
   walk(second)
-    .find((n) => n.className === 'bubble-play')
+    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-facile')
     .handlers.click();
   assert.equal(clock.frames.size, 1);
   cleanup2();
@@ -312,7 +385,7 @@ test('browser disposes interactive pages on navigation and reset before replacin
   await new Promise((r) => setTimeout(r, 250));
   const root = controls.get('.browser-page').node;
   walk(root)
-    .find((n) => n.className === 'bubble-play')
+    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-moyen')
     .handlers.click();
   assert.equal(clock.frames.size, 1);
   browser.navigate(FLASH_URL);
@@ -320,7 +393,7 @@ test('browser disposes interactive pages on navigation and reset before replacin
   browser.navigate(flashCatalog.games[0].route);
   await new Promise((r) => setTimeout(r, 250));
   walk(controls.get('.browser-page').node)
-    .find((n) => n.className === 'bubble-play')
+    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-moyen')
     .handlers.click();
   assert.equal(clock.frames.size, 1);
   browser.reset();

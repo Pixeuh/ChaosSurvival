@@ -3,6 +3,7 @@ import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   BUBBLE_RADIUS,
+  BUBBLE_DIFFICULTIES,
   BubbleRound,
   bestScore,
   cellCenter,
@@ -13,23 +14,27 @@ import { createSoundEffectPool } from '../../../audio/sound-effect-pool.js';
 
 const musicUrl = new URL('../../../../assets/jakob_welik-roblox-time-to-win-skyline-run-1-442119.mp3', import.meta.url).href;
 const popSoundUrl = new URL('../../../../assets/cherskis-bubble-popping-3-587265.mp3', import.meta.url).href;
-const palette = ['#20a5e6', '#ed5aa3', '#ffc83d', '#72cf4d'];
+const palette = ['#20a5e6', '#ed5aa3', '#ffc83d', '#72cf4d', '#9a70e8', '#f0783c'];
 
 export function renderBubblePop({ progression, onDispose }, game) {
   const root = node('section', undefined, 'bubble-pop');
   const intro = node('div', undefined, 'bubble-intro');
-  intro.append(
-    node('h2', game.title),
-    node('p', 'Vise avec la souris et assemble au moins trois bulles de la même couleur !'),
-  );
-  const play = node('button', 'JOUER', 'bubble-play');
-  intro.append(play, node('small', `Meilleur score : ${bestScore(progression, game.id)}`));
+  const subtitle = node('p', 'Choisissez votre difficult\u00e9 !');
+  intro.append(node('h2', 'BUBBLEPOP'), subtitle);
+  const difficultyButtons = Object.entries(BUBBLE_DIFFICULTIES).map(([id, config]) => {
+    const button = node('button', config.label, `bubble-difficulty bubble-difficulty-${id}`);
+    button.dataset.difficulty = id;
+    return [id, button];
+  });
+  intro.append(...difficultyButtons.map(([, button]) => button));
+  intro.append(node('small', `Meilleur score : ${bestScore(progression, game.id)}`));
   const stats = node('div', undefined, 'bubble-stats');
   const score = node('strong', 'Score : 0');
   const status = node('span', 'Bulles restantes : 0');
+  const difficultyLabel = node('strong', 'MOYEN');
   const exitDuringPlay = link('QUITTER', 'http://www.flashzone.fr/');
   exitDuringPlay.className = 'bubble-quit';
-  stats.append(score, status, exitDuringPlay);
+  stats.append(score, status, difficultyLabel, exitDuringPlay);
   stats.hidden = true;
   const arena = node('div', undefined, 'bubble-arena');
   const canvas = node('canvas', undefined, 'bubble-canvas');
@@ -44,9 +49,10 @@ export function renderBubblePop({ progression, onDispose }, game) {
   const final = node('strong');
   const best = node('p');
   const replay = node('button', 'REJOUER', 'bubble-replay');
+  const changeDifficulty = node('button', 'CHANGER DE DIFFICULT\u00c9', 'bubble-change-difficulty');
   const quit = link('QUITTER', 'http://www.flashzone.fr/');
   quit.className = 'bubble-quit';
-  result.append(node('h3'), final, best, replay, quit);
+  result.append(node('h3'), final, best, replay, changeDifficulty, quit);
   root.append(intro, stats, arena, result);
 
   const context = canvas.getContext?.('2d') ?? null;
@@ -201,13 +207,13 @@ export function renderBubblePop({ progression, onDispose }, game) {
     canvas.removeEventListener('keydown', keyboardFire);
   }
 
-  function start() {
+  function start(difficulty = round.difficulty) {
     if (disposed) return;
     if (frame !== null) cancelAnimationFrame(frame);
     frame = null;
     previousTime = null;
     finished = false;
-    round.start();
+    round.start(difficulty);
     intro.hidden = true;
     result.hidden = true;
     stats.hidden = false;
@@ -215,16 +221,34 @@ export function renderBubblePop({ progression, onDispose }, game) {
     music.start();
     score.textContent = 'Score : 0';
     status.textContent = `Bulles restantes : ${round.board.size}`;
+    difficultyLabel.textContent = BUBBLE_DIFFICULTIES[round.difficulty].label;
     draw();
     frame = requestAnimationFrame(renderFrame);
+  }
+
+  function showDifficultySelection() {
+    if (disposed) return;
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+    music.stop();
+    popSound.stopAll();
+    round.stop();
+    finished = false;
+    stats.hidden = true;
+    arena.hidden = true;
+    result.hidden = true;
+    intro.hidden = false;
   }
 
   canvas.addEventListener('pointermove', aim);
   canvas.addEventListener('pointerdown', fire);
   canvas.tabIndex = 0;
   canvas.addEventListener('keydown', keyboardFire);
-  play.addEventListener('click', start);
-  replay.addEventListener('click', start);
+  for (const [difficulty, button] of difficultyButtons) {
+    button.addEventListener('click', () => start(difficulty));
+  }
+  replay.addEventListener('click', () => start(round.difficulty));
+  changeDifficulty.addEventListener('click', showDifficultySelection);
   onDispose(dispose);
   return root;
 }
