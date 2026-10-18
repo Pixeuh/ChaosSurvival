@@ -177,10 +177,6 @@ export function mountDesktop(root, best) {
     </div>
     <div class="start-menu" id="start-menu" hidden>
       <header>${icon('computer')} <strong>Joueur.exe</strong></header>
-      <button id="desktop-menu-play">
-        ${icon('music')}
-        <span>Chaos Survival<small>Démarrer / reprendre la partie</small></span>
-      </button>
       <button id="menu-buddy" data-start-app="buddy">${icon('buddy')} Buddy</button>
       <button id="menu-messenger">${icon('msn')} ${applicationName('messenger')}</button>
       <button id="menu-browser" data-start-app="browser">
@@ -190,6 +186,12 @@ export function mountDesktop(root, best) {
       <button data-system-app="folder">${icon('folder')} Mes documents</button>
       <button data-system-app="bin">${icon('bin')} Corbeille</button>
       <footer>Bienvenue en 2009. Reste un peu.</footer>
+      <div class="start-menu-actions">
+        <button id="start-menu-main" type="button">${icon('menu-computer')} Menu principal</button>
+        <button id="start-menu-quit" type="button" aria-label="Quitter le jeu">
+          <span class="start-menu-power-icon" aria-hidden="true">⏻</span> Quitter le jeu
+        </button>
+      </div>
     </div>
     <footer class="taskbar">
       <button class="windows-start" id="windows-start" aria-expanded="false">
@@ -245,7 +247,8 @@ export function mountDesktop(root, best) {
     muteButton: select('#mute-button'),
     startMenu: select('#start-menu'),
     windowsStart: select('#windows-start'),
-    menuPlay: select('#desktop-menu-play'),
+    menuMain: select('#start-menu-main'),
+    menuQuit: select('#start-menu-quit'),
     menuMessenger: select('#menu-messenger'),
     clock: select('#clock'),
     shortcuts: root.querySelectorAll('[data-shortcut]'),

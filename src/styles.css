@@ -1605,6 +1605,46 @@ h1 .title-star {
   color: #7b91a8;
   font-size: 9px;
 }
+.start-menu-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: #d7e8f8;
+  border-top: 1px solid #b8cee4;
+}
+.start-menu-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #24466f;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.start-menu-actions button:hover {
+  border-color: #8bb4df;
+  background: #edf4fc;
+}
+.start-menu-actions .icon {
+  width: 20px;
+  height: 20px;
+}
+.start-menu-power-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc4a32;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+}
 /* Game states and animations */
 .danger #chaos-fill {
   background: linear-gradient(#ffa392, #e76a4d 45%, #d44538 50%, #ee7366);

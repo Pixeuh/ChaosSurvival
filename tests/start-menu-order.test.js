@@ -4,14 +4,15 @@ import { StartMenuOrder, resolveStartMenuOrder } from '../src/ui/start-menu-orde
 import { UserSettings } from '../src/settings.js';
 import { mountDesktop } from '../src/ui/desktop.js';
 
-test('Buddy defaults immediately below the fixed main-menu command while saved manual order remains authoritative', () => {
+test('Start menu application order stays fixed independently from its footer actions', () => {
   const root = { querySelector: () => ({}), querySelectorAll: () => [] };
   mountDesktop(root, 0);
-  const html = root.innerHTML.slice(
-    root.innerHTML.indexOf('id="start-menu"'),
-    root.innerHTML.indexOf('<footer>Bienvenue'),
-  );
-  assert.match(html, /id="desktop-menu-play"[\s\S]*?<\/button>\s*<button id="menu-buddy"/);
+  const html = root.innerHTML.slice(root.innerHTML.indexOf('id="start-menu"'));
+  assert.doesNotMatch(html, /desktop-menu-play|Continuer \/ nouvelle partie/);
+  assert.match(html, /id="start-menu-main"[\s\S]*?Menu principal/);
+  assert.match(html, /id="start-menu-quit"[\s\S]*?Quitter le jeu/);
+  assert.equal([...html.matchAll(/Menu principal/g)].length, 1);
+  assert.doesNotMatch(html, /Fermer la session|Arrêter l'ordinateur/);
   const defaults = [
     ...html.matchAll(/data-start-app="([^"]+)"|data-system-app="([^"]+)"|id="menu-messenger"/g),
   ].map((match) => match[1] ?? match[2] ?? 'menu-messenger');

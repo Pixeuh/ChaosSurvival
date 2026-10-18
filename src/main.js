@@ -33,6 +33,7 @@ import { MiniGameLauncher } from './ui/minigame-launcher.js';
 import { DesktopIcons } from './ui/desktop-icons.js';
 import { WindowsXdContextMenus } from './ui/windows-xd-context-menu.js';
 import { StartMenuOrder } from './ui/start-menu-order.js';
+import { quitFromStartMenu, returnFromStartMenu } from './ui/start-menu-actions.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
 import { createExecutableLauncher } from './ui/executable-launcher.js';
@@ -586,9 +587,6 @@ const desktopContextMenus = new WindowsXdContextMenus({
   desktopApplications,
   onFilesystemChange: renderDesktopFiles,
 });
-const returnMenu = ui.menuPlay;
-returnMenu.id = 'return-main-menu';
-returnMenu.innerHTML = `${icon('menu-computer')}<span>Menu principal<small>Continuer / nouvelle partie / options</small></span>`;
 const startMenuOrder = new StartMenuOrder(ui.startMenu, settings);
 const taskbarOrder = new TaskbarOrder(ui.desktop.querySelector('.taskbar'));
 async function resetGameToInitialState() {
@@ -687,7 +685,6 @@ async function continueFromMenu() {
   ui.desktop.inert = false;
   menu.hide();
   menuMusic.stop();
-  returnMenu.hidden = false;
   progression.begin();
   const pendingVictory = pendingArcadeVictory(progression);
   if (pendingVictory) {
@@ -720,21 +717,25 @@ async function continueFromMenu() {
   }
 }
 function returnToMenu() {
-  if (['loading', 'resuming'].includes(phase)) return;
-  cancelVictory();
-  pauseGeneration++;
-  cancelAnimationFrame(frame);
-  audio.stop(true);
-  clearEffects();
+  if (['loading', 'resuming'].includes(phase)) return false;
+  let completedAndSaved = false;
   if (
     progression.current?.type === 'conversation' &&
     conversation.dialogue.id === progression.current.dialogue &&
     conversation.session?.state.finished
   )
-    progression.complete(progression.current.id, { dialogue: activeDialogue.id });
+    completedAndSaved = progression.complete(progression.current.id, {
+      dialogue: activeDialogue.id,
+    });
+  if (progression.hasSave && (!completedAndSaved || progression.persistenceError) && !progression.save())
+    return false;
+  cancelVictory();
+  pauseGeneration++;
+  cancelAnimationFrame(frame);
+  audio.stop(true);
+  clearEffects();
   manager.clear();
   miniGameLauncher.reset();
-  if (progression.hasSave) progression.save();
   setPhase('menu');
   ui.desktop.inert = true;
   ui.modalLayer.hidden = true;
@@ -743,9 +744,9 @@ function returnToMenu() {
   ui.pauseButton.disabled = true;
   ui.desktop.classList.remove('is-playing', 'on-beat');
   setStartMenuOpen(false);
-  returnMenu.hidden = true;
   menu.show();
   menuMusic.start();
+  return true;
 }
 document.addEventListener('pointerdown', () => {
   if (phase === 'menu' && !menuMusic.active) menuMusic.start();
@@ -775,7 +776,6 @@ async function startGame() {
   if (progression.current?.type === 'arcade') arcadeSequenceId = progression.current.id;
   ui.desktop.classList.remove('story-desktop');
   setPhase('loading');
-  returnMenu.disabled = true;
   if (!progression.hasSave) progression.begin();
   ui.startButton.disabled = true;
   ui.closeLauncher.disabled = true;
@@ -819,7 +819,6 @@ async function startGame() {
     );
     ui.dialogCopy.querySelector('.dialog-detail').textContent = error.message;
   } finally {
-    returnMenu.disabled = false;
     ui.startButton.disabled = false;
     ui.closeLauncher.disabled = false;
     ui.dialogAction.disabled = false;
@@ -1003,6 +1002,17 @@ function showDialog(title, copy, button, callback, type = 'help', secondary) {
   if (secondary) ui.dialogSecondary.textContent = secondary.label;
   ui.modalLayer.hidden = false;
   ui.dialogAction.focus();
+}
+function showSaveFailure() {
+  showDialog(
+    'Sauvegarde impossible',
+    '<p>La progression n’a pas pu être enregistrée. La partie reste ouverte.</p>',
+    'Continuer',
+    () => {
+      ui.modalLayer.hidden = true;
+    },
+    'error',
+  );
 }
 async function help() {
   if (!['playing', 'paused', 'ended'].includes(phase) || rules.active) return;
@@ -1203,9 +1213,26 @@ ui.desktop.querySelector('#menu-buddy').addEventListener('click', () => {
 document.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('.start-menu, .windows-start')) setStartMenuOpen(false);
 });
-ui.menuPlay.addEventListener('click', () => {
-  setStartMenuOpen(false);
-  returnToMenu();
+ui.menuMain.addEventListener('click', () => {
+  returnFromStartMenu({
+    closeMenu: () => setStartMenuOpen(false),
+    returnToMenu,
+    onSaveFailure: showSaveFailure,
+  });
+});
+ui.menuQuit.addEventListener('click', () => {
+  void quitFromStartMenu({
+    closeMenu: () => setStartMenuOpen(false),
+    hasSave: progression.hasSave,
+    save: () => progression.save(),
+    quitApp: window.chaosApp?.quit,
+    closeWindow: () => window.close(),
+    onSaveFailure: showSaveFailure,
+    onQuitFailure: (error) => {
+      console.error('Impossible de quitter Chaos Survival.', error);
+      showSaveFailure();
+    },
+  });
 });
 function syncSystemWindows() {
   if (phase !== 'paused' && phase !== 'ended') return;

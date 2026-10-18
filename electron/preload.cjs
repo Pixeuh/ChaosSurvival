@@ -5,6 +5,9 @@ contextBridge.exposeInMainWorld('chaosVideo', {
       ? ipcRenderer.invoke('chaos:open-video', id)
       : Promise.resolve({ ok: false }),
 });
+contextBridge.exposeInMainWorld('chaosApp', {
+  quit: () => ipcRenderer.invoke('chaos:quit'),
+});
 contextBridge.exposeInMainWorld('chaosWindow', {
   getFullscreen: () => ipcRenderer.invoke('chaos:get-fullscreen'),
   setFullscreen: (value) => ipcRenderer.invoke('chaos:set-fullscreen', Boolean(value)),
