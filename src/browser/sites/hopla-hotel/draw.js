@@ -175,21 +175,6 @@ export function drawRoom(ctx, room, walk) {
     ],
     palette.wallRight ?? '#387f99',
   );
-  for (const poster of room.decor?.posters ?? [
-    { position: [0, 3], text: 'HH', color: '#ffe393', width: 26, font: 8, offset: 6 },
-  ]) {
-    const sign = project(...poster.position, room);
-    ctx.fillStyle = '#183e59';
-    ctx.fillRect(
-      sign.x - (poster.width ? 12 : 17),
-      sign.y - 57,
-      poster.width ?? 36,
-      poster.width ? 14 : 16,
-    );
-    ctx.fillStyle = poster.color;
-    ctx.font = `bold ${poster.font ?? 7}px monospace`;
-    ctx.fillText(poster.text, sign.x - (poster.offset ?? 13), sign.y - 47);
-  }
   for (const light of room.decor?.lights ?? []) {
     const point = project(...light.position, room);
     ctx.fillStyle = '#303147';

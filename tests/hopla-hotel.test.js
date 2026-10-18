@@ -15,13 +15,40 @@ import {
   furnitureCells,
   inside,
 } from '../src/browser/sites/hopla-hotel/model.js';
-import { depthOrder } from '../src/browser/sites/hopla-hotel/draw.js';
+import { depthOrder, drawRoom } from '../src/browser/sites/hopla-hotel/draw.js';
 import { renderHoplaHotelRoom } from '../src/browser/sites/hopla-hotel/render.js';
 import { HoplaHotelClient } from '../src/browser/sites/hopla-hotel/client.js';
 import { WindowManager } from '../src/ui/windows.js';
 import { localPages } from '../src/browser/registry.js';
 import { BrowserSession } from '../src/browser/session.js';
 const room = hoplaHotelData.room;
+
+test('room scenery has no text posters and the lounge has a distinct walkable seating layout', () => {
+  const ctx = {
+    beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}, fillRect() {},
+    fillText(text) { throw new Error(`decorative room text rendered: ${text}`); },
+  };
+  for (const definition of hoplaHotelRooms) {
+    assert.deepEqual(definition.decor?.posters ?? [], [], `${definition.id} has no text posters`);
+    drawRoom(ctx, definition, new RoomWalk(definition));
+  }
+
+  const lounge = hoplaHotelRooms.find((definition) => definition.id === 'detente');
+  const hall = hoplaHotelRooms.find((definition) => definition.id === 'hall');
+  assert.notDeepEqual(lounge.palette, hall.palette);
+  assert.ok(lounge.decor.floorAreas.length > 0, 'the lounge has a warm rug');
+  assert.ok(lounge.furniture.some((item) => item.type === 'chair'));
+  assert.ok(lounge.furniture.filter((item) => item.type === 'sofa').length >= 2);
+  const occupied = new Set();
+  for (const item of lounge.furniture.filter((item) => item.blocking))
+    for (const cell of furnitureCells(item)) {
+      assert.ok(!occupied.has(cell.join(':')), `overlapping lounge furniture at ${cell}`);
+      occupied.add(cell.join(':'));
+    }
+  for (const target of [[3, 6], [5, 5], [7, 7]])
+    assert.ok(findPath(lounge, lounge.spawn, target), `lounge passage to ${target}`);
+  assert.ok(lounge.npcs.every((npc) => !occupied.has(npc.position.join(':'))));
+});
 
 test('Hopla Hotel uses only canonical URLs and drops an invalid saved tab without losing other tabs', () => {
   const oldRoom = 'http://www.xdhotel.fr/salle/hall?test=1';
