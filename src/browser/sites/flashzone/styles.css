@@ -108,50 +108,33 @@
 }
 .bubble-arena {
   position: relative;
-  height: 250px;
+  width: min(100%, 480px);
+  aspect-ratio: 4 / 5;
+  height: auto;
+  margin: 0 auto;
   overflow: hidden;
   border: 2px inset #80b8df;
   background: radial-gradient(ellipse at top, #238bc4, #232667);
 }
-.bubble-target {
-  position: absolute;
-  width: 46px;
-  height: 46px;
-  padding: 0;
-  border: 2px solid #ffffffb0;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 25%, #fff, #86e3ff 20%, #2097df 65%, #134c9b);
-  box-shadow:
-    inset -3px -4px 7px #0003,
-    0 2px 3px #0004;
-  animation: bubble-appear 0.18s ease-out;
+.bubble-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
 }
-.bubble-color-1 {
-  background: radial-gradient(circle at 30% 25%, #fff, #ffa8df 20%, #e24f99 65%, #8c2278);
-}
-.bubble-color-2 {
-  background: radial-gradient(circle at 30% 25%, #fff, #fff69b 20%, #edbe2c 65%, #b77519);
-}
-.bubble-color-3 {
-  background: radial-gradient(circle at 30% 25%, #fff, #c5ff99 20%, #72c743 65%, #337527);
-}
-.bubble-target:hover {
-  filter: brightness(1.15);
-}
-.bubble-target:focus-visible {
+.bubble-canvas:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
-.bubble-burst {
-  position: absolute;
-  width: 46px;
-  height: 46px;
-  text-align: center;
-  line-height: 46px;
-  font-size: 30px;
-  color: #fff57a;
-  pointer-events: none;
-  animation: bubble-burst 0.3s ease-out forwards;
+.bubble-quit {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 7px 24px;
+  color: #243852;
+  background: linear-gradient(#fff, #c6d6e8);
+  border: 2px outset #dbe6f4;
+  font-weight: bold;
 }
 .bubble-result strong {
   display: block;
@@ -159,28 +142,6 @@
 }
 .bubble-pop [hidden] {
   display: none !important;
-}
-@keyframes bubble-appear {
-  from {
-    transform: scale(0.3);
-  }
-  to {
-    transform: scale(1);
-  }
-}
-@keyframes bubble-burst {
-  to {
-    transform: scale(1.8);
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .bubble-target {
-    animation: none;
-  }
-  .bubble-burst {
-    animation-duration: 0.01s;
-  }
 }
 .avoid-squares {
   margin-top: 12px;
