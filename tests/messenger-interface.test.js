@@ -149,6 +149,115 @@ test('Wizz send events persist one chronological system entry for each sender wi
   assert.equal(restored.state.history.length, 4);
 });
 
+test('Wizz button cooldown lasts five seconds per conversation and is cleaned up on close', (t) => {
+  const previous = {
+    document: globalThis.document,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  let nextTimer = 0;
+  const timers = new Map();
+  globalThis.setTimeout = (callback, delay) => {
+    const id = ++nextTimer;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  const makeNode = () => {
+    const listeners = new Map();
+    const node = {
+      children: [],
+      hidden: false,
+      disabled: false,
+      attributes: {},
+      classList: { contains: () => false },
+      addEventListener(type, callback) {
+        const entries = listeners.get(type) ?? new Set();
+        entries.add(callback);
+        listeners.set(type, entries);
+      },
+      removeEventListener(type, callback) { listeners.get(type)?.delete(callback); },
+      listenerCount(type) { return listeners.get(type)?.size ?? 0; },
+      dispatch(type, event = {}) {
+        if (type === 'click' && this.disabled) return;
+        for (const callback of listeners.get(type) ?? []) callback(event);
+      },
+      click() { this.dispatch('click'); },
+      append(...nodes) { this.children.push(...nodes); },
+      replaceChildren(...nodes) { this.children = nodes; },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      contains() { return false; },
+      querySelectorAll(selector) {
+        return selector === 'button:not(:disabled)' ? this.children.filter((child) => !child.disabled) : [];
+      },
+    };
+    return node;
+  };
+  const documentListeners = new Map();
+  globalThis.document = {
+    createElement: () => makeNode(),
+    addEventListener: (type, callback) => documentListeners.set(type, callback),
+    removeEventListener: (type) => documentListeners.delete(type),
+  };
+  t.after(() => {
+    if (previous.document === undefined) delete globalThis.document;
+    else globalThis.document = previous.document;
+    globalThis.setTimeout = previous.setTimeout;
+    globalThis.clearTimeout = previous.clearTimeout;
+  });
+  const makeWindow = (contactId) => {
+    const menu = makeNode();
+    const wizzButton = makeNode();
+    const element = {
+      dataset: { messengerContact: contactId },
+      classList: { contains: () => false },
+      querySelector: (selector) => selector === '.msn-menu' ? menu :
+        selector === '[data-msn-action="wizz"]' ? wizzButton : null,
+    };
+    return { element, menu, wizzButton };
+  };
+  const messenger = Object.create(Messenger.prototype);
+  const sent = [];
+  messenger.sendWizz = (id) => { sent.push(id); return true; };
+  const first = makeWindow('pixelgirl');
+  const second = makeWindow('turbo');
+  messenger.installMenus(first.element, () => ({ id: 'pixelgirl' }));
+  messenger.installMenus(second.element, () => ({ id: 'turbo' }));
+
+  first.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl']);
+  assert.equal(first.wizzButton.disabled, true);
+  assert.equal(timers.size, 1);
+  const firstTimer = timers.entries().next().value;
+  assert.equal(firstTimer[1].delay, 5000);
+  first.element.hidden = true;
+  first.element.hidden = false;
+  first.wizzButton.click();
+  const actions = first.menu.children.find((group) => group.children[0].textContent === 'Actions');
+  const menuWizz = actions.children[1].children.find((button) => button.textContent === 'Wizz !');
+  menuWizz.click();
+  assert.deepEqual(sent, ['pixelgirl'], 'rapid clicks and minimizing do not bypass or extend cooldown');
+  assert.equal(timers.size, 1);
+
+  second.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl', 'turbo'], 'another conversation has its own cooldown');
+  assert.equal(timers.size, 2);
+  firstTimer[1].callback();
+  timers.delete(firstTimer[0]);
+  assert.equal(first.wizzButton.disabled, false);
+  assert.equal(second.wizzButton.disabled, true);
+  first.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl', 'turbo', 'pixelgirl']);
+  assert.equal(timers.size, 2);
+
+  second.element.disposeMenu();
+  assert.equal(timers.size, 1, 'closing a conversation clears its pending timer');
+  assert.equal(documentListeners.size, 0);
+  first.element.disposeMenu();
+  assert.equal(timers.size, 0);
+  assert.equal(first.wizzButton.listenerCount('click'), 0);
+});
+
 test('an incoming Wizz in the active conversation plays its effect without becoming unread', async () => {
   const progression = new Progression(read('../src/config/story.json'));
   progression.begin();

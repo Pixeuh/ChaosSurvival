@@ -5,6 +5,7 @@ import { localPages } from '../src/browser/registry.js';
 import { flashCatalog } from '../src/browser/sites/flashzone/index.js';
 import {
   PLUMBER_GOAL_X,
+  PLUMBER_HEIGHT,
   PLUMBER_GROUND,
   PLUMBER_LEVEL,
   PLUMBER_MAX_SPEED,
@@ -530,10 +531,51 @@ test('FlashZone game starts from its button, captures movement keys and removes 
   assert.equal(audioInstances.length, 1);
   assert.equal(music.currentTime, 0);
   assert.equal(music.playCount, 3);
+  const restartButton = nodes.find((entry) => entry.className === 'plumber-restart');
+  const originalTick = SuperPlombierRound.prototype.tick;
+  SuperPlombierRound.prototype.tick = function (time, controls) {
+    this.player.y = PLUMBER_HEIGHT + 81;
+    return originalTick.call(this, time, controls);
+  };
+  t.after(() => { SuperPlombierRound.prototype.tick = originalTick; });
+  let observedDeaths = 0;
+  let now = performance.now();
+  for (let step = 0; step < 5 && observedDeaths < 5; step++) {
+    const [frameId, callback] = frames.entries().next().value ?? [];
+    assert.equal(typeof callback, 'function', 'the active game keeps scheduling frames');
+    const playsBefore = music.playCount;
+    music.currentTime = 12;
+    frames.delete(frameId);
+    callback(now += 16);
+    if (music.playCount > playsBefore) {
+      observedDeaths++;
+      assert.equal(music.currentTime, 0, 'each death interrupts and restarts the same music element');
+    }
+  }
+  assert.equal(observedDeaths, 5, 'five consecutive deaths restart playback');
+  SuperPlombierRound.prototype.tick = originalTick;
+  assert.equal(audioInstances.length, 1, 'deaths never create overlapping audio elements');
+  music.currentTime = 18;
+  restartButton.handlers.click();
+  assert.equal(music.currentTime, 0, 'the Recommencer button also returns music to the beginning');
+  assert.equal(audioInstances.length, 1);
   cleanup();
   assert.equal(music.removedAttribute, 'src');
   assert.equal(music.loaded, true);
   assert.equal(frames.size, 0);
   assert.equal(documentListeners.size, 0);
   assert.equal(canvas.handlers.keydown, undefined);
+  let disposeReopened;
+  const reopened = renderSuperPlombierFlash({
+    progression,
+    onDispose: (fn) => (disposeReopened = fn),
+  }, game);
+  const reopenedPlay = walk(reopened).find((entry) => entry.className === 'plumber-play');
+  reopenedPlay.handlers.click();
+  assert.equal(audioInstances.length, 2, 'reopening creates a fresh, single player instance');
+  assert.equal(audioInstances[1].currentTime, 0);
+  disposeReopened();
+  assert.equal(audioInstances[1].removedAttribute, 'src');
+  assert.equal(frames.size, 0);
+  assert.equal(documentListeners.size, 0);
 });

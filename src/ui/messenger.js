@@ -351,16 +351,25 @@ export class Messenger {
   }
   installMenus(element, contact, offline = () => false) {
     element.disposeMenu?.();
-    const wizz = () => {
-      if (offline() || element.classList.contains('messenger-roster')) return;
-      this.sendWizz(element.dataset.messengerContact);
-    };
+    let wizzCoolingDown = false;
+    let wizzCooldownTimer = null;
     const wizzButton = element.querySelector('[data-msn-action="wizz"]');
+    const wizz = () => {
+      if (offline() || wizzCoolingDown || element.classList.contains('messenger-roster')) return;
+      if (!this.sendWizz(element.dataset.messengerContact)) return;
+      wizzCoolingDown = true;
+      if (wizzButton) wizzButton.disabled = true;
+      wizzCooldownTimer = globalThis.setTimeout(() => {
+        wizzCooldownTimer = null;
+        wizzCoolingDown = false;
+        if (wizzButton) wizzButton.disabled = offline();
+      }, 5000);
+    };
     if (wizzButton) {
       wizzButton.disabled = offline();
       wizzButton.addEventListener('click', wizz);
     }
-    element.disposeMenu = messengerMenu(element, [
+    const disposeMenu = messengerMenu(element, [
       [
         'Fichier',
         [
@@ -408,6 +417,15 @@ export class Messenger {
         ],
       ],
     ]);
+    element.disposeMenu = () => {
+      disposeMenu();
+      if (wizzCooldownTimer !== null) {
+        globalThis.clearTimeout(wizzCooldownTimer);
+        wizzCooldownTimer = null;
+      }
+      wizzCoolingDown = false;
+      wizzButton?.removeEventListener('click', wizz);
+    };
   }
   isConversationActive(view) {
     if (!view.element?.isConnected || view.element.hidden) return false;
