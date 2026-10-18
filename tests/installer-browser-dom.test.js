@@ -29,6 +29,7 @@ test('both installers advance real progress elements in Electron and delay their
   const resultLine = stdout.split(/\r?\n/).find((line) => line.startsWith('INSTALLER_DOM_RESULT:'));
   assert.ok(resultLine, `Electron returned no DOM result. Output: ${stdout}`);
   const { result, errors } = JSON.parse(resultLine.slice('INSTALLER_DOM_RESULT:'.length));
+  assert.doesNotMatch(errors.join('\n'), /Illegal invocation/i);
   assert.deepEqual(errors, [], 'the Electron renderer reported no JavaScript errors');
 
   for (const [name, expected] of [['smiley', 43], ['toolbar', 78]]) {

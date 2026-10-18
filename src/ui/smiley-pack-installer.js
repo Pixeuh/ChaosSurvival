@@ -9,7 +9,11 @@ export class SmileyPackInstaller {
   constructor(
     manager,
     applications,
-    { setIntervalFn = setInterval, clearIntervalFn = clearInterval, nowFn = () => performance.now() } = {},
+    {
+      setIntervalFn = (callback, delay) => globalThis.setInterval(callback, delay),
+      clearIntervalFn = (id) => globalThis.clearInterval(id),
+      nowFn = () => performance.now(),
+    } = {},
   ) {
     this.manager = manager;
     this.applications = applications;
