@@ -174,12 +174,17 @@ export class DesktopApplications {
     if (executable === 'mini-game' && item.receivedFile && this.onOpenReceived)
       return this.onOpenReceived(item);
     if (
-      ['windows-love-messenger', 'internet-adventurer', 'windows-media-play'].includes(executable) &&
+      [
+        'windows-love-messenger',
+        'internet-adventurer',
+        'windows-media-play',
+        'toolbar-installer',
+        'smiley-pack-installer',
+      ].includes(executable) &&
       this.onLaunchExecutable
     ) return this.onLaunchExecutable(executable, item, fileId);
     if (isArcadeExecutable(item) && this.onLaunchArcade) return this.onLaunchArcade();
-    if (executable === 'unknown')
-      item = { ...item, text: 'Impossible d’ouvrir cette application.' };
+    if (executable === 'unknown') return this.openExecutableError(fileId);
     const viewer = fileViewer(item);
     if (!viewer) return;
     const key = `file:${location.id}/${item.name}`;
@@ -248,6 +253,35 @@ export class DesktopApplications {
       if (localPicture(item.image)) image.src = item.image;
       else unavailable();
     }
+    this.restore(instance);
+    return instance;
+  }
+  openExecutableError(fileId) {
+    const key = `executable-error:${fileId}`;
+    const existing = this.instances.get(key);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    const title = 'Windows XD';
+    const id = this.manager.spawn('desktopapp', {
+      preview: true,
+      content: {
+        title,
+        iconName: 'error',
+        body: '<section class="executable-error-dialog" role="alert"><span class="executable-error-symbol" aria-hidden="true">×</span><p>Impossible d’exécuter cette application.</p><button type="button" class="xp-button">OK</button></section>',
+      },
+      onDismiss: () => {
+        this.instances.delete(key);
+        instance.task.remove();
+        this.onWindowState();
+      },
+    });
+    const instance = this.attachWindow(key, id, title, 'error');
+    instance.element.classList.add('executable-error-window');
+    instance.element.querySelector('.executable-error-dialog button').addEventListener('click', () =>
+      this.manager.close(id),
+    );
     this.restore(instance);
     return instance;
   }
@@ -489,7 +523,8 @@ export class DesktopApplications {
     const canDelete = Boolean(item.fileId && this.virtualFilesystem.canDelete(item.fileId));
     deleteButton.disabled = !canDelete;
     menu.querySelector('[data-explorer-action="extract"]').hidden =
-      item.extractable !== 'bomb-arena' || !this.virtualFilesystem.exists(item.fileId);
+      !['bomb-arena', 'smiley-pack-2009'].includes(item.extractable) ||
+      !this.virtualFilesystem.exists(item.fileId);
     deleteButton.title = canDelete ? '' : 'Impossible de supprimer ce fichier. Accès refusé.';
     const body = instance.element.querySelector('.window-body').getBoundingClientRect();
     menu.hidden = false;
@@ -580,10 +615,10 @@ export class DesktopApplications {
   }
   extractWithWinRoar(item) {
     if (
-      item?.extractable !== 'bomb-arena' || !item.fileId ||
+      !['bomb-arena', 'smiley-pack-2009'].includes(item?.extractable) || !item.fileId ||
       !this.virtualFilesystem?.exists(item.fileId)
     ) return null;
-    const key = 'winroar:bomb-arena';
+    const key = `winroar:${item.fileId}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {
       this.restore(existing);
@@ -596,7 +631,7 @@ export class DesktopApplications {
       content: {
         title: 'WinRoar',
         iconName: 'archive',
-        body: '<section class="winroar-extraction"><strong>Extraction de BombArena.zip</strong><progress max="1" value="0" aria-label="Progression de l’extraction"></progress><p role="status">Extraction en cours...</p></section>',
+        body: '<section class="winroar-extraction"><strong></strong><progress max="1" value="0" aria-label="Progression de l’extraction"></progress><p role="status">Extraction en cours...</p></section>',
       },
       onDismiss: () => {
         clearInterval(instance.extractionTimer);
@@ -606,6 +641,8 @@ export class DesktopApplications {
       },
     });
     const instance = this.attachWindow(key, id, 'WinRoar', 'archive');
+    instance.element.querySelector('.winroar-extraction strong').textContent =
+      `Extraction de ${item.name}`;
     const progress = instance.element.querySelector('.winroar-extraction progress');
     const status = instance.element.querySelector('.winroar-extraction [role="status"]');
     let elapsed = 0;
@@ -619,9 +656,9 @@ export class DesktopApplications {
       if (elapsed < 3000) return;
       clearInterval(instance.extractionTimer);
       instance.extractionTimer = null;
-      const result = this.virtualFilesystem.extractBombArena(item.fileId);
+      const result = this.virtualFilesystem.extractArchive(item.fileId);
       status.textContent = result.ok
-        ? result.existing ? 'BombArena.exe existe déjà.' : 'Extraction terminée.'
+        ? result.existing ? 'Les fichiers extraits existent déjà.' : 'Extraction terminée.'
         : 'Impossible de terminer l’extraction.';
       if (result.ok) {
         this.refreshExplorers();

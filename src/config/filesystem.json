@@ -304,6 +304,7 @@
         "icon": "document",
         "detail": "Archive ZIP",
         "deletable": true,
+        "extractable": "smiley-pack-2009",
         "size": 243712,
         "text": "Archive de smileys :\ncontent.gif\nencore_plus_content.gif\nbeaucoup_trop_content.gif"
       },
@@ -337,6 +338,12 @@
     "address": "C:\\Documents and Settings\\Joueur\\Mes documents\\Mes fichiers reçus\\BombArena",
     "parent": "downloads",
     "description": "Fichiers extraits de BombArena.zip",
+    "items": []
+  },
+  "smiley-pack-2009-folder": {
+    "address": "C:\\Documents and Settings\\Joueur\\Mes documents\\Mes fichiers reçus\\smiley_pack_2009",
+    "parent": "downloads",
+    "description": "Fichiers extraits de smileys_pack_2009.zip",
     "items": []
   },
   "videos": {

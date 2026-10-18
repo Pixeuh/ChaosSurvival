@@ -4,6 +4,8 @@ import './styles-menu.css';
 import './styles-buddy.css';
 import './styles-browser.css';
 import './styles-media-player.css';
+import './styles-toolbar-installer.css';
+import './styles-smiley-pack-installer.css';
 import './browser/sites/skypage/styles.css';
 import './browser/sites/forumjeu/styles.css';
 import './browser/sites/flashzone/styles.css';
@@ -33,6 +35,8 @@ import { StartMenuOrder } from './ui/start-menu-order.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
 import { WindowsMediaPlay } from './ui/media-player.js';
+import { ToolbarInstaller } from './ui/toolbar-installer.js';
+import { SmileyPackInstaller } from './ui/smiley-pack-installer.js';
 import { arcadeLauncher } from './ui/arcade-launcher.js';
 import { createMusicToggle } from './ui/music-toggle.js';
 import story from './config/story.json';
@@ -177,9 +181,12 @@ const desktopApplications = new DesktopApplications(
     if (applicationId === 'windows-love-messenger') return openMessenger();
     if (applicationId === 'internet-adventurer') return openBrowser();
     if (applicationId === 'windows-media-play') return launchMediaPlay(file, fileId);
+    if (applicationId === 'toolbar-installer') return toolbarInstaller.open(fileId);
+    if (applicationId === 'smiley-pack-installer') return smileyPackInstaller.open(fileId);
   },
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
+const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
 let narrativeOrchestrator;
 let turboConversationThread;
 const turboEvents = () =>
@@ -264,6 +271,17 @@ const messenger = new Messenger({
     return createConversation(definition, contact.id, thread);
   },
 });
+const smileyPackInstaller = new SmileyPackInstaller(
+  manager,
+  desktopApplications,
+  progression,
+  {
+    onInstalled: () => {
+      conversation.syncSmileyPackComposer();
+      messenger.refreshSmileyPackAvailability();
+    },
+  },
+);
 function handleMessengerMessage(contact, incoming = [], messages = [], view, state = {}) {
   if (!contact) return;
   narrativeOrchestrator?.onMessage(contact, incoming);
@@ -424,6 +442,7 @@ function createConversation(dialogue, contactId = 'pixelgirl', thread = replayRe
         openBrowser(url);
       },
       isUnlocked: () => narrativeOrchestrator.isConversationUnlocked(dialogue.id),
+      isSmileyPackInstalled: () => progression.data.flags.smileyPack2009Installed === true,
       onWindowState: syncSystemWindows,
     },
   );

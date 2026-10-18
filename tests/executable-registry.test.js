@@ -84,3 +84,88 @@ test('DesktopApplications delegates received games and extracted BombArena to th
     ['bomb-arena', 'bomb-arena-folder/bombarena.exe'],
   ]);
 });
+
+test('all installed application executables are routed through the shared launcher callback', () => {
+  const launches = [];
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: { exists: () => true },
+    onLaunchExecutable: (applicationId, file, fileId) => {
+      launches.push({ applicationId, file: file.name, fileId });
+      return applicationId;
+    },
+  });
+  const cases = [
+    ['messenger-files', 'love-messenger.exe', 'windows-love-messenger'],
+    ['browser-files', 'adventurer.exe', 'internet-adventurer'],
+    ['media-files', 'media-play.exe', 'windows-media-play'],
+    ['downloads', 'toolbar_setup.exe', 'toolbar-installer'],
+  ];
+  for (const [locationId, name, applicationId] of cases) {
+    const location = { id: locationId };
+    const file = { name };
+    const fileId = virtualFileId(locationId, name);
+    assert.equal(app.openFile(location, file), applicationId);
+    assert.equal(launches.at(-1).fileId, fileId);
+  }
+  assert.equal(launches.length, cases.length);
+});
+
+test('deleting toolbar_setup.exe prevents a later launch and the file stays deletable', () => {
+  const progression = new Progression(story);
+  const filesystem = new VirtualFilesystem(progression);
+  const downloads = filesystem.getLocation('downloads');
+  const toolbar = downloads.items.find((item) => item.name === 'toolbar_setup.exe');
+  assert.ok(toolbar?.deletable);
+  let launches = 0;
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    onLaunchExecutable: () => { launches++; return 'toolbar-installer'; },
+  });
+  assert.equal(app.openFile(downloads, toolbar), 'toolbar-installer');
+  assert.equal(launches, 1);
+  assert.equal(filesystem.deleteFile(toolbar.fileId).ok, true);
+  assert.equal(app.openFile(downloads, toolbar), undefined);
+  assert.equal(launches, 1);
+});
+
+test('WinRoar extracts the existing smiley archive into a registered virtual installer', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const archiveId = virtualFileId('downloads', 'smileys_pack_2009.zip');
+  const archive = filesystem.getFile(archiveId);
+  assert.equal(archive?.extractable, 'smiley-pack-2009');
+  assert.equal(filesystem.canDelete(archiveId), true);
+  const extracted = filesystem.extractArchive(archiveId);
+  const folderId = virtualFileId('downloads', 'smiley_pack_2009');
+  const installerId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+  assert.equal(extracted.ok, true);
+  assert.equal(filesystem.getFile(folderId).directory, true);
+  const installer = filesystem.getFile(installerId);
+  assert.equal(installer.virtualApp, 'smiley-pack-installer');
+  assert.equal(executableAssociation(installer, installerId), 'smiley-pack-installer');
+  assert.equal(filesystem.canDelete(installerId), true);
+  assert.equal(filesystem.extractArchive(archiveId).existing, true);
+
+  let launches = 0;
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    onLaunchExecutable: (applicationId) => {
+      assert.equal(applicationId, 'smiley-pack-installer');
+      launches++;
+      return 'installer-window';
+    },
+  });
+  assert.equal(app.openFile(filesystem.getLocation('smiley-pack-2009-folder'), installer), 'installer-window');
+  assert.equal(launches, 1);
+  assert.equal(filesystem.deleteFile(archiveId).ok, true);
+  assert.equal(filesystem.exists(installerId), true, 'deleting the ZIP does not remove extracted files');
+  assert.equal(filesystem.deleteFile(folderId).ok, true);
+  assert.equal(filesystem.exists(installerId), false, 'deleting the extracted folder removes its EXE');
+  progression.newGame();
+  assert.equal(new VirtualFilesystem(progression).exists(installerId), false);
+});

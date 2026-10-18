@@ -485,7 +485,7 @@ test('text and picture viewers have independent windows and task controls withou
     const rows = explorer.element.querySelector('.explorer-items').children;
     const history = [...explorer.history];
     for (const [index, item] of current.items.entries()) {
-      if (item.location) continue;
+      if (item.location || /\.exe$/i.test(item.name)) continue;
       rows[index].handlers.dblclick();
       assert.equal(explorer.current, current, item.name);
       assert.deepEqual(explorer.history, history, item.name);
@@ -527,6 +527,7 @@ test('text and picture viewers have independent windows and task controls withou
   for (const [locationId, executableName, applicationId] of [
     ['messenger-files', 'love-messenger.exe', 'windows-love-messenger'],
     ['browser-files', 'adventurer.exe', 'internet-adventurer'],
+    ['downloads', 'toolbar_setup.exe', 'toolbar-installer'],
   ]) {
     const executableLocation = explorerLocation(locationId);
     const executable = executableLocation.items.find((item) => item.name === executableName);
@@ -542,8 +543,8 @@ test('text and picture viewers have independent windows and task controls withou
     assert.equal(app.openFile(executableLocation, executable), firstInstance);
     assert.equal(manager.calls.length, callsBefore, `${executableName} never opens a generic viewer`);
   }
-  assert.equal(applicationInstances.size, 2);
-  assert.equal(applicationRestores, 4);
+  assert.equal(applicationInstances.size, 3);
+  assert.equal(applicationRestores, 6);
 
   const unknown = { name: 'new-file.unrecognized' };
   const synthetic = { ...location, id: 'test', items: [unknown] };
@@ -554,9 +555,9 @@ test('text and picture viewers have independent windows and task controls withou
   assert.equal(fallback.element.querySelector('.generic-file-unavailable').hidden, false);
   assert.equal(explorer.current, synthetic);
   const unknownExecutable = app.openFile(synthetic, { name: 'unknown.exe', text: 'ignored file payload' });
-  assert.equal(
-    unknownExecutable.element.querySelector('.generic-file-content pre').textContent,
-    'Impossible d’ouvrir cette application.',
+  assert.match(
+    manager.calls.at(-1).content.body,
+    /Impossible d’exécuter cette application\./,
   );
   let launches = 0;
   app.onLaunchArcade = () => {

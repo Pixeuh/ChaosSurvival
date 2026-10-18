@@ -10,6 +10,7 @@ const staticApplications = Object.freeze({
 export function executableAssociation(file, fileId) {
   if (!/\.exe$/i.test(file?.name ?? '')) return null;
   if (file.virtualApp === 'bomb-arena') return 'bomb-arena';
+  if (file.virtualApp === 'smiley-pack-installer') return 'smiley-pack-installer';
   if (typeof file.launch?.game === 'string') return 'mini-game';
   return staticApplications[String(fileId ?? file.fileId ?? '').toLowerCase()] ?? 'unknown';
 }

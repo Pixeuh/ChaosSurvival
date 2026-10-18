@@ -34,6 +34,7 @@ export class ConversationWindow {
       manageWindow,
       onDispose,
       player = playerIdentity,
+      isSmileyPackInstalled = () => false,
     } = {},
   ) {
     this.onContactsRequested = onContactsRequested;
@@ -43,6 +44,7 @@ export class ConversationWindow {
     this.manageWindow = manageWindow;
     this.onDispose = onDispose;
     this.player = player;
+    this.isSmileyPackInstalled = isSmileyPackInstalled;
     this.manager = manager;
     this.dialogue = dialogue;
     this.progression = progression;
@@ -149,6 +151,10 @@ export class ConversationWindow {
             <button class="text-button" data-msn-action="wizz">Wizz !</button>
           </div>
           <div class="dialogue-choices" aria-label="Réponses possibles"></div>
+          <form class="smiley-pack-composer" hidden>
+            <input class="smiley-pack-message" type="text" maxlength="500" aria-label="Votre message MSN" autocomplete="off" />
+            <button type="submit" class="xp-button">Envoyer</button>
+          </form>
           <div class="window-status dialogue-typing" role="status"></div>
         `,
       },
@@ -226,6 +232,13 @@ export class ConversationWindow {
     this.choices = this.element.querySelector('.dialogue-choices');
     this.typing = this.element.querySelector('.dialogue-typing');
     this.typingIndicator = this.element.querySelector('.contact-typing');
+    this.playerMessageForm = this.element.querySelector('.smiley-pack-composer');
+    this.playerMessageInput = this.element.querySelector('.smiley-pack-message');
+    this.playerMessageForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.sendPlayerMessage();
+    });
+    this.syncSmileyPackComposer();
     this.followLatest = true;
     const log = this.log;
     this.log.addEventListener('scroll', () => {
@@ -280,6 +293,7 @@ export class ConversationWindow {
   refresh() {
     if (this.offlineContact && this.log) return;
     if (!this.element?.isConnected || !this.log) return;
+    this.syncSmileyPackComposer();
     this.appendHistory();
     this.renderResponses();
     this.renderTyping();
@@ -308,6 +322,18 @@ export class ConversationWindow {
     this.lastFrame = null;
     this.appendHistory();
     this.pump();
+  }
+  syncSmileyPackComposer() {
+    if (!this.playerMessageForm) return;
+    this.playerMessageForm.hidden = Boolean(this.offlineContact) || !this.isSmileyPackInstalled();
+  }
+  sendPlayerMessage() {
+    if (!this.isSmileyPackInstalled() || this.offlineContact || !this.thread) return false;
+    const message = this.thread.appendPlayerMessage(this.playerMessageInput?.value ?? '');
+    if (!message) return false;
+    this.playerMessageInput.value = '';
+    this.appendHistory();
+    return true;
   }
   appendMessage(message) {
     const row = document.createElement('div');
@@ -338,7 +364,11 @@ export class ConversationWindow {
         event.preventDefault();
         this.onLink(message.url);
       });
-    } else appendMessageText(copy, message.text);
+    } else
+      appendMessageText(copy, message.text, {
+        smileyPackInstalled:
+          message.speaker === 'player' && message.type === 'player-text' && this.isSmileyPackInstalled(),
+      });
     row.append(author, copy);
     if (message.type === 'file') this.renderTransfer(row, message.fileKey);
     (this.flow ?? this.log).append(row);
@@ -747,6 +777,8 @@ export class ConversationWindow {
     this.flow = null;
     this.history = null;
     this.typingIndicator = null;
+    this.playerMessageForm = null;
+    this.playerMessageInput = null;
     this.choices = null;
     this.session = null;
     this.renderedKeys = null;

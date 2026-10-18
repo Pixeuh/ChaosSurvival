@@ -1,3 +1,5 @@
+import { smileyPackEmoticons } from './smiley-pack-emoticons.js';
+
 const emoticons = {
   ':)': 'smile',
   ':D': 'smile',
@@ -9,9 +11,32 @@ const emoticons = {
   '<3': '♥',
   ":')": '😂',
 };
-export function appendMessageText(element, text) {
-  for (const part of text.split(/(>:\)|:'\)|:\)|:D|:\||;\)|:P|:\$|<3)/g)) {
-    if (!emoticons[part]) {
+const classicPattern = Object.keys(emoticons).sort((a, b) => b.length - a.length)
+  .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+const escapePattern = (token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+export function appendMessageText(element, text, { smileyPackInstalled = false } = {}) {
+  const customByToken = smileyPackInstalled
+    ? new Map(smileyPackEmoticons.map((emoticon) => [emoticon.token, emoticon]))
+    : new Map();
+  const pattern = smileyPackInstalled
+    ? [...customByToken.keys()].sort((a, b) => b.length - a.length).map(escapePattern).concat(classicPattern).join('|')
+    : classicPattern;
+  for (const part of String(text).split(new RegExp(`(${pattern})`, 'g'))) {
+    const custom = customByToken.get(part);
+    if (custom) {
+      const face = document.createElement('img');
+      face.className = 'msn-emoticon msn-custom-emoticon';
+      face.src = custom.src;
+      face.alt = custom.token;
+      face.title = custom.label;
+      face.setAttribute('role', 'img');
+      face.setAttribute('aria-label', custom.label);
+      element.append(face);
+      continue;
+    }
+    if (!Object.hasOwn(emoticons, part)) {
       element.append(document.createTextNode(part));
       continue;
     }
