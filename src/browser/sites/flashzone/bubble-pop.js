@@ -3,7 +3,7 @@ import {
   BOARD_HEIGHT,
   BOARD_WIDTH,
   BUBBLE_RADIUS,
-  BUBBLE_DIFFICULTIES,
+  BubbleCampaign,
   BubbleRound,
   bestScore,
   cellCenter,
@@ -18,24 +18,14 @@ const palette = ['#20a5e6', '#ed5aa3', '#ffc83d', '#72cf4d', '#9a70e8', '#f0783c
 
 export function renderBubblePop({ progression, onDispose }, game) {
   const root = node('section', undefined, 'bubble-pop');
-  const intro = node('div', undefined, 'bubble-intro');
-  const subtitle = node('p', 'Choisissez votre difficult\u00e9 !');
-  intro.append(node('h2', 'BUBBLEPOP'), subtitle);
-  const difficultyButtons = Object.entries(BUBBLE_DIFFICULTIES).map(([id, config]) => {
-    const button = node('button', config.label, `bubble-difficulty bubble-difficulty-${id}`);
-    button.dataset.difficulty = id;
-    return [id, button];
-  });
-  intro.append(...difficultyButtons.map(([, button]) => button));
-  intro.append(node('small', `Meilleur score : ${bestScore(progression, game.id)}`));
   const stats = node('div', undefined, 'bubble-stats');
+  const levelLabel = node('strong', 'NIVEAU 1 / 3');
   const score = node('strong', 'Score : 0');
   const status = node('span', 'Bulles restantes : 0');
-  const difficultyLabel = node('strong', 'MOYEN');
+  const missedShots = node('span', 'Tirs sans éclatement : 0/8');
   const exitDuringPlay = link('QUITTER', 'http://www.flashzone.fr/');
   exitDuringPlay.className = 'bubble-quit';
-  stats.append(score, status, difficultyLabel, exitDuringPlay);
-  stats.hidden = true;
+  stats.append(levelLabel, score, status, missedShots, exitDuringPlay);
   const arena = node('div', undefined, 'bubble-arena');
   const canvas = node('canvas', undefined, 'bubble-canvas');
   canvas.width = BOARD_WIDTH;
@@ -43,26 +33,41 @@ export function renderBubblePop({ progression, onDispose }, game) {
   canvas.setAttribute('aria-label', 'Jeu de tir de bulles. Déplace la souris pour viser et clique pour tirer.');
   canvas.setAttribute('role', 'img');
   arena.append(canvas);
-  arena.hidden = true;
+  const announcement = node('div', undefined, 'bubble-level-announcement');
+  const announcementTitle = node('strong');
+  const announcementMessage = node('span');
+  announcement.append(announcementTitle, announcementMessage);
+  announcement.hidden = true;
+  arena.append(announcement);
   const result = node('div', undefined, 'bubble-result');
   result.hidden = true;
+  const resultTitle = node('h3');
+  const resultMessage = node('p');
   const final = node('strong');
   const best = node('p');
   const replay = node('button', 'REJOUER', 'bubble-replay');
-  const changeDifficulty = node('button', 'CHANGER DE DIFFICULT\u00c9', 'bubble-change-difficulty');
   const quit = link('QUITTER', 'http://www.flashzone.fr/');
   quit.className = 'bubble-quit';
-  result.append(node('h3'), final, best, replay, changeDifficulty, quit);
-  root.append(intro, stats, arena, result);
+  result.append(resultTitle, resultMessage, final, best, replay, quit);
+  const transition = node('div', undefined, 'bubble-level-transition');
+  transition.hidden = true;
+  const transitionTitle = node('h3');
+  const transitionMessage = node('p');
+  const continueButton = node('button', 'CONTINUER', 'bubble-continue');
+  transition.append(transitionTitle, transitionMessage, continueButton);
+  root.append(stats, arena, transition, result);
 
   const context = canvas.getContext?.('2d') ?? null;
   const music = createGameMusic(musicUrl);
   const popSound = createSoundEffectPool(popSoundUrl);
   const round = new BubbleRound();
+  const campaign = new BubbleCampaign();
   let frame = null;
   let previousTime = null;
+  let announcementStartedAt = null;
   let disposed = false;
   let finished = false;
+  let phase = 'playing';
 
   function drawBubble(x, y, color, radius = BUBBLE_RADIUS) {
     if (!context) return;
@@ -129,17 +134,50 @@ export function renderBubblePop({ progression, onDispose }, game) {
     drawBubble(BOARD_WIDTH - 35, BOARD_HEIGHT - 31, round.nextColor, BUBBLE_RADIUS - 3);
   }
 
+  function updateHud() {
+    levelLabel.textContent = `NIVEAU ${campaign.level} / 3`;
+    score.textContent = `Score : ${campaign.totalScore + round.score}`;
+    status.textContent = `Bulles restantes : ${round.board.size}`;
+    missedShots.textContent = `Tirs sans éclatement : ${round.shotsSinceClear}/${round.config.missesBeforeRow}`;
+  }
+
+  function showFinalResult(won) {
+    phase = 'ended';
+    stats.hidden = true;
+    arena.hidden = true;
+    transition.hidden = true;
+    result.hidden = false;
+    resultTitle.textContent = won ? 'BRAVO !' : 'GAME OVER';
+    resultMessage.textContent = won ? 'VOUS AVEZ TERMINÉ BUBBLEPOP !' : `NIVEAU ${campaign.level}`;
+    final.textContent = `Score : ${campaign.totalScore}`;
+    best.textContent = `Meilleur score : ${saveBestScore(progression, game.id, campaign.totalScore)}`;
+    replay.textContent = won ? 'REJOUER' : 'RECOMMENCER';
+  }
+
   function finish() {
     if (finished) return;
     finished = true;
     music.stop();
     popSound.stopAll();
-    stats.hidden = true;
-    arena.hidden = true;
-    result.hidden = false;
-    result.children[0].textContent = round.status === 'won' ? 'BRAVO !' : 'PARTIE TERMINÉE';
-    final.textContent = `Score final : ${round.score}`;
-    best.textContent = `Meilleur score : ${saveBestScore(progression, game.id, round.score)}`;
+    if (round.status === 'won') {
+      campaign.completeLevel(round.score);
+      if (campaign.state === 'transition') {
+        phase = 'transition';
+        stats.hidden = true;
+        arena.hidden = true;
+        result.hidden = true;
+        transition.hidden = false;
+        transitionTitle.textContent = `NIVEAU ${campaign.level} TERMINÉ !`;
+        transitionMessage.textContent = campaign.level === 1
+          ? 'Préparez-vous pour le niveau 2 !'
+          : 'Le dernier niveau vous attend...';
+        return;
+      }
+      showFinalResult(true);
+      return;
+    }
+    campaign.lose(round.score);
+    showFinalResult(false);
   }
 
   function renderFrame(now) {
@@ -148,13 +186,24 @@ export function renderBubblePop({ progression, onDispose }, game) {
       dispose();
       return;
     }
+    if (phase === 'announce') {
+      if (announcementStartedAt === null) announcementStartedAt = now;
+      draw();
+      updateHud();
+      if (now - announcementStartedAt < 1100) {
+        frame = requestAnimationFrame(renderFrame);
+        return;
+      }
+      phase = 'playing';
+      announcement.hidden = true;
+      previousTime = now;
+    }
     const dt = previousTime === null ? 0 : (now - previousTime) / 1000;
     previousTime = now;
     const oldScore = round.score;
     round.update(dt);
     if (round.score > oldScore) popSound.play();
-    score.textContent = `Score : ${round.score}`;
-    status.textContent = `Bulles restantes : ${round.board.size}`;
+    updateHud();
     draw();
     if (!round.active) {
       frame = null;
@@ -175,12 +224,13 @@ export function renderBubblePop({ progression, onDispose }, game) {
 
   function aim(event) {
     const point = pointFromEvent(event);
-    if (!point || !round.active) return;
+    if (!point || !round.active || phase !== 'playing') return;
     round.setAim(point.x, point.y);
     draw();
   }
 
   function fire(event) {
+    if (phase !== 'playing') return;
     const point = pointFromEvent(event);
     if (point) round.setAim(point.x, point.y);
     if (!round.shoot()) return;
@@ -207,48 +257,50 @@ export function renderBubblePop({ progression, onDispose }, game) {
     canvas.removeEventListener('keydown', keyboardFire);
   }
 
-  function start(difficulty = round.difficulty) {
+  function startCurrentLevel() {
     if (disposed) return;
     if (frame !== null) cancelAnimationFrame(frame);
     frame = null;
     previousTime = null;
+    announcementStartedAt = null;
     finished = false;
-    round.start(difficulty);
-    intro.hidden = true;
+    phase = 'announce';
+    round.start(campaign.difficulty);
     result.hidden = true;
+    transition.hidden = true;
     stats.hidden = false;
     arena.hidden = false;
+    announcementTitle.textContent = `NIVEAU ${campaign.level}`;
+    announcementMessage.textContent = campaign.level === 1
+      ? 'Échauffement !'
+      : campaign.level === 2 ? 'Niveau moyen' : 'Dernier défi !';
+    announcement.hidden = false;
     music.start();
-    score.textContent = 'Score : 0';
-    status.textContent = `Bulles restantes : ${round.board.size}`;
-    difficultyLabel.textContent = BUBBLE_DIFFICULTIES[round.difficulty].label;
+    updateHud();
     draw();
     frame = requestAnimationFrame(renderFrame);
   }
 
-  function showDifficultySelection() {
+  function startCampaign() {
     if (disposed) return;
-    if (frame !== null) cancelAnimationFrame(frame);
-    frame = null;
-    music.stop();
-    popSound.stopAll();
-    round.stop();
-    finished = false;
-    stats.hidden = true;
-    arena.hidden = true;
-    result.hidden = true;
-    intro.hidden = false;
+    campaign.reset();
+    startCurrentLevel();
+  }
+
+  function continueCampaign() {
+    if (!campaign.continue()) return;
+    startCurrentLevel();
   }
 
   canvas.addEventListener('pointermove', aim);
   canvas.addEventListener('pointerdown', fire);
   canvas.tabIndex = 0;
   canvas.addEventListener('keydown', keyboardFire);
-  for (const [difficulty, button] of difficultyButtons) {
-    button.addEventListener('click', () => start(difficulty));
-  }
-  replay.addEventListener('click', () => start(round.difficulty));
-  changeDifficulty.addEventListener('click', showDifficultySelection);
+  continueButton.addEventListener('click', continueCampaign);
+  replay.addEventListener('click', () => {
+    if (phase === 'ended') startCampaign();
+  });
   onDispose(dispose);
+  startCampaign();
   return root;
 }

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { localPages } from '../src/browser/registry.js';
 import { flashCatalog, FLASH_URL, renderFlashHome } from '../src/browser/sites/flashzone/index.js';
 import {
+  BubbleCampaign,
   BubbleRound,
   BUBBLE_DIFFICULTIES,
   BUBBLE_RADIUS,
@@ -302,18 +303,13 @@ test('only personal best is saved, corrupt scores fall back, restart restores an
   saveBestScore(p, 'bubble-pop', 10);
   assert.equal(bestScore(p, 'bubble-pop'), 10);
 });
-test('BubblePop selects difficulty, starts from its real controls, replays and cleans up', (t) => {
+test('BubblePop opens directly at level 1 with its announcement and one animation loop', (t) => {
   const clock = dom(t),
     { p } = fixture();
   let cleanup;
   const route = localPages.resolve(flashCatalog.games[0].route, {});
   const root = route.page.render({ progression: p, onDispose: (fn) => (cleanup = fn) });
   const find = (cls) => walk(root).find((n) => n.className === cls);
-  assert.equal(clock.audios.length, 0);
-  assert.equal(clock.frames.size, 0);
-  assert.equal(find('bubble-intro').children[0].textContent, 'BUBBLEPOP');
-  assert.match(find('bubble-intro').children[1].textContent, /^Choisissez votre/);
-  find('bubble-difficulty bubble-difficulty-moyen').handlers.click();
   assert.equal(clock.audios.length, 1);
   const music = clock.audios[0];
   assert.match(music.src, /jakob_welik-roblox-time-to-win-skyline-run-1-442119\.mp3$/);
@@ -322,39 +318,77 @@ test('BubblePop selects difficulty, starts from its real controls, replays and c
   assert.equal(music.playCount, 1);
   assert.equal(clock.audios.length, 1, 'effect audio is lazy until a group pops');
   assert.equal(clock.frames.size, 1);
+  assert.equal(find('bubble-stats').children[0].textContent, 'NIVEAU 1 / 3');
+  assert.equal(find('bubble-stats').children[1].textContent, 'Score : 0');
+  assert.equal(find('bubble-level-announcement').children[0].textContent, 'NIVEAU 1');
+  assert.equal(find('bubble-level-announcement').children[1].textContent, 'Échauffement !');
+  assert.equal(find('bubble-level-transition').hidden, true);
+  assert.equal(walk(root).some((n) => (n.className ?? '').includes('bubble-difficulty')), false);
+  assert.equal(walk(root).some((n) => n.className === 'bubble-change-difficulty'), false);
+  find('bubble-continue').handlers.click();
+  assert.equal(find('bubble-stats').children[0].textContent, 'NIVEAU 1 / 3',
+    'Continue cannot bypass winning the current level');
+  assert.equal(clock.frames.size, 1);
   const canvas = find('bubble-canvas');
   assert.equal(canvas.width, 480);
   assert.equal(canvas.height, 600);
   canvas.handlers.pointermove({ clientX: 80, clientY: 120 });
   canvas.handlers.pointerdown({ clientX: 80, clientY: 120 });
-  canvas.handlers.pointerdown({ clientX: 80, clientY: 120 });
-  clock.frame(performance.now() + 16);
-  assert.equal(find('bubble-stats').children[0].textContent, 'Score : 0');
-  assert.equal(clock.frames.size, 1, 'the projectile loop continues while playing');
-  find('bubble-replay').handlers.click();
-  assert.equal(clock.audios.length, 1);
-  assert.equal(music.playCount, 2);
-  assert.equal(find('bubble-stats').children[0].textContent, 'Score : 0');
+  const now = performance.now() + 100;
+  clock.frame(now);
+  assert.equal(find('bubble-level-announcement').hidden, false);
   assert.equal(clock.frames.size, 1);
-  find('bubble-change-difficulty').handlers.click();
-  assert.equal(clock.frames.size, 0);
-  assert.equal(find('bubble-intro').hidden, false);
-  find('bubble-difficulty bubble-difficulty-extreme').handlers.click();
+  clock.frame(now + 1200);
+  assert.equal(find('bubble-level-announcement').hidden, true);
   assert.equal(clock.frames.size, 1);
-  assert.equal(find('bubble-stats').children[2].textContent, 'EXTRÊME');
+  assert.equal(p.data.flashzone?.bestScores?.['bubble-pop'], undefined,
+    'opening or beginning a level does not save intermediate campaign progress');
   cleanup();
   cleanup();
   assert.equal(clock.frames.size, 0);
   assert.equal(music.src, '');
   let cleanup2;
   const second = route.page.render({ progression: p, onDispose: (fn) => (cleanup2 = fn) });
-  assert.equal(walk(second).find((n) => n.className === 'bubble-intro').hidden, undefined);
-  walk(second)
-    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-facile')
-    .handlers.click();
+  assert.equal(walk(second).find((n) => n.className === 'bubble-stats').children[0].textContent, 'NIVEAU 1 / 3');
   assert.equal(clock.frames.size, 1);
   cleanup2();
   assert.equal(clock.frames.size, 0);
+});
+test('BubblePop campaign gates the three levels, accumulates score, and resets after defeat or replay', () => {
+  const campaign = new BubbleCampaign();
+  assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [1, 'facile', 0]);
+  assert.equal(campaign.continue(), false, 'no level can be selected before a win');
+  assert.equal(campaign.completeLevel(1200), 'transition');
+  assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [1, 'facile', 1200]);
+  assert.equal(campaign.continue(), true);
+  assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [2, 'moyen', 1200]);
+  assert.equal(campaign.continue(), false, 'level 3 cannot be accessed before level 2 is won');
+  assert.equal(campaign.completeLevel(2400), 'transition');
+  assert.equal(campaign.continue(), true);
+  assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [3, 'extreme', 3600]);
+  assert.equal(campaign.completeLevel(3100), 'won');
+  assert.deepEqual([campaign.level, campaign.state, campaign.score], [3, 'won', 6700]);
+  assert.equal(campaign.continue(), false);
+  campaign.reset();
+  assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [1, 'facile', 0]);
+
+  campaign.continue();
+  campaign.completeLevel(1200);
+  campaign.continue();
+  assert.equal(campaign.lose(450), true);
+  assert.deepEqual([campaign.level, campaign.state, campaign.score], [2, 'lost', 1650]);
+  assert.equal(campaign.continue(), false);
+  campaign.reset();
+  assert.deepEqual([campaign.level, campaign.state, campaign.score], [1, 'playing', 0]);
+  campaign.completeLevel(100);
+  campaign.continue();
+  campaign.completeLevel(200);
+  campaign.continue();
+  assert.equal(campaign.lose(300), true);
+  assert.deepEqual([campaign.level, campaign.state, campaign.score], [3, 'lost', 600]);
+  assert.equal(campaign.continue(), false);
+  campaign.reset();
+  assert.deepEqual([campaign.level, campaign.state, campaign.score], [1, 'playing', 0]);
 });
 test('browser disposes interactive pages on navigation and reset before replacing DOM', async (t) => {
   const clock = dom(t),
@@ -384,17 +418,14 @@ test('browser disposes interactive pages on navigation and reset before replacin
   browser.navigate(flashCatalog.games[0].route);
   await new Promise((r) => setTimeout(r, 250));
   const root = controls.get('.browser-page').node;
-  walk(root)
-    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-moyen')
-    .handlers.click();
   assert.equal(clock.frames.size, 1);
+  assert.equal(walk(root).find((n) => n.className === 'bubble-stats').children[0].textContent, 'NIVEAU 1 / 3');
   browser.navigate(FLASH_URL);
   assert.equal(clock.frames.size, 0);
   browser.navigate(flashCatalog.games[0].route);
   await new Promise((r) => setTimeout(r, 250));
-  walk(controls.get('.browser-page').node)
-    .find((n) => n.className === 'bubble-difficulty bubble-difficulty-moyen')
-    .handlers.click();
+  assert.equal(walk(controls.get('.browser-page').node)
+    .find((n) => n.className === 'bubble-stats').children[0].textContent, 'NIVEAU 1 / 3');
   assert.equal(clock.frames.size, 1);
   browser.reset();
   assert.equal(clock.frames.size, 0);

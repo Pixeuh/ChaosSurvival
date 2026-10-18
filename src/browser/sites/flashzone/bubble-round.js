@@ -27,6 +27,52 @@ export const BUBBLE_DIFFICULTIES = Object.freeze({
     pattern: '0011223344550',
   }),
 });
+const CAMPAIGN_LEVELS = ['facile', 'moyen', 'extreme'];
+
+export class BubbleCampaign {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.level = 1;
+    this.totalScore = 0;
+    this.state = 'playing';
+  }
+
+  get difficulty() {
+    return CAMPAIGN_LEVELS[this.level - 1];
+  }
+
+  get score() {
+    return this.totalScore;
+  }
+
+  completeLevel(score) {
+    if (this.state !== 'playing' || !Number.isSafeInteger(score) || score < 0) return false;
+    this.totalScore += score;
+    if (this.level === CAMPAIGN_LEVELS.length) {
+      this.state = 'won';
+      return 'won';
+    }
+    this.state = 'transition';
+    return 'transition';
+  }
+
+  continue() {
+    if (this.state !== 'transition' || this.level >= CAMPAIGN_LEVELS.length) return false;
+    this.level++;
+    this.state = 'playing';
+    return true;
+  }
+
+  lose(score) {
+    if (this.state !== 'playing' || !Number.isSafeInteger(score) || score < 0) return false;
+    this.totalScore += score;
+    this.state = 'lost';
+    return true;
+  }
+}
 
 function initialRow(config, row) {
   return [...config.pattern].map((value, col) => {

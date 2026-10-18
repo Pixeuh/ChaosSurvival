@@ -74,14 +74,9 @@
   border: 3px ridge #97b9ed;
   color: #fff;
 }
-.bubble-intro,
 .bubble-result {
   text-align: center;
   padding: 20px 5px;
-}
-.bubble-intro small {
-  display: block;
-  margin-top: 12px;
 }
 .bubble-pop button {
   font:
@@ -89,38 +84,21 @@
     sans-serif;
   cursor: pointer;
 }
-.bubble-play,
 .bubble-replay,
-.bubble-change-difficulty,
-.bubble-difficulty {
+.bubble-continue {
   padding: 7px 24px;
   background: linear-gradient(#fff583, #ffb539);
   border: 2px outset #ffe795;
   color: #604010;
 }
-.bubble-play:hover,
 .bubble-replay:hover,
-.bubble-change-difficulty:hover,
-.bubble-difficulty:hover {
+.bubble-continue:hover {
   filter: brightness(1.1);
-}
-.bubble-difficulty {
-  min-width: 125px;
-  margin: 6px;
-  padding: 9px 16px;
-  background: linear-gradient(#fff583, #ffb539);
-  border: 2px outset #ffe795;
-  color: #604010;
-}
-.bubble-change-difficulty {
-  margin-left: 8px;
-  padding: 7px 14px;
-  background: linear-gradient(#fff, #c6d6e8);
-  border: 2px outset #dbe6f4;
-  color: #243852;
 }
 .bubble-stats {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 8px;
@@ -140,6 +118,37 @@
   overflow: hidden;
   border: 2px inset #80b8df;
   background: radial-gradient(ellipse at top, #238bc4, #232667);
+}
+.bubble-level-announcement {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #fff;
+  background: #101d54c9;
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 2px 2px #10234e;
+}
+.bubble-level-announcement strong {
+  color: #fff28a;
+  font: bold 28px Verdana, sans-serif;
+}
+.bubble-level-announcement span {
+  font: bold 17px Tahoma, sans-serif;
+}
+.bubble-level-transition {
+  padding: 22px 12px;
+  border: 2px ridge #97b9ed;
+  background: linear-gradient(#20529d, #253070);
+  color: #fff;
+  text-align: center;
+}
+.bubble-level-transition h3 {
+  color: #fff28a;
 }
 .bubble-canvas {
   display: block;
