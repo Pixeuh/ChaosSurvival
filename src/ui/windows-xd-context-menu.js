@@ -63,7 +63,10 @@ export class WindowsXdContextMenus {
       const button = event.target.closest?.('.desktop-icons button, .desktop-files button');
       if (!button || !this.desktop.contains(button)) return this.closeMenu();
       event.stopPropagation();
-      const actions = this.desktopActions(button);
+      const selection = this.desktopIcons.contextSelection(button);
+      const actions = selection.length > 1
+        ? this.selectionActions(selection)
+        : this.desktopActions(button);
       if (actions.length) this.show(actions, event, button);
       else this.closeMenu();
     };
@@ -108,6 +111,31 @@ export class WindowsXdContextMenus {
       });
     return actions;
   }
+  selectionActions(selection) {
+    const shortcuts = [];
+    const files = [];
+    for (const button of selection) {
+      const shortcut = button.dataset.shortcut;
+      if (shortcut && !SYSTEM_SHORTCUTS.has(shortcut)) {
+        shortcuts.push(button);
+        continue;
+      }
+      if (button.classList.contains('desktop-virtual-shortcut')) {
+        shortcuts.push(button);
+        continue;
+      }
+      const file = this.virtualFilesystem?.getFile(button.dataset.fileId);
+      if (file && this.virtualFilesystem.canDelete(file.fileId)) files.push(file);
+    }
+    if (!shortcuts.length && !files.length) return [];
+    return [{
+      id: 'delete-selection',
+      label: 'Supprimer',
+      run: () => files.length
+        ? this.askDeleteSelection(shortcuts, files)
+        : this.desktopIcons.removeMany(shortcuts),
+    }];
+  }
   show(actions, event, target) {
     this.closeMenu();
     this.actions = actions;
@@ -129,21 +157,39 @@ export class WindowsXdContextMenus {
     this.menu.querySelector('button')?.focus();
   }
   askDeleteFile(file) {
-    this.pendingDelete = file.fileId;
-    this.confirmation.querySelector('p').textContent = `Voulez-vous vraiment supprimer « ${file.name} » ?`;
+    this.askDeleteSelection([], [file]);
+  }
+  askDeleteSelection(shortcuts, files) {
+    this.pendingDelete = { shortcuts, files };
+    const count = shortcuts.length + files.length;
+    this.confirmation.querySelector('p').textContent = files.length === 1 && count === 1
+      ? `Voulez-vous vraiment supprimer « ${files[0].name} » ?`
+      : `Voulez-vous vraiment supprimer ${count} éléments sélectionnés ?`;
     this.confirmation.hidden = false;
     this.confirmation.querySelector('[data-context-delete-answer="no"]').focus();
   }
   confirmDelete() {
-    const fileId = this.pendingDelete;
+    const pending = this.pendingDelete;
     this.pendingDelete = null;
     this.confirmation.hidden = true;
-    const result = this.virtualFilesystem.deleteFile(fileId);
-    if (!result.ok) return;
-    for (const removedId of result.removedFileIds ?? [fileId])
-      this.desktopApplications.closeOpenFile(removedId);
-    this.desktopApplications.refreshExplorers();
-    this.onFilesystemChange(result);
+    if (!pending) return;
+    const { shortcuts, files } = pending;
+    if (shortcuts.length) this.desktopIcons.removeMany(shortcuts);
+    if (files.length) this.desktopIcons.deselectMany(files.map((file) =>
+      this.desktopIcons.buttons().find((button) => button.dataset.fileId === file.fileId),
+    ).filter(Boolean));
+    const results = [];
+    for (const file of files) {
+      const result = this.virtualFilesystem.deleteFile(file.fileId);
+      if (!result.ok) continue;
+      results.push(result);
+      for (const removedId of result.removedFileIds ?? [file.fileId])
+        this.desktopApplications.closeOpenFile(removedId);
+    }
+    if (results.length) {
+      this.desktopApplications.refreshExplorers();
+      this.onFilesystemChange(results.length === 1 ? results[0] : results);
+    }
   }
   closeMenu(restoreFocus = false) {
     this.menu.hidden = true;

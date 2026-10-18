@@ -81,8 +81,18 @@ function setup(t) {
     desktop.children.push(...children);
   };
   const manager = { windows: new Map([[17, {}], [23, {}]]), closed: [], close(id) { this.closed.push(id); } };
-  const calls = { removed: [], extracted: [], filesystem: [] };
-  const desktopIcons = { remove(button) { calls.removed.push(button); } };
+  const calls = { removed: [], removedMany: [], extracted: [], filesystem: [] };
+  const desktopIcons = {
+    selection: [],
+    remove(button) { calls.removed.push(button); },
+    removeMany(buttons) { calls.removedMany.push([...buttons]); },
+    contextSelection(button) {
+      if (!this.selection.includes(button)) this.selection = [button];
+      return this.selection;
+    },
+    buttons() { return [...this.selection]; },
+    deselectMany(buttons) { this.selection = this.selection.filter((item) => !buttons.includes(item)); },
+  };
   const virtualFilesystem = {
     getFile(id) { return id ? { name: id.endsWith('.zip') ? 'BombArena.zip' : 'notes.txt', fileId: id, extractable: id.endsWith('.zip') ? 'bomb-arena' : undefined } : null; },
     canDelete(id) { return Boolean(id); },
@@ -94,7 +104,7 @@ function setup(t) {
     refreshExplorers() { calls.refresh = true; },
   };
   const menus = new WindowsXdContextMenus({ desktop, manager, desktopIcons, virtualFilesystem, desktopApplications, onFilesystemChange: (result) => calls.filesystem.push(result) });
-  return { desktop, taskbar, manager, calls, menus, listeners };
+  return { desktop, taskbar, manager, calls, menus, listeners, desktopIcons };
 }
 
 test('taskbar context menu closes only the clicked window, including minimized tabs, without restoring it', (t) => {
@@ -168,6 +178,67 @@ test('desktop context actions distinguish system icons, shortcuts, ZIP files and
   assert.equal(calls.closedFile, 'downloads/bombarena.zip');
   assert.equal(calls.refresh, true);
   assert.equal(calls.filesystem.length, 1);
+  menus.dispose();
+});
+
+test('right-clicking selected SmileyCatcher and Media Play shortcuts removes both shortcuts together', (t) => {
+  const { desktop, menus, calls, desktopIcons } = setup(t);
+  const icons = new Element();
+  icons.className = 'desktop-icons';
+  const media = new Element('button');
+  media.dataset.shortcut = 'windows-media-play';
+  const files = new Element();
+  files.className = 'desktop-files';
+  const smiley = new Element('button');
+  smiley.className = 'desktop-file desktop-virtual-shortcut';
+  smiley.dataset.fileId = 'downloads/super_mega_game.exe';
+  files.append(smiley);
+  icons.append(media);
+  desktop.append(icons, files);
+  desktopIcons.selection = [smiley, media];
+
+  desktop.handlers.contextmenu({ target: smiley, clientX: 50, clientY: 60, preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(desktopIcons.selection, [smiley, media], 'the selected group stays intact');
+  assert.deepEqual(menus.menu.children.map((item) => item.textContent), ['Supprimer']);
+  menus.menu.handlers.click({ target: menus.menu.children[0], stopPropagation() {} });
+  assert.deepEqual(calls.removedMany, [[smiley, media]]);
+  assert.equal(calls.deleted, undefined, 'the original SmileyCatcher executable is not deleted');
+  assert.deepEqual(calls.removed, [], 'the clicked icon is not deleted separately');
+  menus.dispose();
+});
+
+test('right-clicking outside the selection replaces it; mixed delete preserves system shortcuts', (t) => {
+  const { desktop, menus, calls, desktopIcons } = setup(t);
+  const icons = new Element();
+  icons.className = 'desktop-icons';
+  const oldSelection = new Element('button');
+  oldSelection.dataset.shortcut = 'msn';
+  const media = new Element('button');
+  media.dataset.shortcut = 'windows-media-play';
+  const computer = new Element('button');
+  computer.dataset.shortcut = 'computer';
+  icons.append(oldSelection, media, computer);
+  const files = new Element();
+  files.className = 'desktop-files';
+  const zip = new Element('button');
+  zip.dataset.fileId = 'downloads/bombarena.zip';
+  files.append(zip);
+  desktop.append(icons, files);
+  desktopIcons.selection = [oldSelection, computer];
+
+  desktop.handlers.contextmenu({ target: media, clientX: 40, clientY: 50, preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(desktopIcons.selection, [media], 'an unselected target becomes the only selection');
+  menus.closeMenu();
+
+  desktopIcons.selection = [media, zip, computer];
+  desktop.handlers.contextmenu({ target: media, clientX: 40, clientY: 50, preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(menus.menu.children.map((item) => item.textContent), ['Supprimer']);
+  menus.menu.handlers.click({ target: menus.menu.children[0], stopPropagation() {} });
+  assert.equal(menus.confirmation.hidden, false, 'mixed file deletion asks once for the whole selection');
+  menus.confirmation.querySelector('[data-context-delete-answer="yes"]').handlers.click();
+  assert.deepEqual(calls.removedMany, [[media]]);
+  assert.equal(calls.deleted, 'downloads/bombarena.zip');
+  assert.equal(desktopIcons.selection.includes(computer), true, 'the protected system icon remains selected');
   menus.dispose();
 });
 

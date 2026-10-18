@@ -23,12 +23,22 @@ export class DesktopFiles {
       if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) continue;
       if (!received.has(fileId)) received.set(fileId, file);
     }
+    const removedShortcuts = this.progression.data.desktopIconsRemoved ?? [];
     for (const file of received.values()) {
+      const fileId = virtualFileId('downloads', file.name);
+      const smileyCatcherShortcut = file.launch?.game === 'smiley-catcher';
+      if (
+        smileyCatcherShortcut &&
+        removedShortcuts.includes(`file:${fileId}`)
+      ) continue;
       const button = document.createElement('button');
-      button.className = 'desktop-file';
+      button.className = smileyCatcherShortcut
+        ? 'desktop-file desktop-virtual-shortcut'
+        : 'desktop-file';
       button.dataset.fileId = this.virtualFilesystem
-        ? virtualFileId('downloads', file.name)
+        ? fileId
         : file.id;
+      if (smileyCatcherShortcut) button.title = `Raccourci vers ${file.name}`;
       button.setAttribute('aria-pressed', 'false');
       button.innerHTML = icon('download');
       const name = document.createElement('span');
@@ -45,7 +55,6 @@ export class DesktopFiles {
     const bombArenaId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
     const executable = this.virtualFilesystem?.getFile(bombArenaId);
     const bombArenaShortcutId = `file:${bombArenaId}`;
-    const removedShortcuts = this.progression.data.desktopIconsRemoved ?? [];
     if (executable?.virtualApp === 'bomb-arena' && !removedShortcuts.includes(bombArenaShortcutId)) {
       const shortcut = document.createElement('button');
       shortcut.className = 'desktop-file desktop-virtual-shortcut';

@@ -7,6 +7,7 @@ import { VirtualTextFiles } from '../src/story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { DesktopFiles } from '../src/ui/desktop-files.js';
+import { DesktopIcons } from '../src/ui/desktop-icons.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const groupDialogue = JSON.parse(readFileSync(new URL('../src/dialogues/pixelgirl-super-plombier-group.json', import.meta.url)));
 
@@ -229,6 +230,87 @@ test('the received game exists only after transfer, deletes permanently, and a n
   const nextTransfer = restored.progression.receiveFile(game, 'pixelgirl-intro', 'offer');
   restored.progression.finishTransfer(nextTransfer.key);
   assert.equal(new VirtualFilesystem(restored.progression).exists(fileId), true);
+});
+
+test('removing the SmileyCatcher desktop shortcut keeps its received executable in Explorer', (t) => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { createElement: () => new FakeElement() };
+  t.after(() => {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  });
+  const disk = memory();
+  const progression = new Progression(story, disk);
+  const game = {
+    id: 'super-mega-game',
+    name: 'SUPER_MEGA_GAME.exe',
+    description: 'SMILEY CATCHER 2009',
+    launch: { game: 'smiley-catcher' },
+  };
+  const transfer = progression.receiveFile(game, 'pixelgirl-intro', 'offer');
+  progression.finishTransfer(transfer.key);
+  const filesystem = new VirtualFilesystem(progression);
+  const fileId = virtualFileId('downloads', game.name);
+  const desktop = new FakeElement();
+  let desktopItems = null;
+  desktop.querySelector = (selector) => selector === '#desktop-files' ? desktopItems : null;
+  desktop.append = (items) => {
+    items.parent = desktop;
+    desktop.children.push(items);
+    desktopItems = items;
+  };
+  const desktopOpened = [];
+  const desktopFiles = new DesktopFiles(desktop, progression, (file) => desktopOpened.push(file.name), () => {}, filesystem);
+  desktopFiles.render();
+  const shortcut = desktopItems.children[0];
+  assert.equal(shortcut.dataset.fileId, fileId);
+  assert.equal(shortcut.className, 'desktop-file desktop-virtual-shortcut');
+  shortcut.classList.contains = (name) => shortcut.className.split(' ').includes(name);
+  shortcut.handlers.dblclick();
+  assert.deepEqual(desktopOpened, [game.name], 'double-click still opens the executable target');
+  const mediaId = virtualFileId('media-files', 'media-play.exe');
+  const mediaShortcut = new FakeElement();
+  mediaShortcut.dataset.shortcut = 'windows-media-play';
+
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    progression,
+    saved: {},
+    cells: new Map([
+      [`file:${fileId}`, { col: 1, row: 0 }],
+      [`shortcut:windows-media-play`, { col: 1, row: 1 }],
+    ]),
+    selectedIds: new Set([`file:${fileId}`, 'shortcut:windows-media-play']),
+    refresh() {},
+  });
+  assert.equal(icons.removeMany([shortcut, mediaShortcut]), true);
+  desktopFiles.render();
+  assert.equal(desktopItems.children.length, 0, 'a refresh does not recreate a deleted shortcut');
+  assert.equal(filesystem.exists(fileId), true, 'shortcut removal leaves the original virtual file intact');
+  assert.equal(filesystem.exists(mediaId), true, 'the other shortcut target remains installed');
+
+  const received = filesystem.getLocation('downloads').items.find((item) => item.fileId === fileId);
+  const opened = [];
+  const applications = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    onOpenReceived: (file) => (opened.push(file.name), file.name),
+  });
+  assert.equal(applications.openFile(filesystem.getLocation('downloads'), received), game.name);
+  assert.deepEqual(opened, [game.name], 'the executable remains launchable from Explorer');
+
+  const restored = new Progression(story, disk);
+  assert.ok(restored.data.desktopIconsRemoved.includes(`file:${fileId}`));
+  assert.ok(restored.data.desktopIconsRemoved.includes('shortcut:windows-media-play'));
+  assert.equal(new VirtualFilesystem(restored).exists(fileId), true);
+  const restoredDesktop = new FakeElement();
+  let restoredItems;
+  restoredDesktop.querySelector = (selector) => selector === '#desktop-files' ? restoredItems : null;
+  restoredDesktop.append = (items) => {
+    restoredItems = items;
+    restoredDesktop.children.push(items);
+  };
+  new DesktopFiles(restoredDesktop, restored, () => {}, () => {}, new VirtualFilesystem(restored)).render();
+  assert.equal(restoredItems.children.length, 0, 'the shortcut tombstone persists across reloads');
 });
 
 test('BombArena.exe is the executable shortcut, window title and taskbar label without changing its app ID', () => {

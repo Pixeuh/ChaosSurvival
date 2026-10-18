@@ -39,6 +39,25 @@ test('the arcade EXE keeps the legacy music shortcut position without changing o
   );
 });
 
+test('context selection keeps a selected group and replaces it for an unselected target', () => {
+  const makeButton = (shortcut) => ({
+    dataset: { shortcut },
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+  });
+  const first = makeButton('msn');
+  const second = makeButton('browser');
+  const outside = makeButton('windows-media-play');
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    selectedIds: new Set(['shortcut:msn', 'shortcut:browser']),
+    buttons: () => [first, second, outside],
+  });
+  assert.deepEqual(icons.contextSelection(second), [first, second]);
+  assert.deepEqual(icons.contextSelection(outside), [outside]);
+  assert.deepEqual(icons.selectedIds, new Set(['shortcut:windows-media-play']));
+});
+
 test('removing a shortcut persists its tombstone, pins remaining positions and New Game restores defaults', () => {
   const storage = memory();
   const progression = new Progression(story, storage);
@@ -73,6 +92,43 @@ test('removing a shortcut persists its tombstone, pins remaining positions and N
   restored.newGame();
   assert.deepEqual(restored.data.desktopIconsRemoved, []);
   assert.equal(restored.data.desktopIcons, undefined);
+});
+
+test('removing multiple shortcuts persists them together without deleting their executable targets or system icons', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    progression,
+    saved: {},
+    cells: new Map([
+      ['shortcut:computer', { col: 0, row: 0 }],
+      ['shortcut:msn', { col: 0, row: 1 }],
+      ['shortcut:windows-media-play', { col: 0, row: 2 }],
+    ]),
+    selectedIds: new Set(['shortcut:computer', 'shortcut:msn', 'shortcut:windows-media-play']),
+    refresh() {},
+  });
+  const computer = { dataset: { shortcut: 'computer' } };
+  const messenger = { dataset: { shortcut: 'msn' } };
+  const media = { dataset: { shortcut: 'windows-media-play' } };
+  const messengerExecutable = virtualFileId('messenger-files', 'love-messenger.exe');
+  const mediaExecutable = virtualFileId('media-files', 'media-play.exe');
+
+  assert.equal(icons.removeMany([computer, messenger, media]), true);
+  assert.deepEqual(progression.data.desktopIconsRemoved, [
+    'shortcut:msn',
+    'shortcut:windows-media-play',
+  ]);
+  assert.equal(icons.selectedIds.has('shortcut:msn'), false);
+  assert.equal(icons.selectedIds.has('shortcut:windows-media-play'), false);
+  assert.equal(filesystem.exists(messengerExecutable), true);
+  assert.equal(filesystem.exists(mediaExecutable), true);
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.desktopIconsRemoved, progression.data.desktopIconsRemoved);
+  restored.newGame();
+  assert.deepEqual(restored.data.desktopIconsRemoved, []);
 });
 
 test('desktop icons fill the first column before the next and preserve existing custom cells', () => {

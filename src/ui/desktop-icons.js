@@ -1,6 +1,7 @@
 const WIDTH = 120;
 const HEIGHT = 104;
 const MARGIN = 20;
+const SYSTEM_SHORTCUT_IDS = new Set(['shortcut:computer', 'shortcut:folder', 'shortcut:bin']);
 const INITIAL_ICON_ORDER = [
   'shortcut:bin',
   'shortcut:computer',
@@ -213,14 +214,20 @@ export class DesktopIcons {
       : [];
   }
   remove(button) {
-    const id = this.id(button);
-    if (!id || this.removedIds().includes(id)) return false;
+    return this.removeMany([button]);
+  }
+  removeMany(buttons) {
+    const ids = [...new Set(buttons
+      .filter((button) => button?.dataset?.shortcut || button?.classList?.contains('desktop-virtual-shortcut'))
+      .map((button) => this.id(button))
+      .filter((id) => id && !SYSTEM_SHORTCUT_IDS.has(id) && !this.removedIds().includes(id)))];
+    if (!ids.length) return false;
     // Pin the current layout before an icon leaves the grid so its neighbors stay put.
     for (const [savedId, cell] of this.cells ?? [])
       if (!this.saved[savedId]) this.saved[savedId] = { ...cell, custom: true };
     this.progression.data.desktopIcons = this.saved;
-    this.progression.data.desktopIconsRemoved = [...this.removedIds(), id];
-    this.selectedIds.delete(id);
+    this.progression.data.desktopIconsRemoved = [...this.removedIds(), ...ids];
+    for (const id of ids) this.selectedIds.delete(id);
     this.progression.save();
     this.refresh();
     return true;
@@ -230,6 +237,15 @@ export class DesktopIcons {
   }
   selectMany(buttons) {
     this.selectedIds = new Set(buttons.map((button) => this.id(button)));
+    for (const item of this.buttons())
+      item.setAttribute('aria-pressed', String(this.selectedIds.has(this.id(item))));
+  }
+  contextSelection(button) {
+    if (!this.selectedIds.has(this.id(button))) this.select(button);
+    return this.buttons().filter((item) => this.selectedIds.has(this.id(item)));
+  }
+  deselectMany(buttons) {
+    for (const button of buttons) this.selectedIds.delete(this.id(button));
     for (const item of this.buttons())
       item.setAttribute('aria-pressed', String(this.selectedIds.has(this.id(item))));
   }
