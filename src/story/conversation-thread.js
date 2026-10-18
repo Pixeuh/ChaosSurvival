@@ -357,23 +357,4 @@ export class ConversationThread {
     this.progression.save();
     return message;
   }
-  appendPlayerMessage(text, now = Date.now()) {
-    const messageText = typeof text === 'string' ? text.trim() : '';
-    if (!messageText || messageText.length > 500) return null;
-    this.sync();
-    const eventId = globalThis.crypto?.randomUUID?.() ?? `${now}-${Math.random()}`;
-    const message = {
-      key: `player:${this.contactId}:${eventId}`,
-      type: 'player-text',
-      speaker: 'player',
-      text: messageText,
-      receivedAt: now,
-    };
-    this.state.history.push(message);
-    if (!this.progression.save()) {
-      this.state.history.pop();
-      return null;
-    }
-    return message;
-  }
 }

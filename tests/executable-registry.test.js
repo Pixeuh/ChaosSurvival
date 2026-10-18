@@ -128,44 +128,56 @@ test('deleting toolbar_setup.exe prevents a later launch and the file stays dele
   assert.equal(launches, 1);
 });
 
-test('WinRoar extracts the existing smiley archive into a registered virtual installer', () => {
+test('legacy Smiley Pack saves remain readable and retain their virtual installer association', () => {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
   };
+  const archiveId = virtualFileId('downloads', 'smileys_pack_2009.zip');
+  const folderId = virtualFileId('downloads', 'smiley_pack_2009');
+  const installerId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+  values.set('chaos-survival-story-v1', JSON.stringify({
+    version: 1,
+    started: true,
+    current: story.start,
+    completed: [],
+    flags: { smileyPack2009Installed: true },
+    virtualFilesystem: { deleted: [], added: {
+      [folderId]: {
+        name: 'smiley_pack_2009', icon: 'folder', detail: 'Dossier', deletable: true,
+        directory: true, location: 'smiley-pack-2009-folder',
+      },
+      [installerId]: {
+        name: 'Smiley Pack 2009.exe', icon: 'application', detail: 'Application',
+        deletable: true, virtualApp: 'smiley-pack-installer',
+      },
+    } },
+  }));
   const progression = new Progression(story, storage);
   const filesystem = new VirtualFilesystem(progression);
-  const archiveId = virtualFileId('downloads', 'smileys_pack_2009.zip');
   const archive = filesystem.getFile(archiveId);
   assert.equal(archive?.extractable, 'smiley-pack-2009');
   assert.equal(filesystem.canDelete(archiveId), true);
-  const extracted = filesystem.extractArchive(archiveId);
-  const folderId = virtualFileId('downloads', 'smiley_pack_2009');
-  const installerId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
-  assert.equal(extracted.ok, true);
-  assert.equal(filesystem.getFile(folderId).directory, true);
+  assert.equal(filesystem.extractArchive(archiveId).ok, true, 'the legacy archive remains extractable');
+  assert.equal(filesystem.getFile(folderId).directory, true, 'the old extracted folder remains visible');
   const installer = filesystem.getFile(installerId);
   assert.equal(installer.virtualApp, 'smiley-pack-installer');
   assert.equal(executableAssociation(installer, installerId), 'smiley-pack-installer');
   assert.equal(filesystem.canDelete(installerId), true);
-  assert.equal(filesystem.extractArchive(archiveId).existing, true);
+  assert.equal(progression.data.flags.smileyPack2009Installed, true, 'legacy save data is retained');
 
   let launches = 0;
   const app = Object.assign(Object.create(DesktopApplications.prototype), {
     virtualFilesystem: filesystem,
-    onLaunchExecutable: (applicationId) => {
-      assert.equal(applicationId, 'smiley-pack-installer');
-      launches++;
-      return 'installer-window';
-    },
+    onLaunchExecutable: (applicationId) => { launches++; return applicationId; },
   });
-  assert.equal(app.openFile(filesystem.getLocation('smiley-pack-2009-folder'), installer), 'installer-window');
+  assert.equal(app.openFile(filesystem.getLocation('smiley-pack-2009-folder'), installer), 'smiley-pack-installer');
   assert.equal(launches, 1);
-  assert.equal(filesystem.deleteFile(archiveId).ok, true);
-  assert.equal(filesystem.exists(installerId), true, 'deleting the ZIP does not remove extracted files');
-  assert.equal(filesystem.deleteFile(folderId).ok, true);
-  assert.equal(filesystem.exists(installerId), false, 'deleting the extracted folder removes its EXE');
+
   progression.newGame();
-  assert.equal(new VirtualFilesystem(progression).exists(installerId), false);
+  const newFilesystem = new VirtualFilesystem(progression);
+  assert.equal(newFilesystem.exists(folderId), false, 'new games do not recreate the old folder');
+  assert.equal(newFilesystem.exists(installerId), false);
+  assert.equal(newFilesystem.exists(archiveId), true, 'the fictitious ZIP stays in place');
 });

@@ -618,7 +618,9 @@ export class DesktopApplications {
       !['bomb-arena', 'smiley-pack-2009'].includes(item?.extractable) || !item.fileId ||
       !this.virtualFilesystem?.exists(item.fileId)
     ) return null;
-    const key = `winroar:${item.fileId}`;
+    const key = item.extractable === 'bomb-arena'
+      ? 'winroar:bomb-arena'
+      : `winroar:${item.fileId}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {
       this.restore(existing);
@@ -631,7 +633,7 @@ export class DesktopApplications {
       content: {
         title: 'WinRoar',
         iconName: 'archive',
-        body: '<section class="winroar-extraction"><strong></strong><progress max="1" value="0" aria-label="Progression de l’extraction"></progress><p role="status">Extraction en cours...</p></section>',
+        body: '<section class="winroar-extraction"><strong>Extraction de BombArena.zip</strong><progress max="1" value="0" aria-label="Progression de l’extraction"></progress><p role="status">Extraction en cours...</p></section>',
       },
       onDismiss: () => {
         clearInterval(instance.extractionTimer);
@@ -641,8 +643,9 @@ export class DesktopApplications {
       },
     });
     const instance = this.attachWindow(key, id, 'WinRoar', 'archive');
-    instance.element.querySelector('.winroar-extraction strong').textContent =
-      `Extraction de ${item.name}`;
+    if (item.extractable !== 'bomb-arena')
+      instance.element.querySelector('.winroar-extraction strong').textContent =
+        `Extraction de ${item.name}`;
     const progress = instance.element.querySelector('.winroar-extraction progress');
     const status = instance.element.querySelector('.winroar-extraction [role="status"]');
     let elapsed = 0;
@@ -656,10 +659,16 @@ export class DesktopApplications {
       if (elapsed < 3000) return;
       clearInterval(instance.extractionTimer);
       instance.extractionTimer = null;
-      const result = this.virtualFilesystem.extractArchive(item.fileId);
-      status.textContent = result.ok
-        ? result.existing ? 'Les fichiers extraits existent déjà.' : 'Extraction terminée.'
-        : 'Impossible de terminer l’extraction.';
+      const result = item.extractable === 'bomb-arena'
+        ? this.virtualFilesystem.extractBombArena(item.fileId)
+        : this.virtualFilesystem.extractArchive(item.fileId);
+      status.textContent = item.extractable === 'bomb-arena'
+        ? result.ok
+          ? result.existing ? 'BombArena.exe existe déjà.' : 'Extraction terminée.'
+          : 'Impossible de terminer l’extraction.'
+        : result.ok
+          ? result.existing ? 'Les fichiers extraits existent déjà.' : 'Extraction terminée.'
+          : 'Impossible de terminer l’extraction.';
       if (result.ok) {
         this.refreshExplorers();
         this.onFilesystemChange({ origin: 'system', extracted: result.fileId });

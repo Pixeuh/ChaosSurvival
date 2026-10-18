@@ -9,8 +9,8 @@ const staticApplications = Object.freeze({
 // used only to recognize an unsupported .exe and show a safe Windows XD error.
 export function executableAssociation(file, fileId) {
   if (!/\.exe$/i.test(file?.name ?? '')) return null;
-  if (file.virtualApp === 'bomb-arena') return 'bomb-arena';
   if (file.virtualApp === 'smiley-pack-installer') return 'smiley-pack-installer';
+  if (file.virtualApp === 'bomb-arena') return 'bomb-arena';
   if (typeof file.launch?.game === 'string') return 'mini-game';
   return staticApplications[String(fileId ?? file.fileId ?? '').toLowerCase()] ?? 'unknown';
 }

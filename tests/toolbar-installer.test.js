@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { Progression } from '../src/story/progression.js';
+import { DesktopApplications } from '../src/ui/desktop-apps.js';
+import { createExecutableLauncher } from '../src/ui/executable-launcher.js';
 import { ToolbarInstaller } from '../src/ui/toolbar-installer.js';
+import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
+
+const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url), 'utf8'));
 
 class FakeElement {
   constructor() {
@@ -132,7 +138,7 @@ test('toolbar_setup.exe opens one fixed, non-resizable wizard and relaunch start
   assert.equal(firstContent.options[1].checked, false);
 });
 
-test('toolbar installer simulates progress, ends on the intended error, and closes cleanly', () => {
+test('toolbar installer simulates the interrupted download and closes after the exact error', () => {
   const { calls, manager, applications, intervals, cleared, installer, advance } = setup();
   const instance = installer.open();
   const root = instance.element.querySelector('.toolbar-installer-content');
@@ -144,33 +150,32 @@ test('toolbar installer simulates progress, ends on the intended error, and clos
   installButton.click();
   assert.equal(instance.step, 'installing');
   assert.equal(instance.element.classList.contains('is-installing'), true);
-  assert.match(root.markup, /disabled>Installation\.\.\./);
+  assert.match(root.markup, /disabled>T\u00e9l\u00e9chargement\.\.\./);
   assert.equal(intervals[0].delay, 50);
-  assert.equal(intervals.length, 1, 'rapid repeated clicks create only one installation timer');
-  assert.match(root.markup, /Préparation de l’installation/);
+  assert.equal(intervals.length, 1, 'rapid repeated clicks create only one download timer');
+  assert.match(root.markup, /T\u00e9l\u00e9chargement de SUPER TOOLBAR 2009/);
   intervals[0].callback();
   assert.equal(root.progress.value, 0);
-  advance(750);
+  advance(1300);
   intervals[0].callback();
-  assert.equal(root.progress.value, 25);
-  assert.equal(root.status.textContent, 'Recherche des composants...');
-  advance(750);
+  assert.equal(root.progress.value, 39);
+  assert.equal(root.status.textContent, 'T\u00e9l\u00e9chargement de SUPER TOOLBAR 2009...');
+  advance(1300);
   intervals[0].callback();
-  assert.equal(root.progress.value, 50);
-  assert.equal(root.status.textContent, 'Optimisation du navigateur...');
-  advance(750);
+  assert.equal(root.progress.value, 78);
+  assert.equal(instance.step, 'installing', 'the bar stops at 78 percent during the pause');
+  assert.equal(instance.element.classList.contains('is-installing'), true);
+  advance(999);
   intervals[0].callback();
-  assert.equal(root.progress.value, 75);
-  assert.equal(root.status.textContent, 'Installation de SUPER TOOLBAR...');
-  advance(750);
-  intervals[0].callback();
-  assert.equal(root.progress.value, 100);
-  assert.equal(instance.step, 'installing', 'the completed bar remains visible for a paint before the result screen');
+  assert.equal(instance.step, 'installing', 'the progress cursor remains active during the pause');
+  assert.equal(instance.element.classList.contains('is-installing'), true);
+  advance(1);
   intervals[0].callback();
   assert.equal(instance.step, 'failure');
   assert.equal(instance.element.classList.contains('is-installing'), false);
-  assert.match(root.markup, /Installation impossible/);
-  assert.match(root.markup, /Votre navigateur possède déjà suffisamment de barres d’outils\./);
+  assert.match(root.markup, /Erreur de t\u00e9l\u00e9chargement/);
+  assert.match(root.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
+  assert.match(root.markup, /data-action="ok"/);
   assert.deepEqual(cleared, [1]);
   root.querySelector('[data-action="ok"]').click();
   assert.equal(instance.element.isConnected, false);
@@ -183,19 +188,61 @@ test('toolbar installer simulates progress, ends on the intended error, and clos
   manager.close(relaunched.id);
 });
 
+test('opening toolbar_setup.exe through the explorer reaches the real wizard and download click handler', () => {
+  const progression = new Progression(story);
+  const filesystem = new VirtualFilesystem(progression);
+  const { applications, intervals, installer, advance } = setup();
+  let routed = 0;
+  const explorer = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    instances: applications.instances,
+    onLaunchExecutable: createExecutableLauncher({
+      'toolbar-installer': (_file, fileId) => {
+        assert.equal(fileId, 'downloads/toolbar_setup.exe');
+        routed++;
+        return installer.open(fileId);
+      },
+    }),
+  });
+  const downloads = filesystem.getLocation('downloads');
+  const executable = downloads.items.find((item) => item.name === 'toolbar_setup.exe');
+  const instance = explorer.openFile(downloads, executable);
+  assert.equal(routed, 1);
+  const root = instance.element.querySelector('.toolbar-installer-content');
+  root.querySelector('[data-action="next"]').click();
+  root.querySelector('[data-action="install"]').click();
+  assert.equal(instance.step, 'installing');
+  assert.equal(intervals.length, 1);
+  assert.match(root.markup, /<progress[^>]*value="0"/);
+  assert.doesNotMatch(root.markup, /Impossible \u00e0 installer/);
+  advance(1000);
+  intervals[0].callback();
+  assert.ok(root.progress.value > 0);
+  advance(1600);
+  intervals[0].callback();
+  assert.equal(root.progress.value, 78);
+  assert.equal(instance.step, 'installing');
+  advance(1000);
+  intervals[0].callback();
+  assert.equal(instance.step, 'failure');
+  assert.match(root.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+  assert.equal(JSON.stringify(progression.data.virtualFilesystem), JSON.stringify({ deleted: [], added: {} }));
+});
+
 test('toolbar installation advances on real asynchronous time and reaches its final step', async () => {
   const { installer } = setup({ realTimers: true });
   const instance = installer.open();
   const root = instance.element.querySelector('.toolbar-installer-content');
   root.querySelector('[data-action="next"]').click();
   root.querySelector('[data-action="install"]').click();
-  await new Promise((resolve) => setTimeout(resolve, 1550));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   assert.equal(instance.step, 'installing');
-  assert.ok(root.progress.value > 0 && root.progress.value < 100);
+  assert.ok(root.progress.value > 0 && root.progress.value < 78);
   assert.equal(instance.element.classList.contains('is-installing'), true);
-  await new Promise((resolve) => setTimeout(resolve, 1750));
+  await new Promise((resolve) => setTimeout(resolve, 2700));
   assert.equal(instance.step, 'failure');
-  assert.equal(instance.elapsed, 3000);
+  assert.equal(instance.elapsed, 2600);
   assert.equal(instance.element.classList.contains('is-installing'), false);
 });
 
@@ -223,7 +270,7 @@ test('canceling during setup closes the window and removes any running timer', (
   assert.equal(root.markup, markupAtClose, 'a canceled callback cannot render the failure screen later');
 });
 
-test('a progress rendering error clears the timer and leaves the installer on its safe end screen', () => {
+test('a progress rendering error clears the timer and shows the download error', () => {
   const { manager, intervals, cleared, installer } = setup();
   const instance = installer.open();
   const root = instance.element.querySelector('.toolbar-installer-content');
@@ -239,6 +286,6 @@ test('a progress rendering error clears the timer and leaves the installer on it
   assert.equal(instance.timer, null);
   assert.equal(instance.element.classList.contains('is-installing'), false);
   assert.deepEqual(cleared, [1]);
-  assert.match(root.markup, /Installation impossible/);
+  assert.match(root.markup, /Erreur de t\u00e9l\u00e9chargement/);
   manager.close(instance.id);
 });

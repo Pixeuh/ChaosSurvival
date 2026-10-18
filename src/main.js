@@ -34,6 +34,7 @@ import { DesktopIcons } from './ui/desktop-icons.js';
 import { StartMenuOrder } from './ui/start-menu-order.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
+import { createExecutableLauncher } from './ui/executable-launcher.js';
 import { WindowsMediaPlay } from './ui/media-player.js';
 import { ToolbarInstaller } from './ui/toolbar-installer.js';
 import { SmileyPackInstaller } from './ui/smiley-pack-installer.js';
@@ -168,6 +169,13 @@ let activeDialogue = pixelgirlDialogue;
 let conversation = createConversation(activeDialogue);
 let plumberGroupThread;
 let mediaPlayer;
+const launchExecutable = createExecutableLauncher({
+  'windows-love-messenger': () => openMessenger(),
+  'internet-adventurer': () => openBrowser(),
+  'windows-media-play': (file, fileId) => launchMediaPlay(file, fileId),
+  'toolbar-installer': (_file, fileId) => toolbarInstaller.open(fileId),
+  'smiley-pack-installer': (_file, fileId) => smileyPackInstaller.open(fileId),
+});
 const desktopApplications = new DesktopApplications(
   manager,
   ui.desktop.querySelector('.taskbar'),
@@ -177,13 +185,7 @@ const desktopApplications = new DesktopApplications(
   virtualFilesystem,
   renderDesktopFiles,
   openDesktopFile,
-  (applicationId, file, fileId) => {
-    if (applicationId === 'windows-love-messenger') return openMessenger();
-    if (applicationId === 'internet-adventurer') return openBrowser();
-    if (applicationId === 'windows-media-play') return launchMediaPlay(file, fileId);
-    if (applicationId === 'toolbar-installer') return toolbarInstaller.open(fileId);
-    if (applicationId === 'smiley-pack-installer') return smileyPackInstaller.open(fileId);
-  },
+  launchExecutable,
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
@@ -271,17 +273,7 @@ const messenger = new Messenger({
     return createConversation(definition, contact.id, thread);
   },
 });
-const smileyPackInstaller = new SmileyPackInstaller(
-  manager,
-  desktopApplications,
-  progression,
-  {
-    onInstalled: () => {
-      conversation.syncSmileyPackComposer();
-      messenger.refreshSmileyPackAvailability();
-    },
-  },
-);
+const smileyPackInstaller = new SmileyPackInstaller(manager, desktopApplications);
 function handleMessengerMessage(contact, incoming = [], messages = [], view, state = {}) {
   if (!contact) return;
   narrativeOrchestrator?.onMessage(contact, incoming);
@@ -442,7 +434,6 @@ function createConversation(dialogue, contactId = 'pixelgirl', thread = replayRe
         openBrowser(url);
       },
       isUnlocked: () => narrativeOrchestrator.isConversationUnlocked(dialogue.id),
-      isSmileyPackInstalled: () => progression.data.flags.smileyPack2009Installed === true,
       onWindowState: syncSystemWindows,
     },
   );

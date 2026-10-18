@@ -4,11 +4,6 @@ import { messengerMenu } from './messenger-menu.js';
 import { applicationName } from './identity.js';
 import { playerIdentity } from './player-identity.js';
 import { createContactAvatar } from './contact-avatar.js';
-import {
-  insertEmoticon,
-  isSmileyPackInstalled,
-  smileyPackEmoticons,
-} from './smiley-pack-emoticons.js';
 
 const GROUP_MESSAGE_AUTHORS = Object.freeze({
   xX_PixelGirl_Xx: { id: 'pixelgirl', name: 'PixelGirl' },
@@ -304,52 +299,23 @@ export class Messenger {
     input.value = Math.round(this.settings.data.effectsVolume * 100);
     input.oninput = () => this.settings.update({ effectsVolume: Number(input.value) / 100 });
   }
-  emoticons(conversationElement = null) {
+  emoticons() {
     const instance = this.panel(
       'emoticons',
       'Émoticônes',
-      '<div class="messenger-profile"><h3>Mes émoticônes préférées</h3><div class="messenger-emoticons"></div><h3 class="custom-emoticons-title" hidden>Smiley Pack 2009</h3><div class="messenger-custom-emoticons" hidden></div><p class="emoticon-preview">Choisis une émoticône pour son aperçu.</p></div>',
+      '<div class="messenger-profile"><h3>Mes émoticônes préférées</h3><div class="messenger-emoticons"></div><p class="emoticon-preview">Choisis une émoticône pour son aperçu.</p></div>',
     );
     const list = instance.element.querySelector('.messenger-emoticons');
-    const customList = instance.element.querySelector('.messenger-custom-emoticons');
-    const installed = isSmileyPackInstalled(this.progression);
     list.replaceChildren();
-    customList.replaceChildren();
-    customList.hidden = !installed;
-    instance.element.querySelector('.custom-emoticons-title').hidden = !installed;
-    const preview = instance.element.querySelector('.emoticon-preview');
-    const insertOrPreview = (token) => {
-      const input = conversationElement?.querySelector('.smiley-pack-message');
-      if (installed && input && insertEmoticon(input, token)) {
-        preview.textContent = `Inséré dans votre message : ${token}`;
-        return;
-      }
-      preview.textContent = token;
-    };
     for (const text of [':)', ':D', ';)', ':3', '<3', " :')", 'xD']) {
       const button = document.createElement('button');
       button.className = 'xp-button';
       button.textContent = text;
-      button.onclick = () => insertOrPreview(text);
+      button.onclick = () => {
+        instance.element.querySelector('.emoticon-preview').textContent = text;
+      };
       list.append(button);
     }
-    if (installed)
-      for (const emoticon of smileyPackEmoticons) {
-        const button = document.createElement('button');
-        button.className = 'xp-button custom-emoticon-button';
-        button.dataset.emoticonToken = emoticon.token;
-        button.setAttribute('aria-label', `${emoticon.label} ${emoticon.token}`);
-        const image = document.createElement('img');
-        image.src = emoticon.src;
-        image.alt = '';
-        image.title = emoticon.label;
-        button.append(image);
-        button.onclick = () => insertOrPreview(emoticon.token);
-        customList.append(button);
-      }
-  }
-  refreshSmileyPackAvailability() {
-    for (const view of this.conversations.values()) view.syncSmileyPackComposer?.();
   }
   sendWizz(contactId, { speaker = 'player', eventId, now } = {}) {
     const contact = this.contacts().find((entry) => entry.id === contactId);
@@ -418,7 +384,7 @@ export class Messenger {
       [
         'Actions',
         [
-          { label: 'Émoticônes', run: () => this.emoticons(element) },
+          { label: 'Émoticônes', run: () => this.emoticons() },
           {
             label: 'Wizz !',
             disabled: offline() || element.classList.contains('messenger-roster'),

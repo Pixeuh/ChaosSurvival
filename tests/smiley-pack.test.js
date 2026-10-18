@@ -1,41 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { Progression } from '../src/story/progression.js';
-import { ConversationThread } from '../src/story/conversation-thread.js';
-import { ConversationWindow, appendMessageText } from '../src/ui/conversation.js';
-import { Messenger } from '../src/ui/messenger.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { SmileyPackInstaller } from '../src/ui/smiley-pack-installer.js';
+import { createExecutableLauncher } from '../src/ui/executable-launcher.js';
+import { executableAssociation } from '../src/ui/executable-registry.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
-import { isSmileyPackInstalled, insertEmoticon, smileyPackEmoticons } from '../src/ui/smiley-pack-emoticons.js';
 
-const story = JSON.parse(await (await import('node:fs/promises')).readFile(
-  new URL('../src/config/story.json', import.meta.url),
-  'utf8',
-));
-const intro = JSON.parse(await (await import('node:fs/promises')).readFile(
-  new URL('../src/dialogues/pixelgirl-intro.json', import.meta.url),
-  'utf8',
-));
+const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url), 'utf8'));
 
 class FakeElement {
   constructor() {
     this.isConnected = true;
     this.hidden = false;
-    this.dataset = {};
     this.listeners = new Map();
-    this.attributes = {};
-    this.children = [];
-    this.style = {};
-    const classes = new Set();
     this.classList = {
-      add: (name) => classes.add(name),
-      remove: (name) => classes.delete(name),
-      contains: (name) => classes.has(name),
+      names: new Set(),
+      add: (name) => this.classList.names.add(name),
+      remove: (name) => this.classList.names.delete(name),
+      contains: (name) => this.classList.names.has(name),
     };
-    this.value = '';
+    this.style = {};
+    this.value = 0;
   }
   addEventListener(type, listener) {
     const listeners = this.listeners.get(type) ?? [];
@@ -44,17 +31,8 @@ class FakeElement {
   }
   click() {
     for (const listener of this.listeners.get('click') ?? []) listener({ target: this });
-    this.onclick?.({ target: this });
   }
-  dispatch(type, event = {}) {
-    for (const listener of this.listeners.get(type) ?? []) listener({ target: this, ...event });
-  }
-  append(...nodes) { this.children.push(...nodes); }
-  replaceChildren(...nodes) { this.children = [...nodes]; }
   remove() { this.isConnected = false; }
-  focus() { this.focused = true; }
-  setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
-  setAttribute(key, value) { this.attributes[key] = String(value); }
 }
 
 class FakeInstallerContent extends FakeElement {
@@ -64,7 +42,7 @@ class FakeInstallerContent extends FakeElement {
     this.progress = new FakeElement();
   }
   querySelector(selector) {
-    if (selector === '.smiley-pack-installer-content progress') return this.progress;
+    if (selector.endsWith('progress')) return this.progress;
     const action = selector.match(/data-action="([^"]+)"/)?.[1];
     if (!action || !this.markup.includes(`data-action="${action}"`)) return null;
     if (!this.buttons.has(action)) this.buttons.set(action, new FakeElement());
@@ -72,13 +50,16 @@ class FakeInstallerContent extends FakeElement {
   }
 }
 
-function installerSetup({ realTimers = false } = {}) {
+function installerSetup() {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
   };
   const progression = new Progression(story, storage);
+  progression.begin();
+  const savedData = JSON.stringify(progression.data);
+  const savedStorage = new Map(values);
   const calls = [];
   const manager = {
     windows: new Map(),
@@ -105,7 +86,11 @@ function installerSetup({ realTimers = false } = {}) {
     instances: new Map(),
     restores: 0,
     attachWindow(key, id, title) {
-      const instance = { key, id, title, element: manager.windows.get(id).element, task: new FakeElement() };
+      const instance = {
+        key, id, title,
+        element: manager.windows.get(id).element,
+        task: new FakeElement(),
+      };
       this.instances.set(key, instance);
       return instance;
     },
@@ -115,113 +100,24 @@ function installerSetup({ realTimers = false } = {}) {
   const intervals = [];
   const cleared = [];
   let now = 0;
-  let installedEvents = 0;
-  const installer = realTimers
-    ? new SmileyPackInstaller(manager, applications, progression, { onInstalled: () => installedEvents++ })
-    : new SmileyPackInstaller(manager, applications, progression, {
-      setIntervalFn: (callback, delay) => (intervals.push({ callback, delay }), intervals.length),
-      clearIntervalFn: (id) => cleared.push(id),
-      nowFn: () => now,
-      onInstalled: () => installedEvents++,
-    });
+  const installer = new SmileyPackInstaller(manager, applications, {
+    setIntervalFn: (callback, delay) => (intervals.push({ callback, delay }), intervals.length),
+    clearIntervalFn: (id) => cleared.push(id),
+    nowFn: () => now,
+  });
   return {
-    progression, values, calls, manager, applications, intervals, cleared, installer,
+    progression, savedData, savedStorage, values, calls, manager, applications,
+    intervals, cleared, installer,
     advance: (ms) => { now += ms; },
-    installedEvents: () => installedEvents,
   };
 }
 
-test('the virtual installer activates once, persists across reloads, and New Game resets it', () => {
-  const { progression, calls, manager, applications, intervals, cleared, installer, advance, installedEvents } = installerSetup();
-  const initialFilesystem = JSON.stringify(progression.data.virtualFilesystem);
-  const instance = installer.open('smiley-pack-2009-folder/smiley pack 2009.exe');
-  assert.equal(instance.step, 'welcome');
-  assert.match(instance.element.querySelector('.smiley-pack-installer-content').markup,
-    /Bienvenue dans l’assistant d’installation de Smiley Pack 2009 !/);
-  assert.equal(installer.open(instance.fileId), instance);
-  assert.equal(calls.length, 1, 'a second launch restores the open assistant');
-  assert.equal(calls[0].resizable, false);
-  assert.equal(calls[0].maximizable, false);
-
-  const content = instance.element.querySelector('.smiley-pack-installer-content');
-  const installButton = content.querySelector('[data-action="install"]');
-  installButton.click();
-  installButton.click();
-  assert.equal(instance.step, 'installing');
-  assert.equal(instance.element.classList.contains('is-installing'), true);
-  assert.match(content.markup, /Installation des émoticônes\.\.\./);
-  const progressBar = content.progress;
-  assert.equal(intervals.length, 1);
-  assert.equal(intervals[0].delay, 40);
-  advance(1000);
-  intervals[0].callback();
-  assert.equal(progressBar.value, 50);
-  advance(1000);
-  intervals[0].callback();
-  assert.equal(progressBar.value, 100);
-  assert.equal(instance.step, 'installing', 'the completed bar remains visible for a paint before success');
-  intervals[0].callback();
-  assert.equal(instance.step, 'complete');
-  assert.equal(instance.element.classList.contains('is-installing'), false);
-  assert.equal(progressBar.value, 100);
-  assert.equal(isSmileyPackInstalled(progression), true);
-  assert.equal(installedEvents(), 1);
-  assert.equal(JSON.stringify(progression.data.virtualFilesystem), initialFilesystem,
-    'installation changes only the saved installation flag');
-  assert.deepEqual(cleared, [1]);
-  assert.equal(instance.element.classList.contains('is-installing'), false,
-    'closing resets its loading cursor state');
-  assert.match(content.markup, /Les nouvelles émoticônes sont maintenant disponibles dans Windows Love Messenger\./);
-  content.querySelector('[data-action="finish"]').click();
-
-  const reloaded = new Progression(story, progression.storage);
-  assert.equal(isSmileyPackInstalled(reloaded), true);
-  const restoredInstaller = new SmileyPackInstaller(manager, applications, reloaded);
-  const alreadyInstalled = restoredInstaller.open(instance.fileId);
-  assert.equal(alreadyInstalled.step, 'already-installed');
-  assert.match(alreadyInstalled.element.querySelector('.smiley-pack-installer-content').markup,
-    /Smiley Pack 2009 est déjà installé\./);
-  manager.close(alreadyInstalled.id);
-
-  reloaded.newGame();
-  assert.equal(isSmileyPackInstalled(reloaded), false);
-  const freshInstaller = new SmileyPackInstaller(manager, applications, reloaded);
-  assert.equal(freshInstaller.open(instance.fileId).step, 'welcome');
-});
-
-test('smiley installation advances on real asynchronous time and activates once at completion', async () => {
-  const { progression, installer, installedEvents } = installerSetup({ realTimers: true });
-  const instance = installer.open('smiley-pack-2009-folder/smiley pack 2009.exe');
-  const content = instance.element.querySelector('.smiley-pack-installer-content');
-  content.querySelector('[data-action="install"]').click();
-  await new Promise((resolve) => setTimeout(resolve, 1050));
-  assert.equal(instance.step, 'installing');
-  assert.ok(content.progress.value > 0 && content.progress.value < 100);
-  assert.equal(instance.element.classList.contains('is-installing'), true);
-  await new Promise((resolve) => setTimeout(resolve, 1150));
-  assert.equal(instance.step, 'complete');
-  assert.equal(instance.element.classList.contains('is-installing'), false);
-  assert.equal(isSmileyPackInstalled(progression), true);
-  assert.equal(installedEvents(), 1);
-});
-
-test('closing during installation cancels the timer and no late callback activates the pack', () => {
-  const { progression, manager, intervals, cleared, installer, advance } = installerSetup();
-  const instance = installer.open('smiley-pack-2009-folder/smiley pack 2009.exe');
-  const content = instance.element.querySelector('.smiley-pack-installer-content');
-  content.querySelector('[data-action="install"]').click();
-  manager.close(instance.id);
-  assert.deepEqual(cleared, [1]);
-  advance(5000);
-  intervals[0].callback();
-  assert.equal(isSmileyPackInstalled(progression), false);
-  assert.equal(instance.element.isConnected, false);
-});
-
-test('the Explorer WinRoar action extracts the pack and creates only its virtual installer', (t) => {
+test('WinRoar extracts the pack into a persistent virtual installer and New Game resets extraction', () => {
   const progression = new Progression(story);
   const filesystem = new VirtualFilesystem(progression);
-  const archive = filesystem.getFile(virtualFileId('downloads', 'smileys_pack_2009.zip'));
+  const archiveId = virtualFileId('downloads', 'smileys_pack_2009.zip');
+  const archive = filesystem.getFile(archiveId);
+  assert.equal(archive.extractable, 'smiley-pack-2009');
   const extract = new FakeElement();
   const deleteButton = new FakeElement();
   const properties = new FakeElement();
@@ -243,8 +139,7 @@ test('the Explorer WinRoar action extracts the pack and creates only its virtual
     refreshExplorers() {},
     attachWindow(key, id) {
       const instance = {
-        id,
-        key,
+        id, key,
         element: {
           isConnected: true,
           querySelector(selector) {
@@ -271,131 +166,204 @@ test('the Explorer WinRoar action extracts the pack and creates only its virtual
     return 19;
   };
   globalThis.clearInterval = (id) => cleared.push(id);
-  t.after(() => {
+  try {
+    const explorerInstance = {
+      explorerMenu: {
+        style: {}, offsetWidth: 0, offsetHeight: 0,
+        querySelector: (selector) => selector.includes('extract') ? extract : selector.includes('delete') ? deleteButton : properties,
+      },
+      current: filesystem.getLocation('downloads'),
+      element: { querySelector: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 }) }) },
+    };
+    app.showExplorerContext(explorerInstance, archive, { clientX: 30, clientY: 40 });
+    assert.equal(extract.hidden, false, 'the ZIP offers the existing WinRoar action');
+    const winRoar = app.extractWithWinRoar(archive);
+    assert.ok(winRoar);
+    assert.equal(winRoarTitle.textContent, 'Extraction de smileys_pack_2009.zip');
+    for (let index = 0; index < 60; index++) timerCallback();
+    assert.equal(winRoarProgress.value, 1);
+    assert.equal(winRoarStatus.textContent, 'Extraction terminée.');
+
+    const folderId = virtualFileId('downloads', 'smiley_pack_2009');
+    const executableId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+    const folder = filesystem.getFile(folderId);
+    const executable = filesystem.getFile(executableId);
+    assert.equal(folder.directory, true);
+    assert.deepEqual(filesystem.getLocation(folder.location).items.map((file) => file.name), ['Smiley Pack 2009.exe']);
+    assert.equal(executableAssociation(executable, executableId), 'smiley-pack-installer');
+    assert.deepEqual(cleared, [19]);
+
+    assert.equal(filesystem.deleteFile(folderId).ok, true);
+    assert.equal(new VirtualFilesystem(progression).exists(executableId), false, 'folder deletion removes the EXE persistently');
+    assert.equal(filesystem.deleteFile(archiveId).ok, true);
+    assert.equal(new VirtualFilesystem(progression).exists(archiveId), false, 'archive deletion persists');
+    progression.newGame();
+    const freshFilesystem = new VirtualFilesystem(progression);
+    assert.equal(freshFilesystem.exists(archiveId), true);
+    assert.equal(freshFilesystem.exists(folderId), false);
+    assert.equal(freshFilesystem.exists(executableId), false);
+  } finally {
     globalThis.setInterval = originalSetInterval;
     globalThis.clearInterval = originalClearInterval;
-  });
-
-  const explorerInstance = {
-    explorerMenu: {
-      style: {},
-      offsetWidth: 0,
-      offsetHeight: 0,
-      querySelector: (selector) => selector.includes('extract') ? extract : selector.includes('delete') ? deleteButton : properties,
-    },
-    current: filesystem.getLocation('downloads'),
-    element: { querySelector: () => ({ getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 300 }) }) },
-  };
-  app.showExplorerContext(explorerInstance, archive, { clientX: 30, clientY: 40 });
-  assert.equal(extract.hidden, false, 'the existing WinRoar context action is available for the archive');
-  const winRoar = app.extractWithWinRoar(archive);
-  assert.ok(winRoar);
-  assert.match(spawned[0].content.body, /winroar-extraction/);
-  assert.equal(winRoarTitle.textContent, 'Extraction de smileys_pack_2009.zip');
-  for (let index = 0; index < 60; index++) timerCallback();
-  assert.equal(winRoarProgress.value, 1);
-  assert.equal(winRoarStatus.textContent, 'Extraction terminée.');
-  const folder = filesystem.getLocation('downloads').items.find((item) => item.name === 'smiley_pack_2009');
-  assert.equal(folder.directory, true);
-  assert.deepEqual(filesystem.getLocation(folder.location).items.map((file) => file.name), ['Smiley Pack 2009.exe']);
-  assert.deepEqual(cleared, [19]);
-});
-
-test('the installed picker inserts distinct shortcuts and displays original pixel art without converting xD', (t) => {
-  const previous = globalThis.document;
-  const textNode = (text) => ({ textContent: text, nodeType: 3 });
-  globalThis.document = {
-    baseURI: 'https://game.example/',
-    createTextNode: textNode,
-    createElement: () => new FakeElement(),
-  };
-  t.after(() => {
-    if (previous === undefined) delete globalThis.document;
-    else globalThis.document = previous;
-  });
-  for (const emoticon of smileyPackEmoticons) {
-    assert.match(emoticon.token, /^:[a-z]+:$/);
-    assert.ok(existsSync(fileURLToPath(emoticon.src)));
   }
-  assert.equal(smileyPackEmoticons.length, 7);
-
-  const progression = new Progression(story);
-  progression.data.flags.smileyPack2009Installed = true;
-  const classicList = new FakeElement();
-  const customList = new FakeElement();
-  const preview = new FakeElement();
-  const customTitle = new FakeElement();
-  const panel = { element: { querySelector: (selector) => ({
-    '.messenger-emoticons': classicList,
-    '.messenger-custom-emoticons': customList,
-    '.custom-emoticons-title': customTitle,
-    '.emoticon-preview': preview,
-  })[selector] } };
-  const input = new FakeElement();
-  input.value = 'salut ';
-  input.selectionStart = input.selectionEnd = input.value.length;
-  const conversation = { querySelector: () => input };
-  const messenger = Object.assign(Object.create(Messenger.prototype), {
-    progression,
-    panel: () => panel,
-  });
-  messenger.emoticons(conversation);
-  assert.equal(customList.children.length, 7);
-  const selected = customList.children.find((button) => button.dataset.emoticonToken === ':pixelcat:');
-  selected.click();
-  assert.equal(input.value, 'salut :pixelcat:');
-  assert.equal(input.focused, true);
-  assert.equal(preview.textContent, 'Inséré dans votre message : :pixelcat:');
-
-  const rendered = new FakeElement();
-  appendMessageText(rendered, 'xD :pixelcat: :)', { smileyPackInstalled: true });
-  assert.ok(rendered.children.some((node) => node.nodeType === 3 && node.textContent === 'xD '));
-  assert.ok(rendered.children.some((node) => node.className === 'msn-emoticon msn-custom-emoticon'));
-  assert.ok(rendered.children.some((node) => node.alt === ':)'));
-  const notInstalled = new FakeElement();
-  appendMessageText(notInstalled, ':pixelcat: xD', { smileyPackInstalled: false });
-  assert.equal(notInstalled.children.some((node) => node.className?.includes('msn-custom-emoticon')), false);
-  assert.ok(notInstalled.children.some((node) => node.nodeType === 3 && node.textContent === ':pixelcat: xD'));
 });
 
-test('player messages use the saved conversation thread without changing narrative dialogue data', () => {
+test('the installer simulates a 43 percent interrupted download without changing saves and can be relaunched', () => {
+  const { progression, savedData, savedStorage, values, calls, applications, manager, intervals, cleared, installer, advance } = installerSetup();
+  const fileId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+  const instance = installer.open(fileId);
+  const content = instance.element.querySelector('.smiley-pack-installer-content');
+  assert.equal(instance.step, 'welcome');
+  assert.match(content.markup, /Bienvenue dans l.assistant d.installation de Smiley Pack 2009 !/);
+  assert.match(content.markup, /data-action="install"/);
+  assert.match(content.markup, /data-action="cancel"/);
+  assert.equal(installer.open(fileId), instance);
+  assert.equal(calls.length, 1, 'relaunching an open installer restores its existing window');
+
+  content.querySelector('[data-action="install"]').click();
+  const progressBar = content.progress;
+  assert.equal(instance.step, 'installing');
+  assert.equal(instance.element.classList.contains('is-installing'), true);
+  assert.match(content.markup, /T\u00e9l\u00e9chargement de Smiley Pack 2009\.\.\./);
+  assert.equal(intervals[0].delay, 40);
+  advance(1250);
+  intervals[0].callback();
+  assert.equal(progressBar.value, 21.5);
+  advance(1250);
+  intervals[0].callback();
+  assert.equal(progressBar.value, 43);
+  assert.equal(instance.step, 'installing', 'the progress remains at 43 percent during the pause');
+  assert.equal(instance.element.classList.contains('is-installing'), true);
+  advance(999);
+  intervals[0].callback();
+  assert.equal(instance.step, 'installing');
+  assert.equal(instance.element.classList.contains('is-installing'), true);
+  advance(1);
+  intervals[0].callback();
+  assert.equal(instance.step, 'failure');
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+  assert.match(content.markup, /Erreur de t\u00e9l\u00e9chargement/);
+  assert.match(content.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
+  assert.match(content.markup, /data-action="ok"/);
+  assert.equal(JSON.stringify(progression.data), savedData, 'the simulation does not mutate game saves');
+  assert.deepEqual(values, savedStorage, 'installation does not write to browser storage');
+  assert.equal(progression.data.flags.smileyPack2009Installed, undefined);
+  content.querySelector('[data-action="ok"]').click();
+  assert.deepEqual(cleared, [1]);
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+
+  const second = installer.open(fileId);
+  assert.notEqual(second, instance);
+  assert.equal(second.step, 'welcome', 'a later launch always restarts the wizard');
+  assert.equal(calls.length, 2);
+  assert.equal(applications.restores, 3);
+  assert.equal(manager.windows.size, 1);
+});
+
+test('opening the extracted EXE through the explorer reaches the real Smiley Pack click handler', () => {
+  const { progression, applications, installer, intervals, advance } = installerSetup();
+  const filesystem = new VirtualFilesystem(progression);
+  const folderId = virtualFileId('downloads', 'smiley_pack_2009');
+  const executableId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+  filesystem.addDirectory('downloads', 'smiley_pack_2009', 'smiley-pack-2009-folder');
+  filesystem.addFile('smiley-pack-2009-folder', {
+    name: 'Smiley Pack 2009.exe', icon: 'application', detail: 'Installateur',
+    deletable: true, virtualApp: 'smiley-pack-installer',
+  });
+  let routed = 0;
+  const explorer = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    instances: applications.instances,
+    onLaunchExecutable: createExecutableLauncher({
+      'smiley-pack-installer': (_file, fileId) => {
+        assert.equal(fileId, executableId);
+        routed++;
+        return installer.open(fileId);
+      },
+    }),
+  });
+
+  const executable = filesystem.getFile(executableId);
+  const instance = explorer.openFile(filesystem.getLocation('smiley-pack-2009-folder'), executable);
+  assert.equal(routed, 1);
+  assert.equal(instance.step, 'welcome');
+  const content = instance.element.querySelector('.smiley-pack-installer-content');
+  content.querySelector('[data-action="install"]').click();
+  assert.equal(instance.step, 'installing');
+  assert.equal(intervals.length, 1);
+  assert.equal(content.progress.value, 0);
+  advance(1000);
+  intervals[0].callback();
+  assert.ok(content.progress.value > 0);
+  advance(1500);
+  intervals[0].callback();
+  assert.equal(content.progress.value, 43);
+  advance(1000);
+  intervals[0].callback();
+  assert.match(content.markup, /Impossible \u00e0 t\u00e9l\u00e9charger/);
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+  assert.ok(filesystem.exists(folderId));
+});
+
+test('the real installer timer shows progress before the paused error', async () => {
+  const { installer } = installerSetup();
+  installer.setInterval = setInterval;
+  installer.clearInterval = clearInterval;
+  installer.now = () => performance.now();
+  const instance = installer.open('smiley-pack-2009-folder/Smiley Pack 2009.exe');
+  const content = instance.element.querySelector('.smiley-pack-installer-content');
+  content.querySelector('[data-action="install"]').click();
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  assert.equal(instance.step, 'installing');
+  assert.ok(content.progress.value > 0 && content.progress.value < 43);
+  await new Promise((resolve) => setTimeout(resolve, 2600));
+  assert.equal(instance.step, 'failure');
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+});
+
+test('closing during installation cancels its timer and restores the normal cursor', () => {
+  const { manager, intervals, cleared, installer, advance } = installerSetup();
+  const instance = installer.open('smiley-pack-2009-folder/smiley pack 2009.exe');
+  instance.element.querySelector('.smiley-pack-installer-content')
+    .querySelector('[data-action="install"]').click();
+  manager.close(instance.id);
+  assert.deepEqual(cleared, [1]);
+  assert.equal(instance.element.classList.contains('is-installing'), false);
+  advance(5000);
+  intervals[0].callback();
+  assert.equal(instance.step, 'closed');
+  assert.equal(instance.element.isConnected, false);
+});
+
+test('an old extracted installer remains launchable while its legacy installed flag has no effect', () => {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
   };
+  const folderId = virtualFileId('downloads', 'smiley_pack_2009');
+  const executableId = virtualFileId('smiley-pack-2009-folder', 'Smiley Pack 2009.exe');
+  values.set('chaos-survival-story-v1', JSON.stringify({
+    version: 1,
+    started: true,
+    current: story.start,
+    completed: [],
+    flags: { smileyPack2009Installed: true },
+    virtualFilesystem: { deleted: [], added: {
+      [folderId]: {
+        name: 'smiley_pack_2009', icon: 'folder', detail: 'Dossier', deletable: true,
+        directory: true, location: 'smiley-pack-2009-folder',
+      },
+      [executableId]: {
+        name: 'Smiley Pack 2009.exe', icon: 'application', detail: 'Installateur',
+        deletable: true, virtualApp: 'smiley-pack-installer',
+      },
+    } },
+  }));
   const progression = new Progression(story, storage);
-  progression.begin();
-  progression.data.flags.smileyPack2009Installed = true;
-  const thread = new ConversationThread('pixelgirl', progression, () => [intro]);
-  const dialogueSnapshot = JSON.stringify(progression.data.dialogues);
-  const window = Object.assign(Object.create(ConversationWindow.prototype), {
-    isSmileyPackInstalled: () => isSmileyPackInstalled(progression),
-    offlineContact: null,
-    thread,
-    playerMessageInput: { value: '  Coucou :party:  ' },
-    appendHistory() {},
-  });
-  assert.equal(window.sendPlayerMessage(), true);
-  assert.equal(window.playerMessageInput.value, '');
-  assert.equal(thread.state.history.at(-1).text, 'Coucou :party:');
-  assert.equal(thread.state.history.at(-1).speaker, 'player');
-  assert.equal(JSON.stringify(progression.data.dialogues), dialogueSnapshot);
-  const restored = new Progression(story, storage);
-  const restoredThread = new ConversationThread('pixelgirl', restored, () => [intro]);
-  assert.equal(restoredThread.state.history.at(-1).text, 'Coucou :party:');
-  restored.newGame();
-  assert.equal(isSmileyPackInstalled(restored), false);
-  assert.equal(new ConversationThread('pixelgirl', restored, () => [intro]).state.history.length, 0);
-});
-
-test('emoticon insertion respects the current text selection', () => {
-  const input = new FakeElement();
-  input.value = 'bonsoir !';
-  input.selectionStart = 8;
-  input.selectionEnd = 9;
-  assert.equal(insertEmoticon(input, ':sparkle:'), true);
-  assert.equal(input.value, 'bonsoir :sparkle:');
-  assert.equal(input.selectionStart, 17);
-  assert.equal(input.selectionEnd, 17);
+  const filesystem = new VirtualFilesystem(progression);
+  const executable = filesystem.getFile(executableId);
+  assert.equal(executableAssociation(executable, executableId), 'smiley-pack-installer');
+  assert.equal(progression.data.flags.smileyPack2009Installed, true, 'legacy data remains intact but is ignored by the installer');
+  assert.ok(filesystem.getFile(folderId));
 });

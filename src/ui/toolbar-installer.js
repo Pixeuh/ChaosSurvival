@@ -1,13 +1,9 @@
 import { icon } from './icons.js';
 
-const INSTALL_DURATION_MS = 3000;
+const DOWNLOAD_DURATION_MS = 2600;
+const STALL_DURATION_MS = 1000;
+const STOP_PERCENT = 78;
 const INSTALL_TICK_MS = 50;
-const INSTALL_STAGES = [
-  'Préparation de l’installation...',
-  'Recherche des composants...',
-  'Optimisation du navigateur...',
-  'Installation de SUPER TOOLBAR...',
-];
 
 export class ToolbarInstaller {
   constructor(
@@ -64,7 +60,7 @@ export class ToolbarInstaller {
       options: [true, true, true, true],
       timer: null,
       elapsed: 0,
-      progressCompleteObserved: false,
+      stalledAt: null,
     });
     this.render(instance);
     this.applications.restore(instance);
@@ -114,10 +110,10 @@ export class ToolbarInstaller {
       return;
     }
     if (instance.step === 'installing') {
-      root.innerHTML = `<div class="toolbar-installer-banner">${icon('download')}<div><strong>Installation en cours</strong><span>SUPER TOOLBAR 2009</span></div></div><section class="toolbar-installer-page"><h2>Veuillez patienter...</h2><progress max="100" value="0" aria-label="Progression de l’installation"></progress><p class="toolbar-installer-status" role="status">${INSTALL_STAGES[0]}</p></section><footer class="toolbar-installer-actions"><button type="button" class="xp-button" disabled>Installation...</button><button type="button" class="xp-button" disabled>Annuler</button></footer>`;
+      root.innerHTML = `<div class="toolbar-installer-banner">${icon('download')}<div><strong>T\u00e9l\u00e9chargement en cours</strong><span>SUPER TOOLBAR 2009</span></div></div><section class="toolbar-installer-page"><h2>Téléchargement de SUPER TOOLBAR 2009...</h2><progress max="100" value="0" aria-label="Progression du t\u00e9l\u00e9chargement"></progress><p class="toolbar-installer-status" role="status">Téléchargement de SUPER TOOLBAR 2009...</p></section><footer class="toolbar-installer-actions"><button type="button" class="xp-button" disabled>T\u00e9l\u00e9chargement...</button><button type="button" class="xp-button" disabled>Annuler</button></footer>`;
       return;
     }
-    root.innerHTML = `<div class="toolbar-installer-banner toolbar-installer-error">${icon('error')}<div><strong>Installation impossible</strong><span>SUPER TOOLBAR 2009</span></div></div><section class="toolbar-installer-page toolbar-installer-failure"><p>Votre navigateur possède déjà suffisamment de barres d’outils.</p></section><footer class="toolbar-installer-actions"><button type="button" class="xp-button" data-action="ok">OK</button></footer>`;
+    root.innerHTML = `<div class="toolbar-installer-banner toolbar-installer-error">${icon('error')}<div><strong>Erreur de t\u00e9l\u00e9chargement</strong><span>SUPER TOOLBAR 2009</span></div></div><section class="toolbar-installer-page toolbar-installer-failure"><p>Impossible \u00e0 t\u00e9l\u00e9charger</p></section><footer class="toolbar-installer-actions"><button type="button" class="xp-button" data-action="ok">OK</button></footer>`;
     root.querySelector('[data-action="ok"]').addEventListener('click', () =>
       this.manager.close(instance.id),
     );
@@ -127,7 +123,7 @@ export class ToolbarInstaller {
     if (instance.step !== 'options' || instance.timer) return;
     instance.step = 'installing';
     instance.elapsed = 0;
-    instance.progressCompleteObserved = false;
+    instance.stalledAt = null;
     instance.startedAt = this.now();
     instance.element.classList.add('is-installing');
     this.render(instance);
@@ -138,22 +134,18 @@ export class ToolbarInstaller {
           return;
         }
         try {
-          instance.elapsed = Math.min(INSTALL_DURATION_MS, Math.max(0, this.now() - instance.startedAt));
+          const now = this.now();
+          instance.elapsed = Math.min(DOWNLOAD_DURATION_MS, Math.max(0, now - instance.startedAt));
           const progress = instance.element.querySelector('.toolbar-installer-content progress');
           const status = instance.element.querySelector('.toolbar-installer-status');
-          if (progress) progress.value = (instance.elapsed / INSTALL_DURATION_MS) * 100;
-          if (status) {
-            const stage = Math.min(
-              INSTALL_STAGES.length - 1,
-              Math.floor(instance.elapsed / (INSTALL_DURATION_MS / INSTALL_STAGES.length)),
-            );
-            status.textContent = INSTALL_STAGES[stage];
-          }
-          if (instance.elapsed < INSTALL_DURATION_MS) return;
-          if (!instance.progressCompleteObserved) {
-            instance.progressCompleteObserved = true;
+          if (progress) progress.value = (instance.elapsed / DOWNLOAD_DURATION_MS) * STOP_PERCENT;
+          if (status) status.textContent = 'Téléchargement de SUPER TOOLBAR 2009...';
+          if (instance.elapsed < DOWNLOAD_DURATION_MS) return;
+          if (instance.stalledAt === null) {
+            instance.stalledAt = now;
             return;
           }
+          if (now - instance.stalledAt < STALL_DURATION_MS) return;
           this.clearTimer(instance);
           instance.step = 'failure';
           instance.element.classList.remove('is-installing');
