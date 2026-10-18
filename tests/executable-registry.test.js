@@ -26,12 +26,14 @@ test('all static and scenario-created virtual executables resolve by stable IDs'
     'downloads/toolbar_setup.exe',
     'media-files/media-play.exe',
     'messenger-files/love-messenger.exe',
+    'my-games/chaossurvival.exe',
   ]);
   assert.deepEqual(Object.fromEntries(associations), {
     'messenger-files/love-messenger.exe': 'windows-love-messenger',
     'browser-files/adventurer.exe': 'internet-adventurer',
     'media-files/media-play.exe': 'windows-media-play',
     'downloads/toolbar_setup.exe': 'toolbar-installer',
+    'my-games/chaossurvival.exe': 'chaos-survival',
   });
 
   const gameFile = Object.values(intro.nodes).flatMap((node) => node.messages)

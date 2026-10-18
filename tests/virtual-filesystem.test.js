@@ -79,7 +79,7 @@ test('virtual files have stable path IDs, protect system files, delete permanent
   assert.equal(files.exists(deletable), false);
   assert.ok(!files.getLocation('downloads').items.some((item) => item.fileId === deletable));
   assert.deepEqual(files.getLocation('bin').items, []);
-  assert.deepEqual(files.getLocation('my-games').items, []);
+  assert.deepEqual(files.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
   assert.throws(() => files.getLocation('games'), /inconnu/);
   assert.deepEqual(files.getLocation('user-profile').items.map((item) => item.location), ['folder']);
   assert.throws(() => files.getLocation('user-desktop'), /inconnu/);
@@ -91,11 +91,11 @@ test('virtual files have stable path IDs, protect system files, delete permanent
   const restored = new VirtualFilesystem(new Progression(story, disk));
   assert.equal(restored.exists(deletable), false);
   assert.deepEqual(restored.getLocation('bin').items, []);
-  assert.deepEqual(restored.getLocation('my-games').items, []);
+  assert.deepEqual(restored.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
   restored.progression.newGame();
   const fresh = new VirtualFilesystem(restored.progression);
   assert.equal(fresh.exists(deletable), true);
-  assert.deepEqual(fresh.getLocation('my-games').items, []);
+  assert.deepEqual(fresh.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
   assert.deepEqual(fresh.getLocation('user-profile').items.map((item) => item.location), ['folder']);
   assert.throws(() => fresh.getLocation('user-desktop'), /inconnu/);
 });
@@ -109,7 +109,7 @@ test('XP personal folders are rooted in Mes documents without legacy Games or Do
   const documents = files.getLocation('folder');
   for (const name of ['Mes images', 'Ma musique', 'Mes vidéos', 'Mes fichiers reçus', 'My Games', 'a_faire.txt'])
     assert.ok(documents.items.some((item) => item.name === name), name);
-  assert.deepEqual(files.getLocation('my-games').items, []);
+  assert.deepEqual(files.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
   assert.deepEqual(files.getLocation('videos').items, []);
   assert.equal(files.getLocation('downloads').parent, 'folder');
   assert.equal(
@@ -117,6 +117,38 @@ test('XP personal folders are rooted in Mes documents without legacy Games or Do
     'C:\\Documents and Settings\\Joueur\\Mes documents\\Mes fichiers reçus',
   );
   assert.equal(files.getLocation('music').address.endsWith('\\Ma musique'), true);
+});
+
+test('ChaosSurvival.exe launches from My Games and its deletion persists without affecting the desktop shortcut', () => {
+  const disk = memory();
+  const progression = new Progression(story, disk);
+  const filesystem = new VirtualFilesystem(progression);
+  const fileId = virtualFileId('my-games', 'ChaosSurvival.exe');
+  const location = filesystem.getLocation('my-games');
+  const item = filesystem.getFile(fileId);
+  assert.equal(location.address, 'C:\\Documents and Settings\\Joueur\\Mes documents\\My Games');
+  assert.equal(location.items.filter((entry) => entry.name === 'ChaosSurvival.exe').length, 1);
+  assert.equal(filesystem.metadata(fileId).path,
+    'C:\\Documents and Settings\\Joueur\\Mes documents\\My Games\\ChaosSurvival.exe');
+  for (const oldLocation of ['c-root', 'programs', 'downloads'])
+    assert.equal(filesystem.getLocation(oldLocation).items.some((entry) => entry.name === 'ChaosSurvival.exe'), false);
+
+  let launches = 0;
+  const applications = Object.assign(Object.create(DesktopApplications.prototype), {
+    virtualFilesystem: filesystem,
+    onLaunchArcade: () => { launches++; return 'level-one-started'; },
+  });
+  assert.equal(applications.openFile(location, item), 'level-one-started');
+  assert.equal(launches, 1);
+
+  assert.equal(filesystem.canDelete(fileId), true);
+  assert.equal(filesystem.deleteFile(fileId).ok, true);
+  assert.equal(new VirtualFilesystem(new Progression(story, disk)).exists(fileId), false,
+    'deletion is retained after saving and loading');
+  const restored = new VirtualFilesystem(new Progression(story, disk));
+  restored.progression.newGame();
+  assert.equal(new VirtualFilesystem(restored.progression).exists(fileId), true,
+    'a new game restores the static launcher');
 });
 
 test('all text and JPG files plus named exceptions are deletable except fond-ecran.jpg everywhere', () => {
@@ -318,7 +350,7 @@ test('WinRoar adds a persistent virtual folder and executable once, and folder d
     { item: filesystem.getFile(executableId), fileId: executableId },
     'the virtual executable routes to the internal Bomb Arena application',
   );
-  assert.equal(filesystem.getLocation('my-games').items.length, 0);
+  assert.deepEqual(filesystem.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
 
   const restored = new VirtualFilesystem(new Progression(story, disk));
   assert.equal(restored.exists(executableId), true);
@@ -372,7 +404,7 @@ test('legacy and malformed filesystem save data normalize without hiding unrelat
   disk.setItem('chaos-survival-story-v1', JSON.stringify(original));
   const legacy = new VirtualFilesystem(new Progression(story, disk));
   assert.deepEqual(legacy.state, { deleted: [], added: {} });
-  assert.deepEqual(legacy.getLocation('my-games').items, []);
+  assert.deepEqual(legacy.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
 
   legacy.progression.data.virtualFilesystem = {
     deleted: ['downloads/unknown.txt', 'system32/desktop.dll', null],
@@ -430,7 +462,7 @@ test('legacy virtual Bureau references are discarded without recreating the fold
   const reloaded = new VirtualFilesystem(new Progression(story, disk));
   assert.equal(reloaded.exists(receivedId), false);
   assert.ok(!reloaded.getLocation('downloads').items.some((item) => item.fileId === receivedId));
-  assert.deepEqual(reloaded.getLocation('my-games').items, []);
+  assert.deepEqual(reloaded.getLocation('my-games').items.map((item) => item.name), ['ChaosSurvival.exe']);
 });
 
 test('dynamic files persist with distinct folder identities, expose virtual properties and can be deleted', () => {

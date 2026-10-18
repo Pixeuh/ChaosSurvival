@@ -3,6 +3,7 @@ const staticApplications = Object.freeze({
   'browser-files/adventurer.exe': 'internet-adventurer',
   'media-files/media-play.exe': 'windows-media-play',
   'downloads/toolbar_setup.exe': 'toolbar-installer',
+  'my-games/chaossurvival.exe': 'chaos-survival',
 });
 
 // Resolve only virtual file IDs and stable application metadata. File names are

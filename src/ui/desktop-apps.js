@@ -170,6 +170,7 @@ export class DesktopApplications {
     if (isMediaTrack(item) && this.onLaunchExecutable)
       return this.onLaunchExecutable('windows-media-play', item, fileId);
     const executable = executableAssociation(item, fileId);
+    if (executable === 'chaos-survival' && this.onLaunchArcade) return this.onLaunchArcade();
     if (executable === 'bomb-arena') return this.openBombArena(item, fileId);
     if (executable === 'mini-game' && item.receivedFile && this.onOpenReceived)
       return this.onOpenReceived(item);

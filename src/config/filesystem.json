@@ -356,7 +356,14 @@
     "address": "C:\\Documents and Settings\\Joueur\\Mes documents\\My Games",
     "parent": "folder",
     "description": "C:\\Documents and Settings\\Joueur\\Mes documents\\My Games",
-    "items": []
+    "items": [
+      {
+        "name": "ChaosSurvival.exe",
+        "icon": "arcade-game",
+        "detail": "Application",
+        "deletable": true
+      }
+    ]
   },
   "empty-cd": {
     "address": "D:\\",
