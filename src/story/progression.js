@@ -27,6 +27,7 @@ function freshData(story) {
     level1Launches: 0,
     replayReactions: [],
     pendingMiniGameReaction: null,
+    pendingConnectionMessages: {},
     tutorials: {},
   };
 }
@@ -164,6 +165,14 @@ function normalizeSaved(saved, story) {
       (reaction.storySequenceId !== undefined && typeof reaction.storySequenceId !== 'string') ||
       !Number.isFinite(reaction.dueAt))
   ) saved.pendingMiniGameReaction = null;
+  if (!record(saved.pendingConnectionMessages)) saved.pendingConnectionMessages = {};
+  for (const [eventId, message] of Object.entries(saved.pendingConnectionMessages))
+    if (
+      !record(message) || typeof message.runId !== 'string' ||
+      typeof message.contactId !== 'string' || typeof message.dialogueId !== 'string' ||
+      !Number.isFinite(message.dueAt) ||
+      (message.connectedAt !== undefined && !Number.isFinite(message.connectedAt))
+    ) delete saved.pendingConnectionMessages[eventId];
   return saved;
 }
 
@@ -208,6 +217,9 @@ export class Progression {
         delete this.data.contactConnections[id];
     }
     if (!record(this.data.tutorials)) this.data.tutorials = {};
+    if (!record(this.data.pendingConnectionMessages)) this.data.pendingConnectionMessages = {};
+    for (const [eventId, message] of Object.entries(this.data.pendingConnectionMessages))
+      if (message.runId !== this.data.runId) delete this.data.pendingConnectionMessages[eventId];
     this.data.files ??= {};
     this.data.anomalies ??= {};
     this.data.dialogueArchives ??= {};
@@ -313,6 +325,15 @@ export class Progression {
     if (this.data.pendingMiniGameReaction?.dialogueId !== dialogueId) return false;
     this.data.pendingMiniGameReaction = null;
     return true;
+  }
+  consumeConnectionMessage(dialogueId) {
+    let consumed = false;
+    for (const [eventId, message] of Object.entries(this.data.pendingConnectionMessages ?? {}))
+      if (message.dialogueId === dialogueId) {
+        delete this.data.pendingConnectionMessages[eventId];
+        consumed = true;
+      }
+    return consumed;
   }
   deferMiniGameReaction(sourceId, dialogueId, completedAt = Date.now(), storySequenceId) {
     if (typeof sourceId !== 'string' || typeof dialogueId !== 'string' || !Number.isFinite(completedAt))

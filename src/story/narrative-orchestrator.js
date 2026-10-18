@@ -1,7 +1,6 @@
 import { DialogueSession, pendingChoices } from './dialogue.js';
 import { bombArenaRedownloadDialogue } from './bomb-arena.js';
 
-const SUPER_PLOMBIER_INVITATION_DELAY_MS = 3000;
 const SUPER_PLOMBIER_GROUP_REST_MS = 20_000;
 const PIXELGIRL_REPLY_REMINDER_DELAYS_MS = [20_000, 15_000, 10_000];
 const PIXELGIRL_HUMOR_WIZZ_DELAYS_MS = [20_000, 10_000, 8_000];
@@ -24,6 +23,7 @@ export class NarrativeOrchestrator {
     showGroupNotification = () => false,
     onGroupMessage = () => {},
     virtualFilesystem = null,
+    connectionMessages = null,
     now = () => Date.now(),
   }) {
     Object.assign(this, {
@@ -40,6 +40,7 @@ export class NarrativeOrchestrator {
       showGroupNotification,
       onGroupMessage,
       virtualFilesystem,
+      connectionMessages,
       now,
     });
     if (Number.isFinite(this.flags.turboSmileyScene3MessageNotificationDueAt)) {
@@ -636,85 +637,32 @@ export class NarrativeOrchestrator {
     }
   }
 
-  onContactConnected(contactId) {
+  onContactConnected(contactId, connectedAt, { notify = true, notificationOptions } = {}) {
     const contact = this.getContact(contactId);
     if (!contact) return;
-    this.showConnectionNotification(contactId);
-    if (contactId === 'turbo') this.prepareTurboSceneMessage();
-    if (contactId === 'luna') this.scheduleSuperPlombierInvitation();
-  }
-
-  prepareTurboSceneMessage() {
-    if (
-      !this.flags.turboSmileyScene3ArrivalTriggered ||
-      this.progression.data.contactConnections?.turbo?.status !== 'online'
-    )
-      return;
-    const definition = this.definitions['turbo-smiley-catcher'];
-    if (!definition) return;
-    const saved = this.progression.data.dialogues[definition.id];
-    if (saved?.finished || saved?.transcript?.length) return;
-    const contact = this.getContact('turbo');
-    if (!contact?.available) return;
-    const thread = this.getTurboThread();
-    if (!thread) return;
-    thread.schedule(definition, this.now());
-  }
-
-  scheduleSuperPlombierInvitation() {
-    const flags = this.flags;
-    if (
-      !flags.superPlombierInvitationScheduled &&
-      !flags.superPlombierInvitationReceived &&
-      !this.progression.data.dialogues['turbo-flashzone-invitation']?.transcript?.length
-    ) {
-      flags.superPlombierInvitationDueAt = this.now() + SUPER_PLOMBIER_INVITATION_DELAY_MS;
-      flags.superPlombierInvitationDelayVersion = 3;
-      this.progression.save();
-    }
+    if (notify) this.showConnectionNotification(contactId, notificationOptions);
+    this.connectionMessages?.connect(contactId, connectedAt);
   }
 
   prepareSuperPlombierInvitation() {
-    if (
-      this.progression.data.contactConnections?.luna?.status !== 'online' ||
-      !this.progression.data.dialogues['turbo-smiley-catcher']?.finished
-    )
-      return;
     const flags = this.flags;
-    const definition = this.definitions['turbo-flashzone-invitation'];
-    if (!definition) return;
-    const saved = this.progression.data.dialogues[definition.id];
-    if (flags.superPlombierInvitationScheduled) return;
-    if (!Number.isFinite(flags.superPlombierInvitationDueAt)) {
-      flags.superPlombierInvitationDueAt = this.now() + SUPER_PLOMBIER_INVITATION_DELAY_MS;
-      flags.superPlombierInvitationDelayVersion = 3;
-      this.progression.save();
-    } else if (flags.superPlombierInvitationDelayVersion !== 3) {
-      const previousDelay = flags.superPlombierInvitationDelayVersion === 2 ? 10_000 : 5000;
-      flags.superPlombierInvitationDueAt += SUPER_PLOMBIER_INVITATION_DELAY_MS - previousDelay;
-      flags.superPlombierInvitationDelayVersion = 3;
-      this.progression.save();
-    }
-    if (this.now() < flags.superPlombierInvitationDueAt) return;
-    if (
-      saved?.finished ||
-      saved?.transcript?.length ||
-      Number.isFinite(saved?.receiveDueAt)
-    ) {
-      delete flags.superPlombierInvitationDueAt;
-      flags.superPlombierInvitationScheduled = true;
-      this.progression.save();
+    const eventId = 'luna-invitation-after-connection';
+    const saved = this.progression.data.dialogues['turbo-flashzone-invitation'];
+    if (!Number.isFinite(flags.superPlombierInvitationDueAt) || saved?.transcript?.length || saved?.finished)
       return;
+    const delay = this.connectionMessages?.delayFor(eventId) ?? 3000;
+    if (flags.superPlombierInvitationDelayVersion !== 3) {
+      const previousDelay = flags.superPlombierInvitationDelayVersion === 2 ? 10_000 : 5000;
+      flags.superPlombierInvitationDueAt += delay - previousDelay;
+      flags.superPlombierInvitationDelayVersion = 3;
     }
-    const contact = this.getContact('turbo');
-    if (!contact?.available) return;
-    const view = this.prepareContact(contact);
-    if (!view) return;
-    const firstMessage = definition.nodes[definition.start].messages[0];
-    const firstMessageDuration = firstMessage.delayMs + firstMessage.typingMs + (firstMessage.typingPauseMs ?? 0);
-    view.thread.schedule(definition, flags.superPlombierInvitationDueAt - firstMessageDuration);
+    this.connectionMessages?.schedule(
+      eventId,
+      flags.superPlombierInvitationDueAt - delay,
+      flags.superPlombierInvitationDueAt,
+    );
     delete flags.superPlombierInvitationDueAt;
-    if (Number.isFinite(this.progression.data.dialogues[definition.id]?.receiveDueAt)) {
+    if (Number.isFinite(this.progression.data.dialogues['turbo-flashzone-invitation']?.receiveDueAt)) {
       flags.superPlombierInvitationScheduled = true;
       this.progression.save();
     }
@@ -812,8 +760,10 @@ export class NarrativeOrchestrator {
   }
 
   update(now = this.now(), notify = true) {
-    this.prepareTurboSceneMessage();
+    this.prepareSuperPlombierInvitation();
+    this.connectionMessages?.restorePending();
     this.dialogueEvents.update(now, notify);
+    this.connectionMessages?.restoreOnline(now);
     const turboDefinition = this.definitions['turbo-smiley-catcher'];
     const turboState = turboDefinition && this.progression.data.dialogues[turboDefinition.id];
     const turboThread = turboState && this.getTurboThread();
@@ -826,7 +776,6 @@ export class NarrativeOrchestrator {
         this.onTurboMessage(this.getContact('turbo'), [turboDefinition], messages);
       }
     }
-    this.prepareSuperPlombierInvitation();
     this.prepareSuperPlombierTurbo();
     this.updateSuperPlombierWizzes(now);
     this.updatePixelGirlReplyReminders(now);

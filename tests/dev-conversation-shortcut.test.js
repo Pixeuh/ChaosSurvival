@@ -5,6 +5,7 @@ import { ConversationThread } from '../src/story/conversation-thread.js';
 import { DialogueSession } from '../src/story/dialogue.js';
 import { Progression } from '../src/story/progression.js';
 import { DialogueEvents } from '../src/story/dialogue-events.js';
+import { ConnectionMessages } from '../src/story/connection-messages.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
 import {
   installDevelopmentConversationShortcut,
@@ -18,6 +19,7 @@ const turbo = read('../src/dialogues/turbo-smiley-catcher.json');
 const pixelgirlIntro = read('../src/dialogues/pixelgirl-intro.json');
 const pixelgirlAfterSmiley = read('../src/dialogues/pixelgirl-smiley-victory.json');
 const plumberGroup = read('../src/dialogues/pixelgirl-super-plombier-group.json');
+const connectionConfig = read('../src/config/connection-messages.json');
 
 function createView(dialogue = turbo) {
   const values = new Map();
@@ -88,6 +90,41 @@ test('development conversation shortcut runs one random branch through the saved
     false,
   );
   assert.equal(saved.transcript.length, 24);
+});
+
+test('development fast-forward cannot bypass a pending connection first-message deadline', () => {
+  const view = createView(turbo);
+  view.progression.data.flags.turboSmileyScene3ArrivalTriggered = true;
+  view.progression.data.contactConnections.turbo = { status: 'pending', dueAt: 12_000 };
+  const scheduler = new ConnectionMessages(
+    view.progression,
+    { [turbo.id]: turbo },
+    connectionConfig,
+    (id) => id === 'turbo' ? view.thread : null,
+  );
+  view.pump = () => {};
+
+  const originalNow = Date.now;
+  try {
+    Date.now = () => 11_999;
+    assert.equal(view.finishImmediately(() => 0.5, () => {}), false);
+    assert.equal(view.progression.data.dialogues[turbo.id].transcript.length, 0);
+    assert.equal(view.progression.data.pendingConnectionMessages['turbo-first-connection'], undefined);
+
+    view.progression.data.contactConnections.turbo = { status: 'online', connectedAt: 12_000 };
+    scheduler.connect('turbo', 12_000);
+    Date.now = () => 14_999;
+    assert.equal(view.finishImmediately(() => 0.5, () => {}), false);
+    assert.equal(view.progression.data.dialogues[turbo.id].transcript.length, 0);
+    assert.equal(view.progression.data.pendingConnectionMessages['turbo-first-connection'].dueAt, 15_000);
+
+    Date.now = () => 15_000;
+    assert.equal(view.finishImmediately(() => 0.5, () => {}), true);
+    assert.equal(view.progression.data.dialogues[turbo.id].transcript[0].text, 'mdrrrr noob');
+    assert.equal(view.progression.data.pendingConnectionMessages['turbo-first-connection'], undefined);
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test('partially received messages are preserved and Ctrl+Shift+F ignores text fields', () => {

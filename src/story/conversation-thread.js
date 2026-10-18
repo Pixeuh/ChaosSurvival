@@ -234,7 +234,7 @@ export class ConversationThread {
     while (session.nextMessage() && dueAt <= now) {
       if (session.state.cursor === 0)
         this.progression.consumeMiniGameReaction(definition.id);
-      session.deliver();
+      if (!session.deliver(now)) break;
       delivered = true;
       let transitions = 0;
       while (!session.nextMessage() && session.advance()) {
@@ -315,7 +315,7 @@ export class ConversationThread {
       while (session.nextMessage() && dueAt <= now) {
         if (session.state.cursor === 0)
           this.progression.consumeMiniGameReaction(event.id);
-        session.deliver();
+        if (!session.deliver(now)) break;
         delivered = true;
         const next = session.nextMessage();
         if (next) {

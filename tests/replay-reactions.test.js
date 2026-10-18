@@ -4,9 +4,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { ReplayReactions } from '../src/story/replays.js';
 import { Progression } from '../src/story/progression.js';
 import { DialogueSession } from '../src/story/dialogue.js';
+import { ConnectionMessages } from '../src/story/connection-messages.js';
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const story = read('../src/config/story.json');
 const config = read('../src/config/replay-reactions.json');
+const connectionConfig = read('../src/config/connection-messages.json');
 const definitions = Object.fromEntries(
   readdirSync(new URL('../src/dialogues/', import.meta.url))
     .filter((file) => file.endsWith('.json'))
@@ -78,7 +80,7 @@ test('attempts are counted immediately, including abandonments, without reaction
   assert.equal(progression.current.id, 'pixelgirl-hello');
 });
 
-test('the unlocked first PixelGirl message is scheduled automatically on the desktop and resumes once', () => {
+test('PixelGirl first message uses the shared three-second desktop connection deadline and resumes once', () => {
   const { storage, progression, reactions } = setup();
   assert.deepEqual(reactions.flush(1000), []);
   assert.equal(progression.data.dialogues['pixelgirl-intro'], undefined);
@@ -87,9 +89,16 @@ test('the unlocked first PixelGirl message is scheduled automatically on the des
   assert.ok(progression.data.unlockedConversations.includes('pixelgirl-intro'));
   assert.deepEqual(reactions.flush(5000, { canReceive: false }), []);
   assert.equal(progression.data.dialogues['pixelgirl-intro'], undefined);
-  assert.equal(reactions.desktopShown(5000), true);
+  const connectionMessages = new ConnectionMessages(
+    progression,
+    definitions,
+    connectionConfig,
+    (id) => id === 'pixelgirl' ? reactions.thread : null,
+  );
+  assert.equal(connectionMessages.connect('pixelgirl', 5000), true);
   assert.equal(progression.data.dialogues['pixelgirl-intro'].receiveDueAt, 8000);
-  assert.equal(reactions.desktopShown(6000), false);
+  assert.equal(connectionMessages.connect('pixelgirl', 6000), true);
+  assert.equal(progression.data.dialogues['pixelgirl-intro'].receiveDueAt, 8000);
 
   assert.deepEqual(reactions.flush(7999), []);
   const [intro] = reactions.flush(8000);
@@ -100,7 +109,14 @@ test('the unlocked first PixelGirl message is scheduled automatically on the des
   assert.equal(progression.data.dialogues[intro.id].transcript.length, 1);
 
   const restored = new ReplayReactions(new Progression(story, storage), definitions, config);
-  assert.equal(restored.desktopShown(9000), false);
+  const restoredScheduler = new ConnectionMessages(
+    restored.progression,
+    definitions,
+    connectionConfig,
+    (id) => id === 'pixelgirl' ? restored.thread : null,
+  );
+  restoredScheduler.restorePending();
+  assert.equal(restored.progression.data.dialogues[intro.id].receiveDueAt, 8800);
   assert.deepEqual(restored.flush(8799), []);
   assert.equal(restored.flush(8800).length, 1);
   assert.equal(restored.progression.data.dialogues[intro.id].transcript.length, 2);

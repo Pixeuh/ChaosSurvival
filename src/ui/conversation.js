@@ -602,8 +602,12 @@ export class ConversationWindow {
           if (session.state.finished) continue;
           const message = session.nextMessage();
           if (!message) continue;
+          if (!session.deliver(Date.now())) {
+            this.pump();
+            return false;
+          }
           delete session.state.receiveDueAt;
-          session.deliver();
+          session.persist();
           this.thread.sync();
           this.appendHistory();
           delivered = true;

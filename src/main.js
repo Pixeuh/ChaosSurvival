@@ -54,7 +54,9 @@ import {
   acknowledgeArcadeVictory,
 } from './story/arcade.js';
 import replayConfig from './config/replay-reactions.json';
+import connectionMessageConfig from './config/connection-messages.json';
 import { ReplayReactions } from './story/replays.js';
+import { ConnectionMessages } from './story/connection-messages.js';
 import { DialogueEvents } from './story/dialogue-events.js';
 import {
   NarrativeOrchestrator,
@@ -181,6 +183,16 @@ const turboEvents = () =>
     .sort((a, b) => narrativeOrchestrator?.compareEvents(a, b) ?? 0);
 const getTurboThread = () =>
   (turboConversationThread ??= new ConversationThread('turbo', progression, turboEvents));
+const connectionMessages = new ConnectionMessages(
+  progression,
+  dialogues,
+  connectionMessageConfig,
+  (threadId) => threadId === 'pixelgirl'
+    ? replayReactions.thread
+    : threadId === 'turbo'
+      ? getTurboThread()
+      : null,
+);
 const plumberGroupEvents = () => [
   dialogues['pixelgirl-super-plombier-group'],
   ...(narrativeOrchestrator?.bombArenaRedownloadEvents() ?? []),
@@ -310,7 +322,7 @@ const miniGameLauncher = new MiniGameLauncher(
 const dialogueEvents = new DialogueEvents(
   progression,
   dialogues,
-  (contactId) => narrativeOrchestrator?.onContactConnected(contactId),
+  (contactId, connectedAt) => narrativeOrchestrator?.onContactConnected(contactId, connectedAt),
   { deferredConnectionDialogues: DEFERRED_CONNECTION_DIALOGUES },
 );
 narrativeOrchestrator = new NarrativeOrchestrator({
@@ -319,10 +331,11 @@ narrativeOrchestrator = new NarrativeOrchestrator({
   dialogueEvents,
   getContact: (contactId) => messenger.contacts().find((entry) => entry.id === contactId),
   prepareContact: (contact) => messenger.prepareContact(contact),
-  showConnectionNotification: (contactId) => {
+  connectionMessages,
+  showConnectionNotification: (contactId, options) => {
     const contact = messenger.contacts().find((entry) => entry.id === contactId);
     if (!contact) return;
-    showContactConnectionNotification(contact);
+    showContactConnectionNotification(contact, options);
     sounds.unlock().then(() => sounds.play('online'));
   },
   sendWizz: (contactId, eventId, speaker, now) =>
@@ -1029,16 +1042,15 @@ function showStoryDesktop(announce) {
   state.chaos = 0;
   renderStats();
   ui.chaosCaption.textContent = 'Le bureau est calme. Place aux amis.';
-  if (announce) {
-    const contact = messenger.contacts().find((entry) => entry.id === 'pixelgirl');
-    if (contact)
-      showContactConnectionNotification(contact, {
-        durationMs: ENTER_ANIMATION_MS + MIN_CONNECTION_TOAST_VISIBLE_MS,
-      });
-    sounds.play('online');
-  }
   renderDesktopFiles();
-  requestAnimationFrame(() => replayReactions.desktopShown(Date.now()));
+  requestAnimationFrame(() => {
+    narrativeOrchestrator.onContactConnected('pixelgirl', announce ? Date.now() : undefined, {
+      notify: announce,
+      notificationOptions: announce
+        ? { durationMs: ENTER_ANIMATION_MS + MIN_CONNECTION_TOAST_VISIBLE_MS }
+        : undefined,
+    });
+  });
 }
 async function openConversation(restore = false, contact = null) {
   if (['menu', 'loading', 'resuming'].includes(phase)) return;
@@ -1271,7 +1283,6 @@ function receiveReplayReactions() {
     requestAnimationFrame(receiveReplayReactions);
     return;
   }
-  narrativeOrchestrator.prepareTurboSceneMessage();
   const incoming = replayReactions.flush(Date.now(), { canReceive: phase === 'desktop' });
   narrativeOrchestrator.update(Date.now(), phase !== 'menu');
   messenger.update();

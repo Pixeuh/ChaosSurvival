@@ -1,0 +1,23 @@
+{
+  "defaultFirstMessageDelayMs": 3000,
+  "events": {
+    "pixelgirl-first-desktop": {
+      "contactId": "pixelgirl",
+      "dialogueId": "pixelgirl-intro",
+      "threadId": "pixelgirl",
+      "requiresUnlockedDialogue": true
+    },
+    "turbo-first-connection": {
+      "contactId": "turbo",
+      "dialogueId": "turbo-smiley-catcher",
+      "threadId": "turbo",
+      "requiresFlag": "turboSmileyScene3ArrivalTriggered"
+    },
+    "luna-invitation-after-connection": {
+      "contactId": "luna",
+      "dialogueId": "turbo-flashzone-invitation",
+      "threadId": "turbo",
+      "requiresFinishedDialogue": "turbo-smiley-catcher"
+    }
+  }
+}

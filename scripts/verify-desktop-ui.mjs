@@ -63,7 +63,10 @@ delete env.ELECTRON_RUN_AS_NODE;
 delete env.CHAOS_DEV_URL;
 if (minigameOnly) {
   const { preview } = await import('vite');
-  browserServer = await preview({ preview: { host: '127.0.0.1', port: 0 } });
+  browserServer = await preview({
+    configLoader: 'runner',
+    preview: { host: '127.0.0.1', port: 0 },
+  });
 }
 const gameUrl = minigameOnly ? browserServer.resolvedUrls.local[0] : 'chaos://game/';
 const executable = minigameOnly
@@ -1279,7 +1282,53 @@ async function verifySmileyDialogue() {
     await evaluate("document.querySelectorAll('[data-messenger-contact=turbo]').length"),
     0,
   );
+  const connectedAt = await evaluate(
+    "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).contactConnections.turbo.connectedAt",
+  );
+  const firstMessageDueAt = await evaluate(
+    "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).pendingConnectionMessages['turbo-first-connection'].dueAt",
+  );
+  assert.equal(connectedAt, due);
+  assert.equal(firstMessageDueAt, connectedAt + 3000);
   await capture('pixelgirl-smiley-victory-turbo.png');
+  await evaluate(`window.__storyNow=${firstMessageDueAt - 1}`);
+  await wait(80);
+  assert.equal(
+    await evaluate(
+      "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).dialogues['turbo-smiley-catcher']?.transcript.length ?? 0",
+    ),
+    0,
+    'Turb0 first message stays unread until the full connection delay expires',
+  );
+  assert.equal(
+    await evaluate("document.querySelectorAll('[data-messenger-contact=turbo]').length"),
+    0,
+    'no Turbo conversation window is created before the first message',
+  );
+  await evaluate(`window.__storyNow=${firstMessageDueAt}`);
+  await until(
+    () =>
+      evaluate(
+        "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).dialogues['turbo-smiley-catcher']?.transcript.length === 1",
+      ),
+    'Turb0 first message at its saved connection deadline',
+  );
+  assert.equal(
+    await evaluate(
+      "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).dialogues['turbo-smiley-catcher'].transcript[0].text",
+    ),
+    'mdrrrr noob',
+  );
+  assert.equal(
+    await evaluate("document.querySelectorAll('[data-messenger-contact=turbo]').length"),
+    1,
+    'Messenger creates the background conversation only after receipt',
+  );
+  assert.equal(
+    await evaluate("document.querySelector('[data-messenger-contact=turbo]').hidden"),
+    true,
+    'background receipt does not take focus',
+  );
   const history = await evaluate(
     "JSON.stringify(JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.history)",
   );

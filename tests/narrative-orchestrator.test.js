@@ -5,9 +5,11 @@ import { Progression } from '../src/story/progression.js';
 import { DialogueEvents } from '../src/story/dialogue-events.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
 import { NarrativeOrchestrator } from '../src/story/narrative-orchestrator.js';
+import { ConnectionMessages } from '../src/story/connection-messages.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
+const connectionMessageConfig = read('../src/config/connection-messages.json');
 const definitions = Object.fromEntries(
   readdirSync(new URL('../src/dialogues/', import.meta.url))
     .filter((file) => file.endsWith('.json'))
@@ -24,6 +26,7 @@ function fixture(values = new Map()) {
   });
   let now = 10_000;
   const contacts = {
+    pixelgirl: { id: 'pixelgirl', available: true, online: true },
     turbo: { id: 'turbo', available: true, online: true },
     luna: { id: 'luna', available: true, online: true },
   };
@@ -34,11 +37,22 @@ function fixture(values = new Map()) {
     definitions['turbo-smiley-catcher'],
     definitions['turbo-flashzone-invitation'],
   ]);
+  const pixelGirlThread = new ConversationThread('pixelgirl', progression, () =>
+    progression.data.unlockedConversations.includes('pixelgirl-intro')
+      ? [definitions['pixelgirl-intro']]
+      : [],
+  );
   let orchestrator;
+  const connectionMessages = new ConnectionMessages(
+    progression,
+    definitions,
+    connectionMessageConfig,
+    (id) => id === 'pixelgirl' ? pixelGirlThread : id === 'turbo' ? turboThread : null,
+  );
   const events = new DialogueEvents(
     progression,
     definitions,
-    (id) => orchestrator.onContactConnected(id),
+    (id, connectedAt) => orchestrator.onContactConnected(id, connectedAt),
     { deferredConnectionDialogues: ['pixelgirl-smiley-victory'] },
   );
   orchestrator = new NarrativeOrchestrator({
@@ -51,6 +65,7 @@ function fixture(values = new Map()) {
       return { thread: turboThread };
     },
     getTurboThread: () => turboThread,
+    connectionMessages,
     onTurboMessage: (contact, incoming, messages) => turboMessages.push({ contact, incoming, messages }),
     showConnectionNotification: (id, options) => connectionNotifications.push({ id, options }),
     now: () => now,
@@ -59,6 +74,7 @@ function fixture(values = new Map()) {
     progression,
     orchestrator,
     turboThread,
+    pixelGirlThread,
     values,
     connectionNotifications,
     turboMessages,
@@ -91,14 +107,14 @@ test('validating PixelGirl first reply saves Turb0 connection for exactly two se
   restored.orchestrator.update(restored.now);
   assert.equal(restored.progression.data.contactConnections.turbo.status, 'online');
   assert.equal(restored.connectionNotifications.length, 1);
-  assert.equal(restored.progression.data.dialogues['turbo-smiley-catcher'].receiveDueAt, 14_000);
+  assert.equal(restored.progression.data.dialogues['turbo-smiley-catcher'].receiveDueAt, 15_000);
   assert.deepEqual(restored.preparedContacts, [], 'connection alone does not create a conversation window');
   assert.equal(restored.turboThread.state.history.length, 0);
-  restored.now = 13_999;
+  restored.now = 14_999;
   restored.orchestrator.update(restored.now);
   assert.equal(restored.turboThread.state.history.length, 0);
   assert.equal(restored.turboMessages.length, 0);
-  restored.now = 14_000;
+  restored.now = 15_000;
   restored.orchestrator.update(restored.now);
   assert.equal(restored.turboThread.state.history.at(-1).text, 'mdrrrr noob');
   assert.equal(restored.turboMessages.length, 1);
@@ -107,6 +123,20 @@ test('validating PixelGirl first reply saves Turb0 connection for exactly two se
   restored.orchestrator.update(20_000);
   assert.equal(restored.turboMessages.length, 1);
   assert.equal(restored.connectionNotifications.length, 1);
+});
+
+test('PixelGirl connection notification and first intro message use one three-second connection deadline', () => {
+  const { progression, orchestrator, pixelGirlThread, connectionNotifications, preparedContacts } = fixture();
+  progression.complete('arcade-1', { score: 100, closed: 4 }, 2000);
+
+  orchestrator.onContactConnected('pixelgirl', 5000, { notify: true });
+  assert.deepEqual(connectionNotifications, [{ id: 'pixelgirl', options: undefined }]);
+  assert.equal(progression.data.dialogues['pixelgirl-intro'].receiveDueAt, 8000);
+  assert.deepEqual(pixelGirlThread.receive(7999), []);
+  assert.deepEqual(pixelGirlThread.receive(8000), [definitions['pixelgirl-intro']]);
+  assert.equal(pixelGirlThread.state.history.at(-1).text, 'heyyyy :DDD');
+  assert.deepEqual(preparedContacts, [], 'scheduling the message does not create a conversation window');
+  assert.deepEqual(pixelGirlThread.receive(8000), []);
 });
 
 test('a validated mini-game result delays only its next narrative reaction and survives reload', () => {
@@ -228,7 +258,7 @@ test('Turb0 message notification is tied to receiving a new message, not a saved
   restored.orchestrator.update(30_000);
 });
 
-test('invitation message is scheduled exactly three seconds after Luna connects and only once', () => {
+test('invitation message uses the shared three-second post-connection schedule and only once', () => {
   const context = fixture();
   const { progression, orchestrator, now } = context;
   progression.data.contactConnections = { luna: { status: 'online' } };
@@ -238,23 +268,35 @@ test('invitation message is scheduled exactly three seconds after Luna connects 
     finished: true,
     transcript: [{ speaker: 'contact', text: 'MDRRR' }],
   };
-  orchestrator.onContactConnected('luna');
-  assert.equal(progression.data.flags.superPlombierInvitationDueAt, now + 3000);
+  orchestrator.onContactConnected('luna', now);
+  assert.deepEqual(progression.data.pendingConnectionMessages['luna-invitation-after-connection'], {
+    runId: progression.data.runId,
+    contactId: 'luna',
+    dialogueId: 'turbo-flashzone-invitation',
+    dueAt: now + 3000,
+    connectedAt: now,
+  });
   const definition = definitions['turbo-flashzone-invitation'];
-  assert.equal(orchestrator.isEventAvailable(definition), false);
+  assert.equal(orchestrator.isEventAvailable(definition), true);
 
   const restored = fixture(context.values);
   restored.now = now + 2999;
   restored.orchestrator.update(restored.now);
-  assert.equal(restored.progression.data.dialogues['turbo-flashzone-invitation'], undefined);
-  assert.equal(restored.orchestrator.isEventAvailable(definition), false);
+  assert.equal(
+    restored.progression.data.dialogues['turbo-flashzone-invitation']?.receiveDueAt,
+    now + 3000,
+  );
+  assert.equal(
+    restored.progression.data.dialogues['turbo-flashzone-invitation']?.transcript.length,
+    0,
+  );
+  assert.equal(restored.orchestrator.isEventAvailable(definition), true);
   restored.now = now + 3000;
   restored.orchestrator.update(restored.now);
   assert.equal(
     restored.progression.data.dialogues['turbo-flashzone-invitation']?.receiveDueAt,
     now + 3000,
   );
-  assert.equal(restored.progression.data.flags.superPlombierInvitationScheduled, true);
   assert.equal(restored.orchestrator.isEventAvailable(definition), true);
   assert.deepEqual(restored.turboThread.receive(now + 2999), []);
   assert.deepEqual(restored.turboThread.receive(now + 3000), [definition]);
@@ -268,7 +310,6 @@ test('invitation message is scheduled exactly three seconds after Luna connects 
   );
   restored.now = now + 4000;
   restored.orchestrator.update(restored.now);
-  assert.equal(restored.progression.data.flags.superPlombierInvitationScheduled, true);
 });
 
 test('FlashZone unlocks when the invitation link is delivered and restores compatible saves', () => {
