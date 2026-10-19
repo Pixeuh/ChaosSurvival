@@ -1,3 +1,5 @@
+import { createFreshProgressionData } from '../story/progression.js';
+
 // Imported only inside Vite's development-only branch in main.js.
 // Mini-game engines participate by exposing their normal, idempotent finish() method.
 export function installDevelopmentVictoryShortcut(target, activeGame) {
@@ -46,6 +48,72 @@ export function installDevelopmentConversationShortcut(
   };
   target.addEventListener('keydown', onKey);
   return () => target.removeEventListener('keydown', onKey);
+}
+
+export function installDevelopmentBombArenaShortcut(target, onOpen) {
+  const onKey = (event) => {
+    if (
+      !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.repeat ||
+      event.key.toLowerCase() !== 'b' ||
+      event.target?.closest?.('input, textarea, select, [contenteditable="true"]')
+    ) return;
+    event.preventDefault();
+    onOpen();
+  };
+  target.addEventListener('keydown', onKey);
+  return () => target.removeEventListener('keydown', onKey);
+}
+
+class DevelopmentMemoryStorage {
+  constructor() { this.values = new Map(); }
+  get length() { return this.values.size; }
+  getItem(key) { return this.values.get(String(key)) ?? null; }
+  setItem(key, value) { this.values.set(String(key), String(value)); }
+  removeItem(key) { this.values.delete(String(key)); }
+  clear() { this.values.clear(); }
+  key(index) { return [...this.values.keys()][index] ?? null; }
+}
+
+export function createDevelopmentProgressionSandbox(progression) {
+  let saved = null;
+  return {
+    get active() { return Boolean(saved); },
+    enter(dialogue) {
+      const nodeId = 'bomb-arena-intro';
+      if (!progression?.story || !dialogue?.nodes?.[nodeId]) return false;
+      if (!saved) saved = {
+        data: progression.data,
+        storage: progression.storage,
+        corrupt: progression.corrupt,
+        persistenceError: progression.persistenceError,
+      };
+      progression.storage = new DevelopmentMemoryStorage();
+      progression.data = createFreshProgressionData(progression.story);
+      progression.data.current = null;
+      progression.data.started = true;
+      progression.data.flags.superPlombierGroupCreated = true;
+      progression.data.unlockedConversations = [dialogue.id];
+      progression.data.dialogues[dialogue.id] = {
+        node: nodeId,
+        cursor: 0,
+        transcript: [],
+        finished: false,
+        revision: dialogue.revision ?? 1,
+      };
+      progression.corrupt = false;
+      progression.persistenceError = false;
+      return progression.save();
+    },
+    restore() {
+      if (!saved) return false;
+      progression.data = saved.data;
+      progression.storage = saved.storage;
+      progression.corrupt = saved.corrupt;
+      progression.persistenceError = saved.persistenceError;
+      saved = null;
+      return true;
+    },
+  };
 }
 
 export function prepareBombArenaForDevelopment(progression, virtualFilesystem, dialogue) {

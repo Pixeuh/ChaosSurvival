@@ -6,6 +6,18 @@ const K7_CONNECTION_DELAY_MS = 10_000;
 const SUPER_PLOMBIER_GROUP_REST_MS = 40_000;
 const PIXELGIRL_REPLY_REMINDER_DELAYS_MS = [20_000, 15_000, 10_000];
 const PIXELGIRL_HUMOR_WIZZ_DELAYS_MS = [20_000, 10_000, 8_000];
+export const BOMB_ARENA_REMINDERS = Object.freeze([
+  { author: 'xX_PixelGirl_Xx', text: 'alleeez' },
+  { author: 'Turb0', text: "t'es nul" },
+  { author: 'xX_PixelGirl_Xx', text: 'viens on joue' },
+]);
+const BOMB_ARENA_REMINDER_INTERVALS_MS = Object.freeze([75_000, 120_000, 90_000, 150_000]);
+const BOMB_ARENA_WINNERS = new Set(['justme', 'pixelgirl', 'turbo', 'luna']);
+const BOMB_ARENA_OFFER_NODES = new Set([
+  'bomb-arena-transfer',
+  'bomb-arena-after-transfer',
+  'bomb-arena-transfer-refused',
+]);
 export const DEFERRED_CONNECTION_DIALOGUES = Object.freeze(['pixelgirl-smiley-victory']);
 
 // Scene-specific rules sit here; dialogue timing and persistence remain owned
@@ -53,6 +65,7 @@ export class NarrativeOrchestrator {
       optionalConversations: optionalConversations ?? new OptionalConversations(progression, definitions),
       now,
     });
+    this.bombArenaSuspended = false;
     if (Number.isFinite(this.flags.turboSmileyScene3MessageNotificationDueAt)) {
       delete this.flags.turboSmileyScene3MessageNotificationDueAt;
       this.progression.save();
@@ -86,6 +99,20 @@ export class NarrativeOrchestrator {
       .filter(Boolean)
       .sort((a, b) => Number(a[1]) - Number(b[1]))
       .map(([id]) => bombArenaRedownloadDialogue(id, group));
+  }
+
+  bombArenaPostMatchAvailable() {
+    const progress = this.progression.data.bombArena;
+    if (progress?.status !== 'COMPLETED' || !Number.isFinite(progress.returnedToMessengerAt)) return false;
+    const winner = BOMB_ARENA_WINNERS.has(progress.sessionWinner)
+      ? progress.sessionWinner
+      : progress.firstGameWinner;
+    if (!BOMB_ARENA_WINNERS.has(winner)) return false;
+    if (this.flags.bombArenaWinner !== winner) {
+      this.flags.bombArenaWinner = winner;
+      this.progression.save();
+    }
+    return true;
   }
 
   scheduleBombArenaRedownload() {
@@ -144,6 +171,74 @@ export class NarrativeOrchestrator {
       return state && !state.finished;
     })) return false;
     return Boolean(this.scheduleBombArenaRedownload());
+  }
+
+  onBombArenaEvent(event) {
+    if (event?.type === 'launched') this.bombArenaSuspended = true;
+    else if (event?.type === 'interrupted') this.bombArenaSuspended = false;
+    return this.progression.recordBombArenaEvent?.(event) ?? false;
+  }
+
+  armBombArenaAtGroupOffer(now = this.now()) {
+    const definition = this.definitions['pixelgirl-super-plombier-group'];
+    const state = definition && this.progression.data.dialogues[definition.id];
+    const reachedOffer = state && (
+      BOMB_ARENA_OFFER_NODES.has(state.node) ||
+      state.transcript?.some((message) => message.type === 'file' && message.text === 'BombArena.zip')
+    );
+    if (!reachedOffer) return false;
+    const progress = this.progression.data.bombArena;
+    if (progress?.expectedAt !== null && progress?.expectedAt !== undefined) return false;
+    this.onBombArenaEvent({ type: 'expected' });
+    // A pre-step-5 save may already contain a completed match. Show its saved
+    // result once at the mandatory return point instead of replaying it.
+    if (progress.firstGameCompletedAt !== null && progress.firstGameCompletedAt !== undefined &&
+      progress.firstGameWinner && progress.firstGameScores && progress.firstGameRoundsPlayed >= 8) {
+      progress.status = 'RESULTS_READY';
+      progress.sessionWinner = progress.firstGameWinner;
+      progress.sessionScores = progress.firstGameScores;
+      progress.sessionRoundsPlayed = progress.firstGameRoundsPlayed;
+      progress.completedRounds = Math.max(progress.completedRounds, progress.firstGameRoundsPlayed);
+      progress.roundScores = progress.firstGameScores;
+      progress.nextRound = progress.completedRounds + 1;
+      progress.nextDifficulty = 'PGM';
+      progress.overtimeRounds = Math.max(0, progress.completedRounds - 8);
+      progress.nextReminderAt = null;
+      this.progression.save();
+    }
+    return true;
+  }
+
+  updateBombArenaReminders(now = this.now()) {
+    const progress = this.progression.data.bombArena;
+    if (!progress || progress.expectedAt === null || progress.status === 'COMPLETED' ||
+      progress.status === 'RESULTS_READY' || this.bombArenaSuspended) return false;
+    if (!Number.isFinite(progress.nextReminderAt)) {
+      this.onBombArenaEvent({ type: 'reminder-scheduled', dueAt: now + 75_000 });
+      return false;
+    }
+    if (now < progress.nextReminderAt) return false;
+    const thread = this.getGroupThread();
+    const contact = this.getContact('plumber-group');
+    if (!thread || !contact) return false;
+    const index = progress.reminderCount;
+    const reminder = BOMB_ARENA_REMINDERS[index % BOMB_ARENA_REMINDERS.length];
+    const key = `bomb-arena-reminder:${index + 1}`;
+    const alreadyReceived = thread.state.history.some((entry) => entry.key === key);
+    const message = thread.appendIncoming({
+      key,
+      type: 'message',
+      speaker: 'contact',
+      author: reminder.author,
+      text: reminder.text,
+      receivedAt: now,
+      reminder: true,
+    });
+    if (!message) return false;
+    const dueAt = now + BOMB_ARENA_REMINDER_INTERVALS_MS[index % BOMB_ARENA_REMINDER_INTERVALS_MS.length];
+    if (!this.onBombArenaEvent({ type: 'reminder-sent', count: index + 1, dueAt })) return false;
+    if (!alreadyReceived) this.onGroupMessage(contact, [], [message]);
+    return true;
   }
 
   sendNarrativeWizz(contactId, eventId, speaker, now) {
@@ -617,6 +712,7 @@ export class NarrativeOrchestrator {
     const incoming = thread.receive(now) ?? [];
     if (incoming.length)
       this.onGroupMessage(this.getContact('plumber-group'), incoming, thread.lastIncomingMessages ?? []);
+    this.armBombArenaAtGroupOffer(now);
     if (!this.flags.superPlombierGroupNotified) {
       const accepted = this.showGroupNotification(this.getContact('plumber-group'));
       if (accepted) {
@@ -870,6 +966,7 @@ export class NarrativeOrchestrator {
     this.updatePixelGirlWizzBrawl(now);
     this.updateK7(now);
     this.updateGroup(now);
+    this.updateBombArenaReminders(now);
   }
 
 }

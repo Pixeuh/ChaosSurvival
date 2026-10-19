@@ -81,6 +81,228 @@ function fixture() {
   };
 }
 
+test('BombArena gameplay outcomes persist and arm the mandatory continuation gate without placeholder dialogue', () => {
+  const { progression, orchestrator } = fixture();
+  const current = progression.data.current;
+  const completed = [...progression.data.completed];
+  assert.equal(orchestrator.onBombArenaEvent({ type: 'launched' }), true);
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'narrative-hook-test', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 2, turbo: 2, luna: 3 },
+  }), true);
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'narrative-hook-test', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 2, turbo: 2, luna: 3 },
+  }), false);
+  assert.equal(progression.data.bombArena.firstLaunchedAt !== null, true);
+  assert.equal(progression.data.bombArena.firstGameWinner, 'luna');
+  assert.equal(progression.data.bombArena.defeats, 1);
+  assert.equal(progression.isBombArenaBlockingStory(), false, 'the gate is armed only when the group reaches its offer');
+  assert.equal(progression.data.current, current);
+  assert.deepEqual(progression.data.completed, completed);
+  assert.deepEqual(progression.data.dialogues, {}, 'no placeholder Messenger conversation is created');
+});
+
+test('BombArena offer starts persistent unlimited Messenger reminders, suspends while open, and stops after return', () => {
+  const context = fixture();
+  const { progression, orchestrator } = context;
+  progression.data.flags.superPlombierPostStarted = true;
+  progression.data.flags.superPlombierGroupCreated = true;
+  progression.data.dialogues['pixelgirl-super-plombier-group'] = {
+    node: 'bomb-arena-transfer', cursor: 0, finished: false, transcript: [], revision: 5,
+  };
+  const thread = new ConversationThread('plumber-group', progression, () => [definitions['pixelgirl-super-plombier-group']]);
+  context.setGroupThread(thread);
+
+  orchestrator.update(1_000);
+  assert.equal(progression.data.bombArena.status, 'NOT_STARTED');
+  assert.equal(progression.isBombArenaBlockingStory(), true);
+  const firstDue = progression.data.bombArena.nextReminderAt;
+  assert.ok(firstDue > 1_000);
+  orchestrator.update(firstDue - 1);
+  assert.equal(thread.state.history.filter((message) => message.reminder).length, 0);
+  orchestrator.update(firstDue);
+  assert.deepEqual(thread.state.history.filter((message) => message.reminder).map(({ author, text }) => [author, text]), [
+    ['xX_PixelGirl_Xx', 'alleeez'],
+  ]);
+  const firstMessageCount = thread.state.history.length;
+  orchestrator.update(firstDue);
+  assert.equal(thread.state.history.length, firstMessageCount, 'repeated updates do not duplicate a delivered reminder');
+
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  orchestrator.update(progression.data.bombArena.nextReminderAt + 10_000);
+  assert.equal(thread.state.history.filter((message) => message.reminder).length, 1, 'open or minimized BombArena suspends Messenger reminders');
+  orchestrator.onBombArenaEvent({ type: 'interrupted' });
+  let clock = progression.data.bombArena.nextReminderAt + 10_000;
+  for (let count = 2; count <= 7; count++) {
+    orchestrator.update(clock);
+    assert.equal(thread.state.history.filter((message) => message.reminder).length, count);
+    clock = progression.data.bombArena.nextReminderAt;
+  }
+  assert.deepEqual(thread.state.history.filter((message) => message.reminder).slice(0, 3).map(({ text }) => text), [
+    'alleeez', "t'es nul", 'viens on joue',
+  ]);
+  assert.equal(progression.data.bombArena.reminderCount, 7, 'there is no finite retry limit');
+
+  orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'reminder-finished', difficulty: 'PGM', winnerId: 'pixelgirl', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 3, turbo: 2, luna: 2 },
+  });
+  orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' });
+  const before = thread.state.history.length;
+  orchestrator.update(clock + 1_000_000);
+  assert.equal(thread.state.history.length, before, 'no reminder is sent after the player returns from results');
+  assert.equal(progression.data.bombArena.status, 'COMPLETED');
+});
+
+test('BombArena post-match dialogue branches on the saved final winner and converges on the exact shared sequence', () => {
+  const definition = definitions['bomb-arena-postmatch'];
+  const branches = {
+    justme: [
+      ['xX_PixelGirl_Xx', 'AAAAAA'], ['xX_PixelGirl_Xx', 'GG JUSTME'],
+      ['Turb0', 'MAIS NAN'], ['Turb0', "j'y crois pas mdr"], ['°•.LuNa.°•', 'gg :)'],
+      ['Turb0', 'ouais bon gg'], ['xX_PixelGirl_Xx', 'mdrrrrr turbo il est dégouté'],
+      ['Turb0', 'même pas'],
+    ],
+    pixelgirl: [
+      ['xX_PixelGirl_Xx', 'AAAAAAAA'], ['xX_PixelGirl_Xx', 'JAI GAGNÉÉÉÉÉ'],
+      ['xX_PixelGirl_Xx', 'PTDRRRR'], ['Turb0', 'ouais bon ça va'], ['°•.LuNa.°•', 'gg :)'],
+      ['xX_PixelGirl_Xx', 'merciiiii :3'], ['Turb0', 'profite ça arrivera pas deux fois mdr'],
+      ['xX_PixelGirl_Xx', 'rage paaaas'],
+    ],
+    turbo: [
+      ['Turb0', 'ET VOILAAAAA'], ['Turb0', 'JVOUS AVAIS DIT'], ['xX_PixelGirl_Xx', 'PTDRRRRR'],
+      ['xX_PixelGirl_Xx', "t'es insupportable"], ['°•.LuNa.°•', 'gg'], ['Turb0', 'merci luna'],
+      ['Turb0', 'au moins une personne qui reconnaît le talent ici'], ['xX_PixelGirl_Xx', 'MDRRRR'],
+    ],
+    luna: [
+      ['°•.LuNa.°•', "j'ai gagné"], ['xX_PixelGirl_Xx', 'LUNAAAAAAA'],
+      ['xX_PixelGirl_Xx', 'MAIS MDRRRRR'], ['Turb0', 'nan mais sérieux'],
+      ['Turb0', 'elle dit rien et elle gagne tranquille'], ['°•.LuNa.°•', 'fallait peut-être essayer'],
+      ['xX_PixelGirl_Xx', 'AHAHAHAHA'],
+    ],
+  };
+  const common = [
+    ['Turb0', 'bon par contre'], ['Turb0', "c'était quoi ce mode ultra difficile là mdr"],
+    ['xX_PixelGirl_Xx', 'PTDRRRR'], ['xX_PixelGirl_Xx', "les dernières manches c'était n'importe quoi"],
+    ['°•.LuNa.°•', "c'était un peu le principe"], ['Turb0', 'ouais bah merci'],
+    ['xX_PixelGirl_Xx', 'mdrrrr'], ['xX_PixelGirl_Xx', 'en vrai c\'était trop bieeen :3'],
+    ['Turb0', 'ouais grave'], ['°•.LuNa.°•', 'c\'était sympa :)'],
+    ['xX_PixelGirl_Xx', 'ah au fait justme'], ['xX_PixelGirl_Xx', 'pense à supprimer bombarena après'],
+    ['xX_PixelGirl_Xx', 'il prend grave de place ce truc mdr'],
+    ['Turb0', 'on vient de finir et tu veux déjà le virer ??'],
+    ['xX_PixelGirl_Xx', 'bah oui xD'], ['xX_PixelGirl_Xx', "on y a joué c'est bon"],
+  ];
+  for (const [winner, branch] of Object.entries(branches)) {
+    const { progression } = fixture();
+    progression.data.flags.bombArenaWinner = winner;
+    const session = new DialogueSession(definition, progression);
+    const actual = [];
+    let now = 10_000;
+    for (;;) {
+      const message = session.nextMessage();
+      if (message) {
+        actual.push([message.author, message.text]);
+        session.deliver(now++);
+      } else if (!session.advance()) break;
+    }
+    assert.deepEqual(actual, [...branch, ...common], `${winner} has one winner-specific branch followed by the same convergence`);
+    assert.deepEqual(session.choices, []);
+    assert.equal(session.state.finished, true);
+  }
+  assert.equal(definition.nodes['after-match'].messages[definition.nodes['after-match'].messages.findIndex((message) => message.text === 'ah au fait justme')].delayMs, 2200,
+    'the pause before the deletion suggestion is represented only by a longer delivery delay');
+});
+
+test('BombArena post-match sequence unlocks at the Messenger handoff and resumes once in the existing group thread', () => {
+  const context = fixture();
+  const { progression, orchestrator, store } = context;
+  const group = definitions['pixelgirl-super-plombier-group'];
+  const postMatch = definitions['bomb-arena-postmatch'];
+  progression.data.dialogues[group.id] = {
+    node: 'bomb-arena-after-transfer', cursor: group.nodes['bomb-arena-after-transfer'].messages.length,
+    finished: true, transcript: [], revision: group.revision,
+  };
+  const getEvents = () => [group,
+    ...(orchestrator.bombArenaPostMatchAvailable() ? [postMatch] : []),
+    ...orchestrator.bombArenaRedownloadEvents(),
+  ];
+  const thread = new ConversationThread('plumber-group', progression, getEvents);
+  thread.state.history.push({ key: 'previous-group-message', eventId: group.id, speaker: 'contact', author: 'Turb0', text: 'history preserved', receivedAt: 1 });
+  context.setGroupThread(thread);
+  orchestrator.onBombArenaEvent({ type: 'expected' });
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  orchestrator.onBombArenaEvent({ type: 'interrupted' });
+  assert.equal(getEvents().some((event) => event.id === postMatch.id), false,
+    'closing an unfinished BombArena session does not unlock the post-match dialogue');
+  const scores = { justme: 1, pixelgirl: 2, turbo: 3, luna: 4 };
+  for (let round = 1; round <= 8; round++) {
+    assert.equal(orchestrator.onBombArenaEvent({ type: 'round-completed', round, scores, winnerId: 'luna' }), true);
+    assert.equal(getEvents().some((event) => event.id === postMatch.id), false,
+      `the post-match event is still gated after round ${round}`);
+  }
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'postmatch-test', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8, scores,
+  }), true);
+  assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
+  assert.equal(getEvents().some((event) => event.id === postMatch.id), false, 'viewing results alone does not start the dialogue');
+  assert.equal(orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' }), true);
+  assert.equal(getEvents().some((event) => event.id === postMatch.id), true);
+  assert.deepEqual(orchestrator.bombArenaRedownloadEvents(), [], 'scheduled reminders and reoffers are suppressed after results');
+  assert.equal(progression.data.flags.bombArenaWinner, 'luna');
+
+  thread.receive(100_000_000);
+  thread.receive(100_001_000);
+  const partial = thread.state.history.filter((entry) => entry.eventId === postMatch.id);
+  assert.ok(partial.length > 0 && partial.length < 23, 'the group receives the dialogue progressively');
+  assert.equal(thread.state.history.some((entry) => entry.key === 'previous-group-message'), true);
+  assert.equal(orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' }), false, 'the return event is single-use');
+
+  const reloaded = new Progression(story, store);
+  const restoredOrchestrator = new NarrativeOrchestrator({
+    progression: reloaded,
+    definitions,
+    dialogueEvents: { update() {}, triggerConnection() {} },
+    getContact: () => ({ id: 'plumber-group' }),
+    prepareContact() {}, showConnectionNotification() {},
+  });
+  const restoredThread = new ConversationThread('plumber-group', reloaded, () => [
+    group,
+    ...(restoredOrchestrator.bombArenaPostMatchAvailable() ? [postMatch] : []),
+    ...restoredOrchestrator.bombArenaRedownloadEvents(),
+  ]);
+  restoredThread.receive(200_000_000);
+  restoredThread.receive(200_100_000);
+  restoredThread.receive(200_200_000);
+  assert.equal(restoredThread.state.history.filter((entry) => entry.eventId === postMatch.id).length, 23,
+    'reloading mid-dialogue resumes the saved sequence without duplicating messages');
+  assert.equal(reloaded.data.dialogues[postMatch.id].finished, true);
+  assert.equal(reloaded.data.bombArena.sessionWinner, 'luna', 'the saved final result is retained');
+});
+
+test('a completed legacy BombArena save can select its recorded first-game winner for the new dialogue', () => {
+  const context = fixture();
+  const { progression, store } = context;
+  progression.data.bombArena = {
+    ...progression.data.bombArena,
+    status: 'COMPLETED',
+    returnedToMessengerAt: 15_000,
+    sessionWinner: null,
+    firstGameWinner: 'turbo',
+  };
+  progression.save();
+  const reloaded = new Progression(story, store);
+  const orchestrator = new NarrativeOrchestrator({
+    progression: reloaded,
+    definitions,
+    dialogueEvents: { update() {}, triggerConnection() {} },
+    getContact: () => ({ id: 'plumber-group' }),
+    prepareContact() {}, showConnectionNotification() {},
+  });
+  assert.equal(orchestrator.bombArenaPostMatchAvailable(), true);
+  assert.equal(reloaded.data.flags.bombArenaWinner, 'turbo');
+});
+
 test('Super Plombier fixes PixelGirl case at victory and schedules three Wizzes only for case A', () => {
   const { progression, orchestrator, sentWizzes } = fixture();
   progression.data.dialogues['pixelgirl-smiley-victory'] = { finished: false };
@@ -1042,10 +1264,10 @@ test('group transcript color IDs follow saved authors, while private conversatio
   assert.equal(privateRows[0].dataset.authorId, undefined);
 
   const styles = readFileSync(new URL('../src/styles-story.css', import.meta.url), 'utf8');
-  for (const color of ['#d21883', '#2057c8', '#7950a0', '#252525'])
+  for (const color of ['#d21883', '#178849', '#7950a0', '#252525'])
     assert.ok(styles.includes(color));
   assert.match(styles, /\.group-conversation \.conversation-message\[data-author-id\] > p/);
-  assert.doesNotMatch(styles, /\.group-conversation \.conversation-message\[data-author-id\] > small/);
+  assert.match(styles, /\.group-conversation \.conversation-message\[data-author-id\] > small/);
   assert.match(styles, /\.conversation-message small \{[\s\S]*?color: #8795a5;/);
 });
 

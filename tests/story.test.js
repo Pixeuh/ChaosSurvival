@@ -60,6 +60,134 @@ test('all 81 choice paths merge into the common story and deliver the same mini-
         }
 });
 
+test('BombArena milestones and match results persist once while old saves gain safe defaults', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  progression.data.flags.keepThisChoice = true;
+  delete progression.data.bombArena;
+  progression.save();
+
+  const restored = new Progression(story, storage);
+  assert.equal(restored.data.flags.keepThisChoice, true);
+  assert.deepEqual(restored.data.bombArena, {
+    status: 'NOT_STARTED',
+    expectedAt: null,
+    returnedToMessengerAt: null,
+    completedRounds: 0,
+    nextRound: 1,
+    nextDifficulty: 'PRO',
+    overtimeRounds: 0,
+    roundScores: { justme: 0, pixelgirl: 0, turbo: 0, luna: 0 },
+    sessionWinner: null,
+    sessionScores: null,
+    sessionRoundsPlayed: null,
+    nextReminderAt: null,
+    reminderCount: 0,
+    downloadedAt: null,
+    extractedAt: null,
+    firstLaunchedAt: null,
+    firstGameStartedAt: null,
+    firstGameCompletedAt: null,
+    firstGameDifficulty: null,
+    firstGameWinner: null,
+    firstGameScores: null,
+    firstGameRoundsPlayed: null,
+    gamesPlayed: 0,
+    justMeWins: 0,
+    defeats: 0,
+    lastDifficulty: null,
+    lastWinner: null,
+    lastScores: null,
+    lastRoundsPlayed: null,
+    completedMatchIds: [],
+  });
+
+  assert.equal(restored.recordBombArenaEvent({ type: 'downloaded' }, 10), true);
+  assert.equal(restored.recordBombArenaEvent({ type: 'extracted' }, 20), true);
+  assert.equal(restored.recordBombArenaEvent({ type: 'launched' }, 30), true);
+  assert.equal(restored.recordBombArenaEvent({ type: 'match-started', difficulty: 'PRO' }, 40), true);
+  const narrativeBefore = structuredClone({ current: restored.data.current, completed: restored.data.completed });
+  assert.equal(restored.recordBombArenaEvent({
+    type: 'match-completed', matchId: 'match-one', difficulty: 'PGM', winnerId: 'pixelgirl', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 3, turbo: 2, luna: 2 },
+  }, 50), true);
+  assert.equal(restored.recordBombArenaEvent({
+    type: 'match-completed', matchId: 'match-one', difficulty: 'PGM', winnerId: 'pixelgirl', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 3, turbo: 2, luna: 2 },
+  }, 51), false, 'a duplicate result cannot count twice');
+  assert.equal(restored.recordBombArenaEvent({
+    type: 'match-completed', matchId: 'match-two', difficulty: 'PGM', winnerId: 'justme', roundsPlayed: 9,
+    scores: { justme: 4, pixelgirl: 3, turbo: 2, luna: 0 },
+  }, 60), true);
+
+  const saved = new Progression(story, storage);
+  assert.equal(saved.data.bombArena.downloadedAt, 10);
+  assert.equal(saved.data.bombArena.extractedAt, 20);
+  assert.equal(saved.data.bombArena.firstLaunchedAt, 30);
+  assert.equal(saved.data.bombArena.firstGameStartedAt, 40);
+  assert.equal(saved.data.bombArena.firstGameCompletedAt, 50);
+  assert.equal(saved.data.bombArena.firstGameWinner, 'pixelgirl');
+  assert.equal(saved.data.bombArena.firstGameDifficulty, 'PRO');
+  assert.deepEqual(saved.data.bombArena.firstGameScores, { justme: 1, pixelgirl: 3, turbo: 2, luna: 2 });
+  assert.equal(saved.data.bombArena.firstGameRoundsPlayed, 8);
+  assert.equal(saved.data.bombArena.gamesPlayed, 2);
+  assert.equal(saved.data.bombArena.justMeWins, 1);
+  assert.equal(saved.data.bombArena.defeats, 1);
+  assert.equal(saved.data.bombArena.lastDifficulty, 'PGM');
+  assert.equal(saved.data.bombArena.lastWinner, 'justme');
+  assert.deepEqual(saved.data.bombArena.lastScores, { justme: 4, pixelgirl: 3, turbo: 2, luna: 0 });
+  assert.equal(saved.data.bombArena.lastRoundsPlayed, 9);
+  assert.deepEqual({ current: saved.data.current, completed: saved.data.completed }, narrativeBefore);
+});
+
+test('BombArena checkpoints completed rounds atomically and the next session resumes with saved scores', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  progression.recordBombArenaEvent({ type: 'expected' }, 100);
+  progression.recordBombArenaEvent({ type: 'match-started', difficulty: 'PRO' }, 200);
+  assert.equal(progression.recordBombArenaEvent({
+    type: 'round-completed', round: 1, winnerId: 'justme',
+    scores: { justme: 1, pixelgirl: 0, turbo: 0, luna: 0 },
+  }, 300), true);
+  assert.equal(progression.recordBombArenaEvent({
+    type: 'round-completed', round: 1, winnerId: 'turbo',
+    scores: { justme: 0, pixelgirl: 0, turbo: 1, luna: 0 },
+  }, 301), false, 'a repeated checkpoint cannot overwrite the finalized round');
+
+  const restored = new Progression(story, storage);
+  assert.equal(restored.data.bombArena.status, 'IN_PROGRESS');
+  assert.equal(restored.data.bombArena.completedRounds, 1);
+  assert.equal(restored.data.bombArena.nextRound, 2);
+  assert.equal(restored.data.bombArena.nextDifficulty, 'PRO');
+  assert.deepEqual(restored.data.bombArena.roundScores, { justme: 1, pixelgirl: 0, turbo: 0, luna: 0 });
+});
+
+test('BombArena blocks story progression until results are returned to Messenger, regardless of winner', () => {
+  const progression = new Progression(story, memory());
+  progression.recordBombArenaEvent({ type: 'expected' }, 10);
+  assert.equal(progression.isBombArenaBlockingStory(), true);
+  assert.equal(progression.complete('arcade-1'), false);
+  assert.equal(progression.recordBombArenaEvent({
+    type: 'match-completed', matchId: 'mandatory-match', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8,
+    scores: { justme: 1, pixelgirl: 2, turbo: 2, luna: 3 },
+  }, 20), true);
+  assert.equal(progression.isBombArenaBlockingStory(), true, 'the result screen alone does not unlock the story');
+  assert.equal(progression.recordBombArenaEvent({ type: 'returned-to-messenger' }, 30), true);
+  assert.equal(progression.isBombArenaBlockingStory(), false);
+  assert.equal(progression.data.bombArena.status, 'COMPLETED');
+});
+
+test('BombArena result recording ignores abandonment and invalid or incomplete results', () => {
+  const progression = new Progression(story, memory());
+  assert.equal(progression.recordBombArenaEvent({ type: 'match-started', difficulty: 'PRO' }, 100), true);
+  assert.equal(progression.recordBombArenaEvent({ type: 'match-abandoned' }, 200), false);
+  assert.equal(progression.recordBombArenaEvent({
+    type: 'match-completed', matchId: 'bad', difficulty: 'PGM', winnerId: null, roundsPlayed: 8,
+  }, 300), false);
+  assert.equal(progression.data.bombArena.gamesPlayed, 0);
+  assert.equal(progression.data.bombArena.firstGameCompletedAt, null);
+});
+
 test('proposals are saved before selection, and the 500ms echo never enters the transcript', () => {
   const { session, progression, storage } = setup();
   drain(session);

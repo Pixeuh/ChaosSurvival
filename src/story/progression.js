@@ -6,6 +6,48 @@ export const MINIGAME_REACTION_DELAY_MS = 2000;
 export const HISTORY_KEY = 'chaos-survival-history-v1';
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const runId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+const BOMB_ARENA_DIFFICULTIES = new Set(['PRO', 'PGM']);
+const SAVED_BOMB_ARENA_DIFFICULTIES = new Set(['NOOB', ...BOMB_ARENA_DIFFICULTIES]);
+const BOMB_ARENA_WINNERS = new Set(['justme', 'pixelgirl', 'turbo', 'luna']);
+function normalizeBombArenaScores(scores) {
+  if (!record(scores) || !['justme', 'pixelgirl', 'turbo', 'luna'].every((id) =>
+    Number.isSafeInteger(scores[id]) && scores[id] >= 0)) return null;
+  return Object.fromEntries(['justme', 'pixelgirl', 'turbo', 'luna'].map((id) => [id, scores[id]]));
+}
+function freshBombArenaProgress() {
+  return {
+    status: 'NOT_STARTED',
+    expectedAt: null,
+    returnedToMessengerAt: null,
+    completedRounds: 0,
+    nextRound: 1,
+    nextDifficulty: 'PRO',
+    overtimeRounds: 0,
+    roundScores: { justme: 0, pixelgirl: 0, turbo: 0, luna: 0 },
+    sessionWinner: null,
+    sessionScores: null,
+    sessionRoundsPlayed: null,
+    nextReminderAt: null,
+    reminderCount: 0,
+    downloadedAt: null,
+    extractedAt: null,
+    firstLaunchedAt: null,
+    firstGameStartedAt: null,
+    firstGameCompletedAt: null,
+    firstGameDifficulty: null,
+    firstGameWinner: null,
+    firstGameScores: null,
+    firstGameRoundsPlayed: null,
+    gamesPlayed: 0,
+    justMeWins: 0,
+    defeats: 0,
+    lastDifficulty: null,
+    lastWinner: null,
+    lastScores: null,
+    lastRoundsPlayed: null,
+    completedMatchIds: [],
+  };
+}
 function freshData(story) {
   return {
     version: 1,
@@ -32,7 +74,11 @@ function freshData(story) {
     pendingMiniGameReaction: null,
     pendingConnectionMessages: {},
     tutorials: {},
+    bombArena: freshBombArenaProgress(),
   };
+}
+export function createFreshProgressionData(story) {
+  return freshData(story);
 }
 function validSaved(saved) {
   return record(saved) && saved.version === 1 && Array.isArray(saved.completed);
@@ -146,6 +192,45 @@ function normalizeSaved(saved, story) {
     icon: shortcut.icon.toLowerCase(),
   }));
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
+  if (!record(saved.bombArena)) saved.bombArena = freshBombArenaProgress();
+  else saved.bombArena = { ...freshBombArenaProgress(), ...saved.bombArena };
+  const bombArena = saved.bombArena;
+  for (const key of ['expectedAt', 'returnedToMessengerAt', 'nextReminderAt', 'downloadedAt', 'extractedAt', 'firstLaunchedAt', 'firstGameStartedAt', 'firstGameCompletedAt'])
+    if (bombArena[key] !== null && !Number.isFinite(bombArena[key])) bombArena[key] = null;
+  if (!['NOT_STARTED', 'IN_PROGRESS', 'RESULTS_READY', 'COMPLETED'].includes(bombArena.status))
+    bombArena.status = 'NOT_STARTED';
+  for (const key of ['completedRounds', 'reminderCount'])
+    if (!Number.isSafeInteger(bombArena[key]) || bombArena[key] < 0) bombArena[key] = 0;
+  bombArena.completedRounds = Math.min(bombArena.completedRounds, 128);
+  bombArena.nextRound = bombArena.completedRounds + 1;
+  bombArena.nextDifficulty = bombArena.nextRound >= 5 ? 'PGM' : 'PRO';
+  bombArena.overtimeRounds = Math.max(0, bombArena.completedRounds - 8);
+  bombArena.roundScores = normalizeBombArenaScores(bombArena.roundScores) ?? freshBombArenaProgress().roundScores;
+  bombArena.sessionScores = bombArena.sessionScores === null ? null : normalizeBombArenaScores(bombArena.sessionScores);
+  if (bombArena.sessionWinner !== null && !BOMB_ARENA_WINNERS.has(bombArena.sessionWinner)) bombArena.sessionWinner = null;
+  if (bombArena.sessionRoundsPlayed !== null && (!Number.isSafeInteger(bombArena.sessionRoundsPlayed) || bombArena.sessionRoundsPlayed < 8))
+    bombArena.sessionRoundsPlayed = null;
+  if (bombArena.status === 'RESULTS_READY' && (!bombArena.sessionWinner || !bombArena.sessionScores || !bombArena.sessionRoundsPlayed))
+    bombArena.status = 'IN_PROGRESS';
+  if (bombArena.status === 'COMPLETED') bombArena.nextReminderAt = null;
+  for (const key of ['firstGameDifficulty', 'lastDifficulty'])
+    if (bombArena[key] !== null && !SAVED_BOMB_ARENA_DIFFICULTIES.has(bombArena[key])) bombArena[key] = null;
+  for (const key of ['firstGameWinner', 'lastWinner'])
+    if (bombArena[key] !== null && !BOMB_ARENA_WINNERS.has(bombArena[key])) bombArena[key] = null;
+  for (const key of ['firstGameScores', 'lastScores'])
+    if (bombArena[key] !== null) bombArena[key] = normalizeBombArenaScores(bombArena[key]);
+  for (const key of ['firstGameRoundsPlayed', 'lastRoundsPlayed'])
+    if (bombArena[key] !== null && (!Number.isSafeInteger(bombArena[key]) || bombArena[key] < 8)) bombArena[key] = null;
+  for (const key of ['gamesPlayed', 'justMeWins', 'defeats'])
+    if (!Number.isSafeInteger(bombArena[key]) || bombArena[key] < 0) bombArena[key] = 0;
+  bombArena.completedMatchIds = Array.isArray(bombArena.completedMatchIds)
+    ? [...new Set(bombArena.completedMatchIds.filter((id) => typeof id === 'string' && /^[a-z0-9-]{1,100}$/i.test(id)))].slice(-128)
+    : [];
+  if (!bombArena.downloadedAt && Object.values(saved.files).some((file) =>
+    file?.extractable === 'bomb-arena' && file.status === 'complete' && file.direction === 'receive'))
+    bombArena.downloadedAt = 0;
+  if (!bombArena.extractedAt && Object.hasOwn(saved.virtualFilesystem.added ?? {}, 'bomb-arena-folder/bombarena.exe'))
+    bombArena.extractedAt = 0;
   if (record(saved.textFiles)) {
     for (const key of Object.keys(saved.textFiles))
       if (key.replaceAll('\\', '/').toLowerCase().startsWith('user-desktop/'))
@@ -322,6 +407,7 @@ export class Progression {
     return this;
   }
   async enterCurrent() {
+    if (this.isBombArenaBlockingStory()) return null;
     const sequence = this.current;
     if (!sequence) return null;
     const handler = this.handlers.get(sequence.type);
@@ -330,6 +416,7 @@ export class Progression {
     return sequence;
   }
   complete(id, result = {}, completedAt = Date.now()) {
+    if (this.isBombArenaBlockingStory()) return false;
     if (this.data.completed.includes(id)) return false;
     if (this.data.current !== id) throw new Error('Cette séquence n’est pas la séquence active.');
     const completedSequence = this.current;
@@ -429,9 +516,117 @@ export class Progression {
     const file = this.data.files[key];
     if (!file) throw new Error('Transfert inconnu.');
     file.status = 'complete';
-    if (file.extractable === 'bomb-arena') file.transferState = 'complete';
+    if (file.extractable === 'bomb-arena') {
+      file.transferState = 'complete';
+      this.recordBombArenaEvent({ type: 'downloaded' });
+    }
     this.save();
     return file;
+  }
+  recordBombArenaEvent(event, now = Date.now()) {
+    if (!record(event) || !Number.isFinite(now)) return false;
+    const state = this.data.bombArena ??= freshBombArenaProgress();
+    const setFirstTime = (key) => {
+      if (state[key] !== null) return false;
+      state[key] = now;
+      return true;
+    };
+    let changed = false;
+    if (event.type === 'expected') {
+      if (state.expectedAt === null) {
+        state.expectedAt = now;
+        state.status = 'NOT_STARTED';
+        state.nextReminderAt = now + 45_000;
+        changed = true;
+      }
+    } else if (event.type === 'downloaded') changed = setFirstTime('downloadedAt');
+    else if (event.type === 'extracted') changed = setFirstTime('extractedAt');
+    else if (event.type === 'launched') changed = setFirstTime('firstLaunchedAt');
+    else if (event.type === 'match-started') {
+      if (!BOMB_ARENA_DIFFICULTIES.has(event.difficulty)) return false;
+      if (state.firstGameStartedAt === null) {
+        state.firstGameStartedAt = now;
+        state.firstGameDifficulty = event.difficulty;
+        changed = true;
+      }
+      if (state.expectedAt !== null && state.status === 'NOT_STARTED') {
+        state.status = 'IN_PROGRESS';
+        changed = true;
+      }
+    } else if (event.type === 'round-completed') {
+      const round = event.round;
+      const scores = normalizeBombArenaScores(event.scores);
+      if (state.status === 'COMPLETED') return false;
+      if (!Number.isSafeInteger(round) || round !== state.completedRounds + 1 || !scores ||
+        (event.winnerId !== null && !BOMB_ARENA_WINNERS.has(event.winnerId))) return false;
+      state.completedRounds = round;
+      state.nextRound = round + 1;
+      state.nextDifficulty = state.nextRound >= 5 ? 'PGM' : 'PRO';
+      state.overtimeRounds = Math.max(0, round - 8);
+      state.roundScores = scores;
+      state.status = 'IN_PROGRESS';
+      changed = true;
+    } else if (event.type === 'match-completed') {
+      if (typeof event.matchId !== 'string' || !/^[a-z0-9-]{1,100}$/i.test(event.matchId) ||
+        !BOMB_ARENA_DIFFICULTIES.has(event.difficulty) || !BOMB_ARENA_WINNERS.has(event.winnerId) ||
+        !Number.isSafeInteger(event.roundsPlayed) || event.roundsPlayed < 8) return false;
+      const scores = normalizeBombArenaScores(event.scores);
+      if (!scores || scores[event.winnerId] !== Math.max(...Object.values(scores)) ||
+        Object.values(scores).filter((score) => score === scores[event.winnerId]).length !== 1) return false;
+      if (state.completedMatchIds.includes(event.matchId)) return false;
+      state.completedMatchIds.push(event.matchId);
+      state.completedMatchIds = state.completedMatchIds.slice(-128);
+      state.gamesPlayed++;
+      if (event.winnerId === 'justme') state.justMeWins++;
+      else state.defeats++;
+      state.lastDifficulty = event.difficulty;
+      state.lastWinner = event.winnerId;
+      state.lastScores = scores;
+      state.lastRoundsPlayed = event.roundsPlayed;
+      state.completedRounds = Math.max(state.completedRounds, event.roundsPlayed);
+      state.nextRound = state.completedRounds + 1;
+      state.nextDifficulty = 'PGM';
+      state.overtimeRounds = Math.max(0, state.completedRounds - 8);
+      state.roundScores = scores;
+      state.sessionWinner = event.winnerId;
+      state.sessionScores = scores;
+      state.sessionRoundsPlayed = event.roundsPlayed;
+      if (state.expectedAt !== null && state.status !== 'COMPLETED') state.status = 'RESULTS_READY';
+      if (state.status !== 'COMPLETED') state.nextReminderAt = null;
+      if (state.firstGameCompletedAt === null) {
+        state.firstGameCompletedAt = now;
+        state.firstGameDifficulty = state.firstGameDifficulty ?? event.difficulty;
+        state.firstGameWinner = event.winnerId;
+        state.firstGameScores = scores;
+        state.firstGameRoundsPlayed = event.roundsPlayed;
+      }
+      changed = true;
+    } else if (event.type === 'returned-to-messenger') {
+      if (state.expectedAt === null || state.status !== 'RESULTS_READY') return false;
+      state.status = 'COMPLETED';
+      state.returnedToMessengerAt = now;
+      state.nextReminderAt = null;
+      changed = true;
+    } else if (event.type === 'reminder-sent') {
+      if (state.expectedAt === null || state.status === 'COMPLETED' ||
+        !Number.isSafeInteger(event.count) || event.count !== state.reminderCount + 1 ||
+        !Number.isFinite(event.dueAt)) return false;
+      state.reminderCount = event.count;
+      state.nextReminderAt = event.dueAt;
+      changed = true;
+    } else if (event.type === 'reminder-scheduled') {
+      if (state.expectedAt === null || state.status === 'COMPLETED' || !Number.isFinite(event.dueAt)) return false;
+      if (state.nextReminderAt !== event.dueAt) {
+        state.nextReminderAt = event.dueAt;
+        changed = true;
+      }
+    } else return false;
+    if (changed) this.save();
+    return changed;
+  }
+  isBombArenaBlockingStory() {
+    const state = this.data.bombArena;
+    return Boolean(state?.expectedAt !== null && state?.expectedAt !== undefined && state.status !== 'COMPLETED');
   }
   acceptTransfer(key) {
     const file = this.data.files[key];

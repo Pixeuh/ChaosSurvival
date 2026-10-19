@@ -191,6 +191,16 @@ const desktopApplications = new DesktopApplications(
   renderDesktopFiles,
   openDesktopFile,
   launchExecutable,
+  (event) => narrativeOrchestrator?.onBombArenaEvent(event),
+  (instance) => {
+    manager.close(instance.id);
+    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+    if (group) messenger.openContact(group);
+  },
+  () => {
+    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+    if (group) messenger.openContact(group);
+  },
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
@@ -228,10 +238,16 @@ const connectionMessages = new ConnectionMessages(
         ? getK7Thread()
       : null,
 );
-const plumberGroupEvents = () => [
-  dialogues['pixelgirl-super-plombier-group'],
-  ...(narrativeOrchestrator?.bombArenaRedownloadEvents() ?? []),
-];
+const plumberGroupEvents = () => {
+  const postMatchAvailable = narrativeOrchestrator?.bombArenaPostMatchAvailable() ?? false;
+  const postMatchState = progression.data.dialogues['bomb-arena-postmatch'];
+  const postMatchActive = postMatchAvailable && !postMatchState?.finished;
+  return [
+    dialogues['pixelgirl-super-plombier-group'],
+    ...(postMatchAvailable ? [dialogues['bomb-arena-postmatch']] : []),
+    ...(postMatchActive ? [] : narrativeOrchestrator?.bombArenaRedownloadEvents() ?? []),
+  ];
+};
 const hoplaHotel = new HoplaHotelClient(manager, desktopApplications, () =>
   openBrowser('http://www.hoplahotel.fr/'),
   () => settings.data.musicVolume,
@@ -731,6 +747,13 @@ async function continueFromMenu() {
   menu.hide();
   menuMusic.stop();
   progression.begin();
+  if (progression.data.bombArena.status === 'RESULTS_READY') {
+    if (!narrativeOrchestrator.onBombArenaEvent({ type: 'returned-to-messenger' })) return;
+    showStoryDesktop(false, { connectPixelGirl: false });
+    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+    if (group) messenger.openContact(group);
+    return;
+  }
   const pendingVictory = pendingArcadeVictory(progression);
   if (pendingVictory) {
     showArcadeVictory(pendingVictory);
@@ -1112,7 +1135,7 @@ function showStoryError(error) {
   );
   ui.dialogCopy.querySelector('.story-error').textContent = error.message;
 }
-function showStoryDesktop(announce) {
+function showStoryDesktop(announce, { connectPixelGirl = true } = {}) {
   cancelVictory();
   cancelAnimationFrame(frame);
   audio.stop();
@@ -1130,14 +1153,16 @@ function showStoryDesktop(announce) {
   renderStats();
   ui.chaosCaption.textContent = 'Le bureau est calme. Place aux amis.';
   renderDesktopFiles();
-  requestAnimationFrame(() => {
-    narrativeOrchestrator.onContactConnected('pixelgirl', announce ? Date.now() : undefined, {
-      notify: announce,
-      notificationOptions: announce
-        ? { durationMs: ENTER_ANIMATION_MS + MIN_CONNECTION_TOAST_VISIBLE_MS }
-        : undefined,
+  if (connectPixelGirl) {
+    requestAnimationFrame(() => {
+      narrativeOrchestrator.onContactConnected('pixelgirl', announce ? Date.now() : undefined, {
+        notify: announce,
+        notificationOptions: announce
+          ? { durationMs: ENTER_ANIMATION_MS + MIN_CONNECTION_TOAST_VISIBLE_MS }
+          : undefined,
+      });
     });
-  });
+  }
 }
 async function openConversation(restore = false, contact = null) {
   if (['menu', 'loading', 'resuming'].includes(phase)) return;
@@ -1329,6 +1354,8 @@ if (import.meta.env.DEV) {
     const {
       installDevelopmentVictoryShortcut,
       installDevelopmentConversationShortcut,
+      installDevelopmentBombArenaShortcut,
+      createDevelopmentProgressionSandbox,
       prepareBombArenaForDevelopment,
     } = shortcuts;
     const foregroundGroupConversation = () => {
@@ -1380,6 +1407,22 @@ if (import.meta.env.DEV) {
       },
       'd',
     );
+    const bombArenaSandbox = createDevelopmentProgressionSandbox(progression);
+    installDevelopmentBombArenaShortcut(document, () => {
+      const dialogue = dialogues['pixelgirl-super-plombier-group'];
+      if (!bombArenaSandbox.enter(dialogue)) return;
+      notifications.clear({ resetHandled: true });
+      menu.hide();
+      menuMusic.stop();
+      ui.desktop.inert = false;
+      // Dispose existing windows while the isolated in-memory save is active.
+      showStoryDesktop(false, { connectPixelGirl: false });
+      if (!bombArenaSandbox.enter(dialogue)) return;
+      desktopIcons.refresh();
+      renderDesktopFiles();
+      const contact = messenger.contacts().find((item) => item.id === 'plumber-group');
+      if (contact?.available) messenger.openContact(contact);
+    });
   });
 }
 
@@ -1430,6 +1473,8 @@ receiveReplayReactions();
 setInterval(updateClock, 10000);
 ui.trackTime.textContent = `00:00 / ${formatTime(chart.durationSeconds)}`;
 returnToMenu();
+if (progression.data.bombArena.status === 'RESULTS_READY')
+  queueMicrotask(() => continueFromMenu());
 if (window.chaosWindow) {
   window.chaosWindow.getFullscreen().then((fullscreen) => {
     settings.update({ fullscreen });

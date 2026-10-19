@@ -379,4 +379,22 @@ export class ConversationThread {
     this.progression.save();
     return message;
   }
+  appendIncoming(message) {
+    if (!message || typeof message.key !== 'string' || !message.key ||
+      typeof message.text !== 'string' || typeof message.author !== 'string' ||
+      !Number.isFinite(message.receivedAt) || message.speaker !== 'contact') return null;
+    this.sync();
+    const existing = this.state.history.find((entry) => entry.key === message.key);
+    if (existing) return existing;
+    const entry = { ...message };
+    this.state.history.push(entry);
+    this.state.unread.push(entry.key);
+    const reminders = this.state.history.filter((item) => item.reminder === true);
+    for (const old of reminders.slice(0, Math.max(0, reminders.length - 100))) {
+      this.state.history.splice(this.state.history.indexOf(old), 1);
+      this.state.unread = this.state.unread.filter((key) => key !== old.key);
+    }
+    this.progression.save();
+    return entry;
+  }
 }

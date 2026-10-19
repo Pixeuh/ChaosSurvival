@@ -365,6 +365,8 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
   let spawnOptions;
   let attached;
   let spawnCount = 0;
+  const bombArenaEvents = [];
+  const continued = [];
   const manager = {
     windows: new Map(),
     spawn(type, options) {
@@ -387,6 +389,8 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
     },
     restore() {},
     onWindowState() {},
+    onBombArenaEvent(event) { bombArenaEvents.push(event); },
+    onBombArenaContinue(instance) { continued.push(instance); },
   });
 
   const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
@@ -394,11 +398,12 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
   assert.equal(spawnOptions.content.title, 'BombArena.exe');
   assert.equal(spawnOptions.resizable, true);
   assert.equal(spawnOptions.maximizable, true);
-  assert.equal(spawnOptions.minWidth, 320);
-  assert.equal(spawnOptions.minHeight, 240);
+  assert.equal(spawnOptions.windowClass, 'bomb-arena-window');
+  assert.equal(spawnOptions.minWidth, 760);
+  assert.equal(spawnOptions.minHeight, 560);
   assert.equal(spawnOptions.x, 0.3);
   assert.equal(spawnOptions.y, 0.2);
-  assert.match(spawnOptions.content.body, /<strong>BombArena\.exe<\/strong>/);
+  assert.match(spawnOptions.content.body, /Initialisation de BombArena/);
   assert.deepEqual(attached, {
     key: 'virtual-app:bomb-arena',
     id: 1,
@@ -406,6 +411,9 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
     iconName: 'arcade-game',
   });
   assert.equal(instance.fileId, 'bomb-arena-folder/bombarena.exe');
+  assert.deepEqual(bombArenaEvents, [{ type: 'launched' }]);
+  instance.onBombArenaContinue();
+  assert.deepEqual(continued, [instance]);
   assert.equal(app.instances.size, 1);
   assert.equal(app.openBombArena({}, 'bomb-arena-folder/bombarena.exe'), instance);
   assert.equal(spawnCount, 1, 'reopening a live window does not create a duplicate');
@@ -414,15 +422,67 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
   const reopened = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
   assert.notEqual(reopened, instance);
   assert.equal(spawnCount, 2, 'a closed window can be opened again');
+  assert.equal(bombArenaEvents.length, 2, 'each fresh application instance reports its launch');
 });
 
-test('BombArena placeholder scrolls inside its managed minimum window', () => {
+test('closing BombArena results completes the narrative handoff exactly once', () => {
+  const manager = {
+    windows: new Map(),
+    spawn(type, options) {
+      this.options = options;
+      this.windows.set(1, { element: { isConnected: true } });
+      return 1;
+    },
+  };
+  const progress = { expectedAt: 123, status: 'RESULTS_READY' };
+  const handoffs = [], events = [];
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    instances: new Map(),
+    virtualFilesystem: { exists: () => true, progression: { data: { bombArena: progress } } },
+    attachWindow(key, id) {
+      const instance = { id, element: manager.windows.get(id).element, task: { remove() {} } };
+      this.instances.set(key, instance);
+      return instance;
+    },
+    restore() {},
+    onWindowState() {},
+    onBombArenaEvent(event) {
+      events.push(event);
+      if (event.type === 'returned-to-messenger') progress.status = 'COMPLETED';
+      return true;
+    },
+    onBombArenaInterrupted(instance) { handoffs.push(instance); },
+  });
+
+  const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  manager.options.onDismiss({ reason: 'close' });
+  manager.options.onDismiss({ reason: 'close' });
+  assert.deepEqual(events, [{ type: 'launched' }, { type: 'returned-to-messenger' }]);
+  assert.deepEqual(handoffs, [instance], 'closing results hands off to the group once');
+  assert.equal(progress.status, 'COMPLETED');
+  assert.equal(instance.returningToMessenger, true);
+});
+
+test('BombArena reserves a responsive playfield and sidebar inside its managed window', () => {
   const css = readFileSync(new URL('../src/styles-story.css', import.meta.url), 'utf8');
-  const placeholder =
-    [...css.matchAll(/\.bomb-arena-placeholder\s*\{([^}]+)\}/g)].at(-1)?.[1] ?? '';
-  assert.match(placeholder, /min-width:\s*0/);
-  assert.match(placeholder, /min-height:\s*0/);
-  assert.match(placeholder, /overflow:\s*auto/);
+  assert.match(css, /\.popup-desktopapp\.bomb-arena-window\s*\{[^}]*width:\s*min\(1080px,[^}]*height:\s*min\(760px,/s);
+  assert.match(css, /\.ba-layout\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(190px,\s*225px\)/s);
+  assert.match(css, /\.ba-stage\s*\{[^}]*min-width:\s*0/s);
+  assert.match(css, /\.ba-canvas\s*\{[^}]*object-fit:\s*contain/s);
+  assert.match(css, /@media\s*\(max-width:\s*760px\)/);
+  assert.match(css, /\.ba-chat-log\s*\{[^}]*overflow:\s*auto/s);
+  assert.match(css, /@container\s*\(max-width:\s*680px\)/);
+  const view = readFileSync(new URL('../src/minigames/bomb-arena/view.js', import.meta.url), 'utf8');
+  assert.match(view, /class="ba-chat-log"\s+role="log"/);
+  assert.match(view, /ba-chat-toggle/);
+  assert.doesNotMatch(view, /name="ba-difficulty"|ba-again|Nouvelle partie/);
+  assert.match(view, /affrontez vous en 8 manches !/);
+  assert.doesNotMatch(view, /PGM MODE|PRO MODE|class="ba-continue"|Retour à MSN/);
+  assert.match(view, /BOMB_ARENA_RESULTS_DISPLAY_MS = 5000/);
+  assert.match(view, /resultsAutoReturn\.start\(\)/);
+  assert.match(view, /instance\.onBombArenaFinish/);
+  assert.match(view, /chat\.dispose\(\)/);
 });
 
 test('the arcade image uses its renamed virtual filename without changing its visual asset', () => {
@@ -452,6 +512,7 @@ test('WinRoar adds a persistent virtual folder and executable once, and folder d
     reusableAfterDelete: true,
   }, 'pixelgirl-super-plombier-group', 'transfer');
   progression.finishTransfer(transfer.key);
+  assert.ok(Number.isFinite(progression.data.bombArena.downloadedAt));
   const archiveId = virtualFileId('downloads', 'BombArena.zip');
   assert.equal(filesystem.canDelete(archiveId), true);
   assert.equal(filesystem.metadata(archiveId).size, 18 * 1024 * 1024);
@@ -462,6 +523,7 @@ test('WinRoar adds a persistent virtual folder and executable once, and folder d
   const folderId = virtualFileId('downloads', 'BombArena');
   const executableId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
   assert.equal(extracted.ok, true);
+  assert.ok(Number.isFinite(progression.data.bombArena.extractedAt));
   assert.equal(filesystem.getFile(folderId).directory, true);
   assert.deepEqual(filesystem.getLocation('bomb-arena-folder').items.map((file) => file.name), ['BombArena.exe']);
   assert.equal(filesystem.getFile(executableId).virtualApp, 'bomb-arena');
@@ -469,6 +531,7 @@ test('WinRoar adds a persistent virtual folder and executable once, and folder d
   assert.equal(filesystem.canDelete(executableId), true);
   assert.equal(filesystem.extractBombArena(archiveId).existing, true);
   assert.equal(filesystem.deleteFile(executableId).ok, true);
+  assert.ok(Number.isFinite(new Progression(story, disk).data.bombArena.extractedAt), 'extraction milestone survives EXE deletion');
   assert.equal(filesystem.exists(folderId), true);
   assert.equal(filesystem.extractBombArena(archiveId).ok, true, 're-extraction reuses the remaining folder');
   assert.equal(filesystem.exists(executableId), true);

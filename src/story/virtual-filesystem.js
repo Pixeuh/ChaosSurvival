@@ -287,7 +287,10 @@ export class VirtualFilesystem {
     const definition = definitions[archive?.extractable];
     if (!definition) return { ok: false, reason: 'invalid-archive' };
     const executableId = virtualFileId(definition.locationId, definition.file.name);
-    if (this.exists(executableId)) return { ok: true, existing: true, fileId: executableId };
+    if (this.exists(executableId)) {
+      if (archive.extractable === 'bomb-arena') this.progression.recordBombArenaEvent?.({ type: 'extracted' });
+      return { ok: true, existing: true, fileId: executableId };
+    }
     const folderId = virtualFileId('downloads', definition.folderName);
     const existingFolder = this.getFile(folderId);
     const folder = existingFolder?.directory === true && existingFolder.location === definition.locationId
@@ -296,6 +299,7 @@ export class VirtualFilesystem {
     if (!folder.ok) return folder;
     const executable = this.addFile(definition.locationId, definition.file);
     if (!executable.ok && !this.exists(executableId)) return executable;
+    if (archive.extractable === 'bomb-arena') this.progression.recordBombArenaEvent?.({ type: 'extracted' });
     return { ok: true, fileId: executableId, folderId: folder.fileId };
   }
   extractBombArena(archiveFileId) {

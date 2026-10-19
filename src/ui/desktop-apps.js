@@ -9,6 +9,7 @@ import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
 import { fileTypeForName, getDisplayFileName } from './file-names.js';
+import { mountBombArena } from '../minigames/bomb-arena/view.js';
 
 export const desktopApps = definitions;
 
@@ -68,6 +69,9 @@ export class DesktopApplications {
     onFilesystemChange = () => {},
     onOpenReceived = null,
     onLaunchExecutable = null,
+    onBombArenaEvent = () => {},
+    onBombArenaContinue = () => {},
+    onBombArenaInterrupted = () => {},
   ) {
     Object.assign(this, {
       manager,
@@ -77,6 +81,9 @@ export class DesktopApplications {
       onFilesystemChange,
       onOpenReceived,
       onLaunchExecutable,
+      onBombArenaEvent,
+      onBombArenaContinue,
+      onBombArenaInterrupted,
     });
     this.textFiles = textFiles;
     this.virtualFilesystem = virtualFilesystem;
@@ -704,6 +711,7 @@ export class DesktopApplications {
     }
   }
   openBombArena(_item, fileId) {
+    if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) return null;
     const key = 'virtual-app:bomb-arena';
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {
@@ -714,23 +722,63 @@ export class DesktopApplications {
       preview: true,
       resizable: true,
       maximizable: true,
-      minWidth: 320,
-      minHeight: 240,
+      windowClass: 'bomb-arena-window',
+      minWidth: 760,
+      minHeight: 560,
       x: 0.3,
       y: 0.2,
       content: {
         title: 'BombArena.exe',
         iconName: 'arcade-game',
-        body: '<section class="bomb-arena-placeholder"><strong>BombArena.exe</strong><p>Chargement du salon...</p><p>[Interface multijoueur en préparation]</p></section>',
+        body: '<section class="bomb-arena-loading">Initialisation de BombArena...</section>',
       },
-      onDismiss: () => {
+      onDismiss: (dismissal = {}) => {
+        instance?.disposeGame?.();
         this.instances.delete(key);
         instance.task.remove();
         this.onWindowState();
+        const progress = this.virtualFilesystem?.progression?.data?.bombArena;
+        if (instance && !instance.returningToMessenger && progress?.status === 'RESULTS_READY') {
+          if (dismissal.reason === 'close') instance.onBombArenaFinish?.({ alreadyClosing: true });
+        } else if (instance && !instance.returningToMessenger) {
+          this.onBombArenaEvent?.({ type: 'interrupted' });
+          this.onBombArenaInterrupted?.(instance);
+        }
       },
     });
     const instance = this.attachWindow(key, id, 'BombArena.exe', 'arcade-game');
     instance.fileId = fileId;
+    instance.onBombArenaEvent = (event) => this.onBombArenaEvent?.(event);
+    instance.onBombArenaFinish = ({ alreadyClosing = false } = {}) => {
+      if (instance.returningToMessenger) return false;
+      const progress = this.virtualFilesystem?.progression?.data?.bombArena;
+      if (progress?.expectedAt !== null && progress?.expectedAt !== undefined && progress.status !== 'COMPLETED') {
+        if (progress.status !== 'RESULTS_READY') return false;
+        const completed = this.onBombArenaEvent?.({ type: 'returned-to-messenger' });
+        if (!completed && progress.status !== 'COMPLETED') return false;
+      }
+      instance.returningToMessenger = true;
+      if (alreadyClosing) this.onBombArenaInterrupted?.(instance);
+      else this.onBombArenaContinue?.(instance);
+      return true;
+    };
+    instance.onBombArenaContinue = () => instance.onBombArenaFinish();
+    const savedMatch = this.virtualFilesystem?.progression?.data?.bombArena;
+    instance.bombArenaProgress = savedMatch;
+    if (savedMatch?.status === 'RESULTS_READY')
+      instance.savedMatchResult = {
+        winnerId: savedMatch.sessionWinner,
+        scores: savedMatch.sessionScores,
+        roundsPlayed: savedMatch.sessionRoundsPlayed,
+      };
+    else if (savedMatch?.expectedAt === null && savedMatch?.firstGameCompletedAt !== null && savedMatch?.firstGameCompletedAt !== undefined)
+      instance.savedMatchResult = {
+        winnerId: savedMatch.firstGameWinner,
+        scores: savedMatch.firstGameScores,
+        roundsPlayed: savedMatch.firstGameRoundsPlayed,
+      };
+    instance.onBombArenaEvent({ type: 'launched' });
+    mountBombArena(instance, this.manager);
     this.restore(instance);
     return instance;
   }

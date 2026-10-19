@@ -9,6 +9,8 @@ import { ConnectionMessages } from '../src/story/connection-messages.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
 import {
   installDevelopmentConversationShortcut,
+  installDevelopmentBombArenaShortcut,
+  createDevelopmentProgressionSandbox,
   prepareBombArenaForDevelopment,
 } from '../src/dev/finish-shortcut.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
@@ -63,6 +65,63 @@ function pressFinishShortcut(view) {
   });
   remove();
 }
+
+test('Ctrl+Shift+B is development-only behavior, ignores text inputs, and cleans up its key listener', () => {
+  let listener, removed = false, opened = 0, prevented = 0;
+  const target = {
+    addEventListener: (_type, callback) => { listener = callback; },
+    removeEventListener: (_type, callback) => { removed = callback === listener; },
+  };
+  const cleanup = installDevelopmentBombArenaShortcut(target, () => opened++);
+  const press = (key, extra = {}) => listener({
+    key, ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false,
+    target: { closest: () => null }, preventDefault: () => prevented++, ...extra,
+  });
+  press('b');
+  assert.equal(opened, 1); assert.equal(prevented, 1);
+  press('B', { target: { closest: () => ({}) } });
+  press('b', { repeat: true });
+  press('b', { ctrlKey: false });
+  assert.equal(opened, 1);
+  cleanup(); assert.equal(removed, true);
+  const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  assert.match(source, /if\s*\(import\.meta\.env\.DEV\)\s*\{[\s\S]*?installDevelopmentBombArenaShortcut/);
+});
+
+test('BombArena developer state starts at its intro node without touching the normal saved run', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  const progression = new Progression(story, storage);
+  progression.begin(); progression.data.flags.normalProgress = 'keep'; progression.save();
+  const normalData = progression.data;
+  const savedRun = storage.getItem('chaos-survival-story-v1');
+  const sandbox = createDevelopmentProgressionSandbox(progression);
+  assert.equal(sandbox.enter(plumberGroup), true);
+  assert.equal(sandbox.active, true);
+  assert.notEqual(progression.data, normalData);
+  assert.equal(progression.data.current, null);
+  assert.equal(progression.data.flags.superPlombierGroupCreated, true);
+  assert.deepEqual(progression.data.unlockedConversations, [plumberGroup.id]);
+  assert.deepEqual(progression.data.files, {}, 'the archive is not injected by the developer shortcut');
+  const thread = new ConversationThread('plumber-group', progression, () => [plumberGroup]);
+  assert.equal(thread.activeDefinition.id, plumberGroup.id);
+  const session = new DialogueSession(plumberGroup, progression);
+  assert.equal(session.state.node, 'bomb-arena-intro');
+  assert.equal(session.nextMessage().text, plumberGroup.nodes['bomb-arena-intro'].messages[0].text);
+  thread.schedule(plumberGroup, 1000);
+  assert.equal(session.state.receiveDueAt, 1900, 'normal dialogue delay and typing timing are retained');
+  progression.data.flags.testOnlyChange = true; progression.save();
+  assert.equal(storage.getItem('chaos-survival-story-v1'), savedRun);
+  assert.equal(sandbox.restore(), true);
+  assert.equal(progression.data, normalData);
+  assert.equal(progression.data.flags.normalProgress, 'keep');
+  assert.equal(progression.storage, storage);
+  assert.equal(storage.getItem('chaos-survival-story-v1'), savedRun);
+  assert.equal(sandbox.active, false);
+});
 
 test('development conversation shortcut runs one random branch through the saved dialogue engine', () => {
   const view = createView();
