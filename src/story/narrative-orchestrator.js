@@ -11,7 +11,95 @@ export const BOMB_ARENA_REMINDERS = Object.freeze([
   { author: 'Turb0', text: "t'es nul" },
   { author: 'xX_PixelGirl_Xx', text: 'viens on joue' },
 ]);
+export const BOMB_ARENA_REMINDER_SEQUENCES = Object.freeze([
+  [
+    ...BOMB_ARENA_REMINDERS,
+    BOMB_ARENA_REMINDERS[0],
+  ],
+  [
+    { author: 'xX_PixelGirl_Xx', text: 'stppppp' },
+    { author: 'Turb0', text: 't\'as lancé le jeu pour le fermer ou quoi mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'mais revieeens xD' },
+    { author: '°•.LuNa.°•', text: "on t'attend" },
+  ],
+  [
+    { author: 'Turb0', text: 'bon' },
+    { author: 'Turb0', text: 'on va finir par croire que t\'as peur' },
+    { author: 'xX_PixelGirl_Xx', text: 'mais nooon il va revenir :3' },
+    { author: 'Turb0', text: 'bah j\'attends de voir' },
+    { author: '°•.LuNa.°•', text: 'moi aussi du coup' },
+  ],
+  [
+    { author: 'xX_PixelGirl_Xx', text: 'T\'ES OÙÙÙ' },
+    { author: 'xX_PixelGirl_Xx', text: 'on veut joueeeer' },
+    { author: 'Turb0', text: 'il est parti se cacher mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'mais arrête de le faire fuir toi xD' },
+    { author: 'Turb0', text: 'MDRRR' },
+    { author: '°•.LuNa.°•', text: 'vous allez pas l\'aider comme ça' },
+  ],
+  [
+    { author: 'Turb0', text: 'nan mais sérieux' },
+    { author: 'Turb0', text: 'on attend depuis tout à l\'heure' },
+    { author: 'xX_PixelGirl_Xx', text: 'STPPPPPP' },
+    { author: 'xX_PixelGirl_Xx', text: 'promis on est gentils :3' },
+    { author: '°•.LuNa.°•', text: 'parle pour toi' },
+    { author: 'xX_PixelGirl_Xx', text: 'EH' },
+  ],
+  [
+    { author: 'xX_PixelGirl_Xx', text: 'bon' },
+    { author: 'xX_PixelGirl_Xx', text: 'je vais rester là jusqu\'à ce que tu reviennes' },
+    { author: 'Turb0', text: 'super' },
+    { author: 'Turb0', text: 'on est pas couchés mdr' },
+    { author: '°•.LuNa.°•', text: 'ça commence à se voir' },
+    { author: 'xX_PixelGirl_Xx', text: 'ALLEEEEEZ' },
+  ],
+]);
+export const BOMB_ARENA_REMINDER_VARIANTS = Object.freeze([
+  [
+    { author: 'Turb0', text: 'BON' },
+    { author: 'Turb0', text: 't\'as peur de perdre ou quoi' },
+    { author: 'xX_PixelGirl_Xx', text: 'PTDRRR' },
+    { author: 'xX_PixelGirl_Xx', text: 'laisse le tranquille' },
+    { author: 'Turb0', text: 'bah qu\'il revienne alors mdr' },
+  ],
+  [
+    { author: 'xX_PixelGirl_Xx', text: 'coucouuuu' },
+    { author: 'xX_PixelGirl_Xx', text: 'tu reviens quand :c' },
+    { author: '°•.LuNa.°•', text: 'bonne question' },
+    { author: 'Turb0', text: 'on attend toujours hein' },
+    { author: 'xX_PixelGirl_Xx', text: 'ALLEZ JUSTE VIENS' },
+  ],
+  [
+    { author: 'Turb0', text: 'il est encore parti ??' },
+    { author: 'xX_PixelGirl_Xx', text: 'ouiiii :(' },
+    { author: 'Turb0', text: 'incroyable' },
+    { author: '°•.LuNa.°•', text: 'il est peut-être occupé' },
+    { author: 'xX_PixelGirl_Xx', text: 'MAIS ON L\'ATTEND NOUS' },
+  ],
+  [
+    { author: 'xX_PixelGirl_Xx', text: 'alleeeez stpppp' },
+    { author: 'xX_PixelGirl_Xx', text: 'viens finir la partie avec nous :3' },
+    { author: 'Turb0', text: 'ouais allez' },
+    { author: 'Turb0', text: 'on va pas y passer la nuit' },
+    { author: '°•.LuNa.°•', text: 'ce serait bien quand même' },
+  ],
+  [
+    { author: 'Turb0', text: 'bon là c\'est abusé mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'TURBO' },
+    { author: 'Turb0', text: 'QUOI' },
+    { author: 'xX_PixelGirl_Xx', text: 'tu vas le faire revenir en lui criant dessus ???' },
+    { author: 'Turb0', text: 'peut être' },
+  ],
+  [
+    { author: '°•.LuNa.°•', text: 'bon' },
+    { author: '°•.LuNa.°•', text: 'on reprend quand ?' },
+    { author: 'xX_PixelGirl_Xx', text: 'QUAND JUSTME REVIENT' },
+    { author: 'Turb0', text: 'donc jamais mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'MAIS SI' },
+  ],
+]);
 const BOMB_ARENA_REMINDER_INTERVALS_MS = Object.freeze([75_000, 120_000, 90_000, 150_000]);
+const BOMB_ARENA_REMINDER_TYPING_MS = 800;
 const BOMB_ARENA_WINNERS = new Set(['justme', 'pixelgirl', 'turbo', 'luna']);
 const BOMB_ARENA_OFFER_NODES = new Set([
   'bomb-arena-transfer',
@@ -43,6 +131,7 @@ export class NarrativeOrchestrator {
     connectionMessages = null,
     optionalConversations = null,
     now = () => Date.now(),
+    random = Math.random,
   }) {
     Object.assign(this, {
       progression,
@@ -64,6 +153,7 @@ export class NarrativeOrchestrator {
       connectionMessages,
       optionalConversations: optionalConversations ?? new OptionalConversations(progression, definitions),
       now,
+      random,
     });
     this.bombArenaSuspended = false;
     if (Number.isFinite(this.flags.turboSmileyScene3MessageNotificationDueAt)) {
@@ -99,6 +189,43 @@ export class NarrativeOrchestrator {
       .filter(Boolean)
       .sort((a, b) => Number(a[1]) - Number(b[1]))
       .map(([id]) => bombArenaRedownloadDialogue(id, group));
+  }
+
+  bombArenaReminderEvents() {
+    const group = this.definitions['pixelgirl-super-plombier-group'];
+    if (!group) return [];
+    return Object.keys(this.progression.data.dialogues)
+      .map((id) => {
+        const salvo = /^bomb-arena-reminder-salvo-(\d+)-(\d+)-(\d+)$/.exec(id);
+        if (salvo) {
+          const sequenceIndex = Number(salvo[2]);
+          const sequence = sequenceIndex < BOMB_ARENA_REMINDER_SEQUENCES.length
+            ? BOMB_ARENA_REMINDER_SEQUENCES[sequenceIndex]
+            : BOMB_ARENA_REMINDER_VARIANTS[sequenceIndex - BOMB_ARENA_REMINDER_SEQUENCES.length];
+          return { id, message: sequence?.[Number(salvo[3]) - 1] };
+        }
+        const burst = /^bomb-arena-reminder-interruption-(\d+)-(\d+)$/.exec(id);
+        if (burst) return { id, message: BOMB_ARENA_REMINDERS[(Number(burst[2]) - 1) % BOMB_ARENA_REMINDERS.length] };
+        const periodic = /^bomb-arena-reminder-periodic-(\d+)$/.exec(id);
+        if (periodic) return { id, message: BOMB_ARENA_REMINDERS[(Number(periodic[1]) - 1) % BOMB_ARENA_REMINDERS.length] };
+        return null;
+      })
+      .filter((item) => item?.message)
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
+      .map(({ id, message }) => this.bombArenaReminderDefinition(id, message));
+  }
+
+  cancelPendingBombArenaReminders() {
+    let changed = false;
+    for (const [id, state] of Object.entries(this.progression.data.dialogues)) {
+      if (!/^bomb-arena-reminder-(?:salvo-\d+-\d+-\d+|interruption-\d+-\d+|periodic-\d+)$/.test(id) ||
+        state?.finished || state?.expired) continue;
+      state.expired = true;
+      delete state.receiveDueAt;
+      changed = true;
+    }
+    if (changed) this.progression.save();
+    return changed;
   }
 
   bombArenaPostMatchAvailable() {
@@ -174,9 +301,26 @@ export class NarrativeOrchestrator {
   }
 
   onBombArenaEvent(event) {
-    if (event?.type === 'launched') this.bombArenaSuspended = true;
-    else if (event?.type === 'interrupted') this.bombArenaSuspended = false;
-    return this.progression.recordBombArenaEvent?.(event) ?? false;
+    let recordedEvent = event;
+    if (event?.type === 'launched') {
+      this.bombArenaSuspended = true;
+      this.cancelPendingBombArenaReminders();
+    } else if (event?.type === 'interrupted') {
+      if (!this.bombArenaSuspended) return false;
+      this.bombArenaSuspended = false;
+      const now = this.now();
+      const sequence = this.chooseBombArenaReminderSequence();
+      recordedEvent = {
+        ...event,
+        firstDueAt: now + Math.round(150 + this.random() * 350),
+        periodicDueAt: now + Math.round(20_000 + this.random() * 25_000),
+        ...sequence,
+      };
+    }
+    const changed = this.progression.recordBombArenaEvent?.(recordedEvent, this.now()) ?? false;
+    if (changed && ['match-completed', 'returned-to-messenger'].includes(event?.type))
+      this.cancelPendingBombArenaReminders();
+    return changed;
   }
 
   armBombArenaAtGroupOffer(now = this.now()) {
@@ -213,6 +357,14 @@ export class NarrativeOrchestrator {
     const progress = this.progression.data.bombArena;
     if (!progress || progress.expectedAt === null || progress.status === 'COMPLETED' ||
       progress.status === 'RESULTS_READY' || this.bombArenaSuspended) return false;
+    if (progress.reminderBurstRemaining > 0 && Number.isFinite(progress.reminderBurstNextAt) &&
+      now >= progress.reminderBurstNextAt) {
+      const thread = this.getGroupThread();
+      const contact = this.getContact('plumber-group');
+      if (!thread || !contact) return false;
+      return this.scheduleNextBombArenaReminder(thread, now);
+    }
+    if (progress.reminderBurstRemaining > 0) return false;
     if (!Number.isFinite(progress.nextReminderAt)) {
       this.onBombArenaEvent({ type: 'reminder-scheduled', dueAt: now + 75_000 });
       return false;
@@ -222,23 +374,98 @@ export class NarrativeOrchestrator {
     const contact = this.getContact('plumber-group');
     if (!thread || !contact) return false;
     const index = progress.reminderCount;
-    const reminder = BOMB_ARENA_REMINDERS[index % BOMB_ARENA_REMINDERS.length];
-    const key = `bomb-arena-reminder:${index + 1}`;
-    const alreadyReceived = thread.state.history.some((entry) => entry.key === key);
-    const message = thread.appendIncoming({
-      key,
-      type: 'message',
-      speaker: 'contact',
-      author: reminder.author,
-      text: reminder.text,
-      receivedAt: now,
-      reminder: true,
-    });
-    if (!message) return false;
-    const dueAt = now + BOMB_ARENA_REMINDER_INTERVALS_MS[index % BOMB_ARENA_REMINDER_INTERVALS_MS.length];
-    if (!this.onBombArenaEvent({ type: 'reminder-sent', count: index + 1, dueAt })) return false;
-    if (!alreadyReceived) this.onGroupMessage(contact, [], [message]);
-    return true;
+    const sequence = this.chooseBombArenaReminderSequence();
+    const dueAt = now + (progress.interruptionCount > 0
+      ? Math.round(20_000 + this.random() * 25_000)
+      : BOMB_ARENA_REMINDER_INTERVALS_MS[index % BOMB_ARENA_REMINDER_INTERVALS_MS.length]);
+    const started = this.progression.recordBombArenaEvent({
+      type: 'reminder-salvo-started',
+      source: 'periodic',
+      count: index + 1,
+      dueAt: now,
+      periodicDueAt: dueAt,
+      ...sequence,
+    }, now);
+    return started && this.scheduleNextBombArenaReminder(thread, now);
+  }
+
+  chooseBombArenaReminderSequence() {
+    const progress = this.progression.data.bombArena;
+    const salvoNumber = progress.reminderSalvoCount + 1;
+    if (salvoNumber <= BOMB_ARENA_REMINDER_SEQUENCES.length)
+      return {
+        salvoNumber,
+        sequenceIndex: salvoNumber - 1,
+        messageCount: BOMB_ARENA_REMINDER_SEQUENCES[salvoNumber - 1].length,
+        extraVariantIndex: progress.reminderLastExtraVariant,
+      };
+    const available = BOMB_ARENA_REMINDER_VARIANTS
+      .map((_, index) => index)
+      .filter((index) => index !== progress.reminderLastExtraVariant);
+    const randomIndex = Math.min(available.length - 1, Math.floor(this.random() * available.length));
+    const extraVariantIndex = available[Math.max(0, randomIndex)];
+    const sequenceIndex = BOMB_ARENA_REMINDER_SEQUENCES.length + extraVariantIndex;
+    return {
+      salvoNumber,
+      sequenceIndex,
+      messageCount: BOMB_ARENA_REMINDER_VARIANTS[extraVariantIndex].length,
+      extraVariantIndex,
+    };
+  }
+
+  scheduleNextBombArenaReminder(thread, now) {
+    const progress = this.progression.data.bombArena;
+    const sequence = progress.reminderBurstSequence === -1
+      ? BOMB_ARENA_REMINDERS
+      : [
+          ...BOMB_ARENA_REMINDER_SEQUENCES,
+          ...BOMB_ARENA_REMINDER_VARIANTS,
+        ][progress.reminderBurstSequence];
+    const messageIndex = progress.reminderBurstSent;
+    const reminder = sequence?.[messageIndex];
+    if (!reminder) return false;
+    const id = progress.reminderBurstSequence === -1
+      ? `bomb-arena-reminder-interruption-${progress.interruptionCount}-${messageIndex + 1}`
+      : `bomb-arena-reminder-salvo-${progress.reminderBurstSalvo}-${progress.reminderBurstSequence}-${messageIndex + 1}`;
+    thread.sync();
+    thread.schedule(this.bombArenaReminderDefinition(id, reminder), now);
+    const nextReminder = sequence[messageIndex + 1];
+    const sameAuthor = nextReminder?.author === reminder.author;
+    const nextAt = nextReminder
+      ? now + Math.round((sameAuthor ? 1_600 : 2_000) + this.random() * (sameAuthor ? 600 : 1_100))
+      : null;
+    return this.progression.recordBombArenaEvent({
+      type: progress.reminderBurstSequence === -1 ? 'reminder-burst-scheduled' : 'reminder-message-scheduled',
+      interruptionCount: progress.interruptionCount,
+      salvoNumber: progress.reminderBurstSalvo,
+      sequenceIndex: progress.reminderBurstSequence,
+      nextAt,
+    }, now);
+  }
+
+  bombArenaReminderDefinition(id, reminder) {
+    const group = this.definitions['pixelgirl-super-plombier-group'];
+    return {
+      id,
+      version: 1,
+      revision: 1,
+      contact: group.contact,
+      player: group.player,
+      start: 'reminder',
+      completion: { stayOnline: true },
+      nodes: {
+        reminder: {
+          messages: [{
+            speaker: 'contact',
+            author: reminder.author,
+            text: reminder.text,
+            delayMs: 0,
+            typingMs: BOMB_ARENA_REMINDER_TYPING_MS,
+          }],
+          end: true,
+        },
+      },
+    };
   }
 
   sendNarrativeWizz(contactId, eventId, speaker, now) {

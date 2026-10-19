@@ -4,9 +4,14 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { Progression } from '../src/story/progression.js';
 import { DialogueSession, validateDialogue } from '../src/story/dialogue.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
-import { NarrativeOrchestrator } from '../src/story/narrative-orchestrator.js';
+import {
+  BOMB_ARENA_REMINDER_SEQUENCES,
+  BOMB_ARENA_REMINDER_VARIANTS,
+  NarrativeOrchestrator,
+} from '../src/story/narrative-orchestrator.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
 import { createContactAvatar } from '../src/ui/contact-avatar.js';
+import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 import { bombArenaHandoffPending, completeBombArenaHandoff } from '../src/story/bomb-arena-handoff.js';
 
@@ -61,6 +66,7 @@ function fixture() {
       groupMessages.push([contact?.id, ...incoming.map((event) => event.id)]),
     virtualFilesystem,
     now: () => now,
+    random: () => 0.2,
   });
   virtualFilesystem.onDelete = (change) => orchestrator.onVirtualFilesDeleted(change);
   return {
@@ -80,6 +86,49 @@ function fixture() {
       now = value;
     },
   };
+}
+
+function createBombArenaGroupThread(context) {
+  const { progression, orchestrator } = context;
+  const thread = new ConversationThread('plumber-group', progression, () => [
+    definitions['pixelgirl-super-plombier-group'],
+    ...orchestrator.bombArenaReminderEvents(),
+  ]);
+  context.setGroupThread(thread);
+  return thread;
+}
+
+function tickBombArenaReminders(orchestrator, thread, now) {
+  orchestrator.updateBombArenaReminders(now);
+  thread.receive(now);
+}
+
+function deliverActiveReminderSalvo(orchestrator, thread, firstScheduledAt) {
+  const progress = orchestrator.progression.data.bombArena;
+  const salvoNumber = progress.reminderBurstSalvo;
+  const sequenceIndex = progress.reminderBurstSequence;
+  const messages = [];
+  let index = progress.reminderBurstSent - 1;
+  let scheduledAt = firstScheduledAt;
+  while (index < progress.reminderBurstMessageCount) {
+    if (index >= progress.reminderBurstSent) {
+      scheduledAt = progress.reminderBurstNextAt;
+      orchestrator.updateBombArenaReminders(scheduledAt);
+    }
+    const expected = [...BOMB_ARENA_REMINDER_SEQUENCES, ...BOMB_ARENA_REMINDER_VARIANTS][sequenceIndex][index];
+    const reminderId = `bomb-arena-reminder-salvo-${salvoNumber}-${sequenceIndex}-${index + 1}`;
+    assert.deepEqual(thread.typingContacts(scheduledAt).map(({ nickname }) => nickname), [
+      { xX_PixelGirl_Xx: 'PixelGirl', Turb0: 'Turb0', '°•.LuNa.°•': 'Luna' }[expected.author],
+    ]);
+    thread.receive(scheduledAt + 800);
+    const message = thread.state.history.find((entry) =>
+      entry.eventId === `bomb-arena-reminder-salvo-${salvoNumber}-${sequenceIndex}-${index + 1}`,
+    );
+    assert.ok(message, `salvo ${salvoNumber} message ${index + 1} is delivered after typing`);
+    messages.push(message);
+    index++;
+  }
+  return messages;
 }
 
 test('BombArena gameplay outcomes persist and arm the mandatory continuation gate without placeholder dialogue', () => {
@@ -112,8 +161,7 @@ test('BombArena offer starts persistent unlimited Messenger reminders, suspends 
   progression.data.dialogues['pixelgirl-super-plombier-group'] = {
     node: 'bomb-arena-transfer', cursor: 0, finished: false, transcript: [], revision: 5,
   };
-  const thread = new ConversationThread('plumber-group', progression, () => [definitions['pixelgirl-super-plombier-group']]);
-  context.setGroupThread(thread);
+  const thread = createBombArenaGroupThread(context);
 
   orchestrator.update(1_000);
   assert.equal(progression.data.bombArena.status, 'NOT_STARTED');
@@ -121,29 +169,56 @@ test('BombArena offer starts persistent unlimited Messenger reminders, suspends 
   const firstDue = progression.data.bombArena.nextReminderAt;
   assert.ok(firstDue > 1_000);
   orchestrator.update(firstDue - 1);
-  assert.equal(thread.state.history.filter((message) => message.reminder).length, 0);
-  orchestrator.update(firstDue);
-  assert.deepEqual(thread.state.history.filter((message) => message.reminder).map(({ author, text }) => [author, text]), [
-    ['xX_PixelGirl_Xx', 'alleeez'],
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-')).length, 0);
+  tickBombArenaReminders(orchestrator, thread, firstDue);
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-')).length, 0);
+  assert.deepEqual(thread.typingContacts(firstDue).map(({ nickname }) => nickname), ['PixelGirl']);
+  tickBombArenaReminders(orchestrator, thread, firstDue + 799);
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-')).length, 0);
+  const firstSalvo = deliverActiveReminderSalvo(orchestrator, thread, firstDue);
+  assert.deepEqual(firstSalvo.map(({ author, text }) => [author, text]), [
+    ['xX_PixelGirl_Xx', 'alleeez'], ['Turb0', "t'es nul"],
+    ['xX_PixelGirl_Xx', 'viens on joue'], ['xX_PixelGirl_Xx', 'alleeez'],
   ]);
+  assert.deepEqual(firstSalvo.map(({ text }) => text), [
+    'alleeez', "t'es nul", 'viens on joue', 'alleeez',
+  ], 'the first salvo keeps its original reminders');
   const firstMessageCount = thread.state.history.length;
-  orchestrator.update(firstDue);
+  tickBombArenaReminders(orchestrator, thread, firstDue + 800);
   assert.equal(thread.state.history.length, firstMessageCount, 'repeated updates do not duplicate a delivered reminder');
 
   orchestrator.onBombArenaEvent({ type: 'launched' });
-  orchestrator.update(progression.data.bombArena.nextReminderAt + 10_000);
-  assert.equal(thread.state.history.filter((message) => message.reminder).length, 1, 'open or minimized BombArena suspends Messenger reminders');
+  tickBombArenaReminders(orchestrator, thread, progression.data.bombArena.nextReminderAt + 10_000);
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-')).length, 4, 'open or minimized BombArena suspends Messenger reminders after preserving the delivered first salvo');
   orchestrator.onBombArenaEvent({ type: 'interrupted' });
-  let clock = progression.data.bombArena.nextReminderAt + 10_000;
-  for (let count = 2; count <= 7; count++) {
-    orchestrator.update(clock);
-    assert.equal(thread.state.history.filter((message) => message.reminder).length, count);
-    clock = progression.data.bombArena.nextReminderAt;
-  }
-  assert.deepEqual(thread.state.history.filter((message) => message.reminder).slice(0, 3).map(({ text }) => text), [
-    'alleeez', "t'es nul", 'viens on joue',
+  let clock = progression.data.bombArena.reminderBurstNextAt;
+  tickBombArenaReminders(orchestrator, thread, clock);
+  const burstMessages = deliverActiveReminderSalvo(orchestrator, thread, clock);
+  assert.deepEqual(burstMessages.map(({ text }) => text), [
+    'stppppp', "t'as lancé le jeu pour le fermer ou quoi mdr", 'mais revieeens xD', "on t'attend",
   ]);
-  assert.equal(progression.data.bombArena.reminderCount, 7, 'there is no finite retry limit');
+  assert.equal(progression.data.bombArena.reminderSalvoCount, 2, 'the second salve continues the sequence after the first periodic salve');
+
+  clock = progression.data.bombArena.nextReminderAt;
+  assert.ok(clock > context.now && clock - context.now >= 20_000 && clock - context.now <= 45_000,
+    'periodic reminders after an early close use the requested 20–45 second cadence');
+  for (let count = 2; count <= 7; count++) {
+    const startedAt = clock;
+    const didStart = orchestrator.updateBombArenaReminders(startedAt);
+    const sequenceIndex = progression.data.bombArena.reminderBurstSequence;
+    assert.equal(didStart, true, `periodic salvo ${count} starts when its saved deadline is reached`);
+    const delivered = deliverActiveReminderSalvo(orchestrator, thread, startedAt);
+    assert.ok(delivered.length >= 4, 'periodic reminders deliver a complete multi-message salvo');
+    assert.equal(progression.data.bombArena.reminderCount, count);
+    if (count >= 2 && count <= 5) {
+      assert.equal(sequenceIndex, count, 'each remaining fixed conversation is selected in order');
+      assert.deepEqual(delivered.map(({ author, text }) => ({ author, text })), BOMB_ARENA_REMINDER_SEQUENCES[sequenceIndex]);
+    }
+    if (count === 6) assert.equal(sequenceIndex, 6 + 1, 'the seventh salvo moves to the variant library');
+    if (count === 7) assert.equal(sequenceIndex, 6 + 2, 'a variant is not repeated immediately');
+    clock = progression.data.bombArena.nextReminderAt;
+    assert.ok(clock - startedAt >= 20_000 && clock - startedAt <= 45_000);
+  }
 
   orchestrator.onBombArenaEvent({
     type: 'match-completed', matchId: 'reminder-finished', difficulty: 'PGM', winnerId: 'pixelgirl', roundsPlayed: 8,
@@ -151,9 +226,199 @@ test('BombArena offer starts persistent unlimited Messenger reminders, suspends 
   });
   orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' });
   const before = thread.state.history.length;
-  orchestrator.update(clock + 1_000_000);
+  tickBombArenaReminders(orchestrator, thread, clock + 1_000_000);
   assert.equal(thread.state.history.length, before, 'no reminder is sent after the player returns from results');
   assert.equal(progression.data.bombArena.status, 'COMPLETED');
+});
+
+test('every early BombArena closure creates a fresh four-message burst, cancels it on relaunch, and persists waiting state', () => {
+  const context = fixture();
+  const { progression, orchestrator, store } = context;
+  progression.recordBombArenaEvent({ type: 'expected' }, context.now);
+  const thread = createBombArenaGroupThread(context);
+
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  assert.equal(orchestrator.onBombArenaEvent({ type: 'interrupted' }), true);
+  assert.equal(orchestrator.onBombArenaEvent({ type: 'interrupted' }), false, 'duplicate close notifications cannot create another burst');
+  const firstBurstId = progression.data.bombArena.interruptionCount;
+  let due = progression.data.bombArena.reminderBurstNextAt;
+  tickBombArenaReminders(orchestrator, thread, due);
+  const firstBurst = deliverActiveReminderSalvo(orchestrator, thread, due);
+  assert.equal(firstBurst.length, 4);
+  assert.ok(firstBurst[0].receivedAt < firstBurst[1].receivedAt &&
+    firstBurst[1].receivedAt < firstBurst[2].receivedAt &&
+    firstBurst[2].receivedAt < firstBurst[3].receivedAt,
+  'the four messages arrive progressively instead of in one frame');
+  assert.ok(firstBurst[3].receivedAt - firstBurst[0].receivedAt >= 5_000 &&
+    firstBurst[3].receivedAt - firstBurst[0].receivedAt <= 12_000,
+  'the initial burst spans approximately five to twelve seconds');
+
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  assert.equal(progression.data.bombArena.reminderBurstRemaining, 0, 'relaunch cancels unsent burst items');
+  assert.equal(thread.typingContacts(due).length, 0, 'relaunch clears any pending reminder typing cue');
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith(`bomb-arena-reminder-salvo-${firstBurstId}-`)).length, 4,
+    'already received burst messages remain in group history');
+  orchestrator.onBombArenaEvent({ type: 'interrupted' });
+  const secondBurstId = progression.data.bombArena.interruptionCount;
+  assert.equal(secondBurstId, firstBurstId + 1);
+  due = progression.data.bombArena.reminderBurstNextAt;
+  tickBombArenaReminders(orchestrator, thread, due);
+  const secondBurst = deliverActiveReminderSalvo(orchestrator, thread, due);
+  assert.equal(secondBurst.length, 4);
+  assert.equal(progression.data.bombArena.reminderBurstRemaining, 0);
+
+  // A game reload resumes one persisted periodic schedule rather than creating timers.
+  const reloaded = new Progression(story, store);
+  let reloadedThread;
+  const reloadedOrchestrator = new NarrativeOrchestrator({
+    progression: reloaded,
+    definitions,
+    dialogueEvents: { update() {}, triggerConnection() {} },
+    getContact: (id) => id === 'plumber-group' ? { id, available: true, online: true } : null,
+    getGroupThread: () => reloadedThread,
+    onGroupMessage: () => {},
+    now: () => context.now,
+    random: () => 0.2,
+  });
+  reloadedThread = new ConversationThread('plumber-group', reloaded, () => [
+    definitions['pixelgirl-super-plombier-group'],
+    ...reloadedOrchestrator.bombArenaReminderEvents(),
+  ]);
+  const countBeforeReloadReminder = reloaded.data.bombArena.reminderCount;
+  const persistedDueAt = reloaded.data.bombArena.nextReminderAt;
+  reloadedOrchestrator.updateBombArenaReminders(persistedDueAt);
+  assert.equal(reloaded.data.bombArena.reminderCount, countBeforeReloadReminder + 1);
+  assert.ok(reloaded.data.bombArena.nextReminderAt - persistedDueAt >= 20_000 &&
+    reloaded.data.bombArena.nextReminderAt - persistedDueAt <= 45_000);
+  const restoredAgain = new Progression(story, store);
+  let restoredAgainOrchestrator;
+  let restoredAgainThread;
+  restoredAgainOrchestrator = new NarrativeOrchestrator({
+    progression: restoredAgain,
+    definitions,
+    dialogueEvents: { update() {}, triggerConnection() {} },
+    getContact: (id) => id === 'plumber-group' ? { id, available: true, online: true } : null,
+    getGroupThread: () => restoredAgainThread,
+    now: () => context.now,
+    random: () => 0.2,
+  });
+  restoredAgainThread = new ConversationThread('plumber-group', restoredAgain, () => [
+    definitions['pixelgirl-super-plombier-group'],
+    ...restoredAgainOrchestrator.bombArenaReminderEvents(),
+  ]);
+  assert.deepEqual(restoredAgainThread.typingContacts(persistedDueAt).map(({ nickname }) => nickname), ['Turb0'],
+    'the saved typing interval resumes after reload with the correct group author');
+  restoredAgainThread.receive(persistedDueAt + 800);
+  const countAfterOneDueTime = restoredAgainThread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length;
+  restoredAgainThread.receive(persistedDueAt + 900);
+  assert.equal(restoredAgainThread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length, countAfterOneDueTime,
+    'one persisted periodic due time is delivered once after reload');
+});
+
+test('relaunching BombArena cancels a saved pending reminder and clears its typing indicator', () => {
+  const context = fixture();
+  const { progression, orchestrator, store } = context;
+  progression.recordBombArenaEvent({ type: 'expected' }, context.now);
+  const thread = createBombArenaGroupThread(context);
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  orchestrator.onBombArenaEvent({ type: 'interrupted' });
+  const typingStartsAt = progression.data.bombArena.reminderBurstNextAt;
+  tickBombArenaReminders(orchestrator, thread, typingStartsAt);
+  assert.deepEqual(thread.typingContacts(typingStartsAt).map(({ nickname }) => nickname), ['PixelGirl']);
+  const pendingId = 'bomb-arena-reminder-salvo-1-0-1';
+  assert.ok(Number.isFinite(progression.data.dialogues[pendingId].receiveDueAt));
+
+  orchestrator.onBombArenaEvent({ type: 'launched' });
+  assert.equal(progression.data.dialogues[pendingId].expired, true);
+  assert.equal(progression.data.dialogues[pendingId].receiveDueAt, undefined);
+  assert.deepEqual(thread.typingContacts(typingStartsAt + 100), []);
+  thread.receive(typingStartsAt + 2_000);
+  assert.equal(thread.state.history.some((message) => message.eventId === pendingId), false,
+    'a canceled pending message is not received after the game resumes');
+
+  orchestrator.onBombArenaEvent({ type: 'interrupted' });
+  const finalTypingAt = progression.data.bombArena.reminderBurstNextAt;
+  tickBombArenaReminders(orchestrator, thread, finalTypingAt);
+  const finalPendingId = 'bomb-arena-reminder-salvo-2-1-1';
+  assert.deepEqual(thread.typingContacts(finalTypingAt).map(({ nickname }) => nickname), ['PixelGirl']);
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed',
+    matchId: 'reminder-cancelled-on-finish',
+    difficulty: 'PGM',
+    winnerId: 'pixelgirl',
+    roundsPlayed: 8,
+    scores: { justme: 0, pixelgirl: 3, turbo: 1, luna: 2 },
+  }), true);
+  assert.equal(progression.data.dialogues[finalPendingId].expired, true,
+    'final results cancel even a stale saved reminder');
+  assert.deepEqual(thread.typingContacts(finalTypingAt + 100), []);
+  thread.receive(finalTypingAt + 2_000);
+  assert.equal(thread.state.history.some((message) => message.eventId === finalPendingId), false,
+    'no reminder arrives after the final result is recorded');
+
+  const restored = new Progression(story, {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => store.set(key, value),
+  });
+  let restoredThread;
+  const restoredOrchestrator = new NarrativeOrchestrator({
+    progression: restored,
+    definitions,
+    dialogueEvents: { update() {}, triggerConnection() {} },
+    getContact: (id) => id === 'plumber-group' ? { id, available: true, online: true } : null,
+    getGroupThread: () => restoredThread,
+    now: () => context.now,
+  });
+  restoredThread = new ConversationThread('plumber-group', restored, () => [
+    definitions['pixelgirl-super-plombier-group'],
+    ...restoredOrchestrator.bombArenaReminderEvents(),
+  ]);
+  assert.deepEqual(restoredThread.typingContacts(finalTypingAt + 100), [],
+    'the canceled indicator remains absent after reload');
+  restoredThread.receive(finalTypingAt + 3_000);
+  assert.equal(restoredThread.state.history.some((message) => message.eventId === pendingId || message.eventId === finalPendingId), false,
+    'the canceled reminder is not delivered after reload');
+});
+
+test('closing the actual BombArena desktop window starts one persisted reminder burst and returns the group window', () => {
+  const context = fixture();
+  const { progression, orchestrator } = context;
+  progression.recordBombArenaEvent({ type: 'expected' }, context.now);
+  const thread = createBombArenaGroupThread(context);
+  const element = { isConnected: true, querySelector: () => null };
+  const manager = {
+    options: null,
+    spawn(_type, options) { this.options = options; return 41; },
+    close() { element.isConnected = false; this.options.onDismiss({ reason: 'close' }); },
+  };
+  let openedGroup = 0;
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    instances: new Map(),
+    virtualFilesystem: { exists: () => true, progression },
+    attachWindow(key, id) {
+      const instance = { id, element, task: { remove() {} } };
+      this.instances.set(key, instance);
+      return instance;
+    },
+    restore() {},
+    onWindowState() {},
+    onBombArenaEvent: (event) => orchestrator.onBombArenaEvent(event),
+    onBombArenaContinue: () => true,
+    onBombArenaInterrupted() { openedGroup++; return true; },
+  });
+
+  const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  manager.close(instance.id);
+  assert.equal(openedGroup, 1, 'the close callback reactivates the existing group conversation route');
+  assert.equal(progression.data.bombArena.reminderBurstRemaining, 4);
+  let due = progression.data.bombArena.reminderBurstNextAt;
+  for (let i = 0; i < 4; i++) {
+    tickBombArenaReminders(orchestrator, thread, due);
+    tickBombArenaReminders(orchestrator, thread, due + 800);
+    due = progression.data.bombArena.reminderBurstNextAt;
+  }
+  assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length, 4);
 });
 
 test('BombArena post-match dialogue branches on the saved final winner and converges on the exact shared sequence', () => {
@@ -166,7 +431,7 @@ test('BombArena post-match dialogue branches on the saved final winner and conve
       ['Turb0', 'même pas'],
     ],
     pixelgirl: [
-      ['xX_PixelGirl_Xx', 'AAAAAAAA'], ['xX_PixelGirl_Xx', 'JAI GAGNÉÉÉÉÉ'],
+      ['xX_PixelGirl_Xx', 'AAAAAAAA'], ['xX_PixelGirl_Xx', 'JAI GAGNéééé'],
       ['xX_PixelGirl_Xx', 'PTDRRRR'], ['Turb0', 'ouais bon ça va'], ['°•.LuNa.°•', 'gg :)'],
       ['xX_PixelGirl_Xx', 'merciiiii :3'], ['Turb0', 'profite ça arrivera pas deux fois mdr'],
       ['xX_PixelGirl_Xx', 'rage paaaas'],
@@ -189,7 +454,7 @@ test('BombArena post-match dialogue branches on the saved final winner and conve
     ['°•.LuNa.°•', "c'était un peu le principe"], ['Turb0', 'ouais bah merci'],
     ['xX_PixelGirl_Xx', 'mdrrrr'], ['xX_PixelGirl_Xx', 'en vrai c\'était trop bieeen :3'],
     ['Turb0', 'ouais grave'], ['°•.LuNa.°•', 'c\'était sympa :)'],
-    ['xX_PixelGirl_Xx', 'ah au fait justme'], ['xX_PixelGirl_Xx', 'pense à supprimer bombarena après'],
+    ['xX_PixelGirl_Xx', 'ah au fait justme'], ['xX_PixelGirl_Xx', 'pense à supprimer bombarena après, dans tes documents, dossier "Mes fichiers reçus" !!! :)'],
     ['xX_PixelGirl_Xx', 'il prend grave de place ce truc mdr'],
     ['Turb0', 'on vient de finir et tu veux déjà le virer ??'],
     ['xX_PixelGirl_Xx', 'bah oui xD'], ['xX_PixelGirl_Xx', "on y a joué c'est bon"],

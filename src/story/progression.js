@@ -29,6 +29,15 @@ function freshBombArenaProgress() {
     sessionRoundsPlayed: null,
     nextReminderAt: null,
     reminderCount: 0,
+    reminderSalvoCount: 0,
+    reminderLastExtraVariant: null,
+    interruptionCount: 0,
+    reminderBurstRemaining: 0,
+    reminderBurstSent: 0,
+    reminderBurstNextAt: null,
+    reminderBurstSalvo: null,
+    reminderBurstSequence: null,
+    reminderBurstMessageCount: 0,
     downloadedAt: null,
     extractedAt: null,
     firstLaunchedAt: null,
@@ -192,15 +201,35 @@ function normalizeSaved(saved, story) {
     icon: shortcut.icon.toLowerCase(),
   }));
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
+  const reminderSalvosWereSaved = record(saved.bombArena) &&
+    Number.isSafeInteger(saved.bombArena.reminderSalvoCount) && saved.bombArena.reminderSalvoCount >= 0;
   if (!record(saved.bombArena)) saved.bombArena = freshBombArenaProgress();
   else saved.bombArena = { ...freshBombArenaProgress(), ...saved.bombArena };
   const bombArena = saved.bombArena;
-  for (const key of ['expectedAt', 'returnedToMessengerAt', 'nextReminderAt', 'downloadedAt', 'extractedAt', 'firstLaunchedAt', 'firstGameStartedAt', 'firstGameCompletedAt'])
+  for (const key of ['expectedAt', 'returnedToMessengerAt', 'nextReminderAt', 'reminderBurstNextAt', 'downloadedAt', 'extractedAt', 'firstLaunchedAt', 'firstGameStartedAt', 'firstGameCompletedAt'])
     if (bombArena[key] !== null && !Number.isFinite(bombArena[key])) bombArena[key] = null;
   if (!['NOT_STARTED', 'IN_PROGRESS', 'RESULTS_READY', 'COMPLETED'].includes(bombArena.status))
     bombArena.status = 'NOT_STARTED';
-  for (const key of ['completedRounds', 'reminderCount'])
+  for (const key of ['completedRounds', 'reminderCount', 'interruptionCount', 'reminderBurstRemaining', 'reminderBurstSent', 'reminderBurstMessageCount'])
     if (!Number.isSafeInteger(bombArena[key]) || bombArena[key] < 0) bombArena[key] = 0;
+  bombArena.reminderBurstRemaining = Math.min(bombArena.reminderBurstRemaining, 6);
+  if (!reminderSalvosWereSaved || !Number.isSafeInteger(bombArena.reminderSalvoCount) || bombArena.reminderSalvoCount < 0)
+    bombArena.reminderSalvoCount = bombArena.interruptionCount + bombArena.reminderCount;
+  if (bombArena.reminderLastExtraVariant !== null &&
+    (!Number.isSafeInteger(bombArena.reminderLastExtraVariant) || bombArena.reminderLastExtraVariant < 0 || bombArena.reminderLastExtraVariant > 5))
+    bombArena.reminderLastExtraVariant = null;
+  if (bombArena.reminderBurstSequence !== null &&
+    (!Number.isSafeInteger(bombArena.reminderBurstSequence) || bombArena.reminderBurstSequence < -1 || bombArena.reminderBurstSequence > 11))
+    bombArena.reminderBurstSequence = null;
+  if (bombArena.reminderBurstSalvo !== null &&
+    (!Number.isSafeInteger(bombArena.reminderBurstSalvo) || bombArena.reminderBurstSalvo < 1))
+    bombArena.reminderBurstSalvo = null;
+  if (bombArena.reminderBurstRemaining > 0 && bombArena.reminderBurstSequence === null) {
+    // Resume a burst created by the previous one-message reminder implementation.
+    bombArena.reminderBurstSequence = -1;
+    bombArena.reminderBurstSalvo = Math.max(1, bombArena.interruptionCount);
+    bombArena.reminderBurstMessageCount = bombArena.reminderBurstRemaining + bombArena.reminderBurstSent;
+  }
   bombArena.completedRounds = Math.min(bombArena.completedRounds, 128);
   bombArena.nextRound = bombArena.completedRounds + 1;
   bombArena.nextDifficulty = bombArena.nextRound >= 5 ? 'PGM' : 'PRO';
@@ -212,7 +241,11 @@ function normalizeSaved(saved, story) {
     bombArena.sessionRoundsPlayed = null;
   if (bombArena.status === 'RESULTS_READY' && (!bombArena.sessionWinner || !bombArena.sessionScores || !bombArena.sessionRoundsPlayed))
     bombArena.status = 'IN_PROGRESS';
-  if (bombArena.status === 'COMPLETED') bombArena.nextReminderAt = null;
+  if (bombArena.status === 'COMPLETED') {
+    bombArena.nextReminderAt = null;
+    bombArena.reminderBurstNextAt = null;
+    bombArena.reminderBurstRemaining = 0;
+  }
   for (const key of ['firstGameDifficulty', 'lastDifficulty'])
     if (bombArena[key] !== null && !SAVED_BOMB_ARENA_DIFFICULTIES.has(bombArena[key])) bombArena[key] = null;
   for (const key of ['firstGameWinner', 'lastWinner'])
@@ -541,8 +574,70 @@ export class Progression {
       }
     } else if (event.type === 'downloaded') changed = setFirstTime('downloadedAt');
     else if (event.type === 'extracted') changed = setFirstTime('extractedAt');
-    else if (event.type === 'launched') changed = setFirstTime('firstLaunchedAt');
-    else if (event.type === 'match-started') {
+    else if (event.type === 'launched') {
+      changed = setFirstTime('firstLaunchedAt');
+      if (state.expectedAt !== null && state.status !== 'RESULTS_READY' && state.status !== 'COMPLETED' &&
+        (state.reminderBurstRemaining || state.reminderBurstNextAt !== null)) {
+        state.reminderBurstRemaining = 0;
+        state.reminderBurstNextAt = null;
+        changed = true;
+      }
+    } else if (event.type === 'interrupted') {
+      if (state.expectedAt === null || state.status === 'RESULTS_READY' || state.status === 'COMPLETED') return false;
+      if (!Number.isSafeInteger(event.salvoNumber) || event.salvoNumber !== state.reminderSalvoCount + 1 ||
+        !Number.isSafeInteger(event.sequenceIndex) || event.sequenceIndex < 0 || event.sequenceIndex > 11 ||
+        !Number.isSafeInteger(event.messageCount) || event.messageCount < 4 || event.messageCount > 6 ||
+        !Number.isFinite(event.firstDueAt) || !Number.isFinite(event.periodicDueAt)) return false;
+      state.interruptionCount++;
+      state.reminderSalvoCount = event.salvoNumber;
+      state.reminderBurstSequence = event.sequenceIndex;
+      state.reminderBurstSalvo = event.salvoNumber;
+      state.reminderBurstMessageCount = event.messageCount;
+      state.reminderBurstRemaining = event.messageCount;
+      state.reminderBurstSent = 0;
+      state.reminderBurstNextAt = event.firstDueAt;
+      state.nextReminderAt = event.periodicDueAt;
+      if (event.sequenceIndex >= 6) state.reminderLastExtraVariant = event.sequenceIndex - 6;
+      changed = true;
+    } else if (event.type === 'reminder-salvo-started') {
+      if (state.expectedAt === null || state.status === 'RESULTS_READY' || state.status === 'COMPLETED' ||
+        event.source !== 'periodic' || !Number.isSafeInteger(event.count) || event.count !== state.reminderCount + 1 ||
+        !Number.isSafeInteger(event.salvoNumber) || event.salvoNumber !== state.reminderSalvoCount + 1 ||
+        !Number.isSafeInteger(event.sequenceIndex) || event.sequenceIndex < 0 || event.sequenceIndex > 11 ||
+        !Number.isSafeInteger(event.messageCount) || event.messageCount < 4 || event.messageCount > 6 ||
+        !Number.isFinite(event.dueAt) || !Number.isFinite(event.periodicDueAt)) return false;
+      state.reminderCount = event.count;
+      state.reminderSalvoCount = event.salvoNumber;
+      state.reminderBurstSequence = event.sequenceIndex;
+      state.reminderBurstSalvo = event.salvoNumber;
+      state.reminderBurstMessageCount = event.messageCount;
+      state.reminderBurstRemaining = event.messageCount;
+      state.reminderBurstSent = 0;
+      state.reminderBurstNextAt = event.dueAt;
+      state.nextReminderAt = event.periodicDueAt;
+      if (event.sequenceIndex >= 6) state.reminderLastExtraVariant = event.sequenceIndex - 6;
+      changed = true;
+    } else if (event.type === 'reminder-message-scheduled') {
+      if (state.expectedAt === null || state.status === 'RESULTS_READY' || state.status === 'COMPLETED' ||
+        event.salvoNumber !== state.reminderBurstSalvo || event.sequenceIndex !== state.reminderBurstSequence ||
+        state.reminderBurstRemaining < 1 ||
+        state.reminderBurstRemaining + state.reminderBurstSent !== state.reminderBurstMessageCount ||
+        (state.reminderBurstRemaining > 1 ? !Number.isFinite(event.nextAt) : event.nextAt !== null)) return false;
+      state.reminderBurstRemaining--;
+      state.reminderBurstSent++;
+      state.reminderBurstNextAt = event.nextAt;
+      changed = true;
+    } else if (event.type === 'reminder-burst-scheduled') {
+      if (state.expectedAt === null || state.status === 'RESULTS_READY' || state.status === 'COMPLETED' ||
+        event.interruptionCount !== state.interruptionCount || state.reminderBurstSequence !== -1 ||
+        state.reminderBurstRemaining < 1 ||
+        state.reminderBurstRemaining + state.reminderBurstSent !== state.reminderBurstMessageCount ||
+        (state.reminderBurstRemaining > 1 ? !Number.isFinite(event.nextAt) : event.nextAt !== null)) return false;
+      state.reminderBurstRemaining--;
+      state.reminderBurstSent++;
+      state.reminderBurstNextAt = event.nextAt;
+      changed = true;
+    } else if (event.type === 'match-started') {
       if (!BOMB_ARENA_DIFFICULTIES.has(event.difficulty)) return false;
       if (state.firstGameStartedAt === null) {
         state.firstGameStartedAt = now;
@@ -592,7 +687,11 @@ export class Progression {
       state.sessionScores = scores;
       state.sessionRoundsPlayed = event.roundsPlayed;
       if (state.expectedAt !== null && state.status !== 'COMPLETED') state.status = 'RESULTS_READY';
-      if (state.status !== 'COMPLETED') state.nextReminderAt = null;
+      if (state.status !== 'COMPLETED') {
+        state.nextReminderAt = null;
+        state.reminderBurstNextAt = null;
+        state.reminderBurstRemaining = 0;
+      }
       if (state.firstGameCompletedAt === null) {
         state.firstGameCompletedAt = now;
         state.firstGameDifficulty = state.firstGameDifficulty ?? event.difficulty;
@@ -606,6 +705,11 @@ export class Progression {
       state.status = 'COMPLETED';
       state.returnedToMessengerAt = now;
       state.nextReminderAt = null;
+      state.reminderBurstNextAt = null;
+      state.reminderBurstRemaining = 0;
+      state.reminderBurstSequence = null;
+      state.reminderBurstSalvo = null;
+      state.reminderBurstMessageCount = 0;
       changed = true;
     } else if (event.type === 'reminder-sent') {
       if (state.expectedAt === null || state.status === 'COMPLETED' ||

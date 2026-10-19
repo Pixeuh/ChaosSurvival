@@ -104,6 +104,8 @@ test('BombArena developer state starts at its intro node without touching the no
   assert.notEqual(progression.data, normalData);
   assert.equal(progression.data.current, null);
   assert.equal(progression.data.flags.superPlombierGroupCreated, true);
+  assert.equal(progression.data.flags.superPlombierPostStarted, true,
+    'the isolated shortcut state enters the same orchestrator branch that advances the group offer');
   assert.deepEqual(progression.data.unlockedConversations, [plumberGroup.id]);
   assert.deepEqual(progression.data.files, {}, 'the archive is not injected by the developer shortcut');
   const thread = new ConversationThread('plumber-group', progression, () => [plumberGroup]);

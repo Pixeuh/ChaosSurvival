@@ -92,6 +92,11 @@ export function createDevelopmentProgressionSandbox(progression) {
       progression.data.current = null;
       progression.data.started = true;
       progression.data.flags.superPlombierGroupCreated = true;
+      // Ctrl+Shift+B skips the private post-game beats but must enter the same
+      // orchestrator branch that owns group delivery and the BombArena offer.
+      progression.data.flags.superPlombierPostStarted = true;
+      progression.data.flags.superPlombierGroupCreatedAt = Date.now();
+      progression.data.flags.superPlombierGroupNotified = true;
       progression.data.unlockedConversations = [dialogue.id];
       progression.data.dialogues[dialogue.id] = {
         node: nodeId,

@@ -27,7 +27,7 @@
         { "speaker": "contact", "author": "Turb0", "text": "même pas", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 250, "typingMs": 300 },
 
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "AAAAAAAA", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 350, "typingMs": 350 },
-        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "JAI GAGNÉÉÉÉÉ", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 250, "typingMs": 450 },
+        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "JAI GAGNéééé", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 250, "typingMs": 450 },
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "PTDRRRR", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 250, "typingMs": 350 },
         { "speaker": "contact", "author": "Turb0", "text": "ouais bon ça va", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 450, "typingMs": 350 },
         { "speaker": "contact", "author": "°•.LuNa.°•", "text": "gg :)", "when": { "flag": "bombArenaWinner", "equals": "pixelgirl" }, "delayMs": 450, "typingMs": 300 },
@@ -63,7 +63,7 @@
         { "speaker": "contact", "author": "Turb0", "text": "ouais grave", "delayMs": 450, "typingMs": 350 },
         { "speaker": "contact", "author": "°•.LuNa.°•", "text": "c'était sympa :)", "delayMs": 500, "typingMs": 400 },
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "ah au fait justme", "delayMs": 2200, "typingMs": 400 },
-        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "pense à supprimer bombarena après", "delayMs": 250, "typingMs": 450 },
+        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "pense à supprimer bombarena après, dans tes documents, dossier \"Mes fichiers reçus\" !!! :D", "delayMs": 250, "typingMs": 450 },
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "il prend grave de place ce truc mdr", "delayMs": 250, "typingMs": 450 },
         { "speaker": "contact", "author": "Turb0", "text": "on vient de finir et tu veux déjà le virer ??", "delayMs": 450, "typingMs": 500 },
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "bah oui xD", "delayMs": 250, "typingMs": 350 },

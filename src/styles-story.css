@@ -1956,6 +1956,8 @@ button.messenger-contact-row:hover {
   border-bottom: 1px solid #45616b;
 }
 .ba-topbar b { color: var(--ba-cyan); font-size: 15px; letter-spacing: 1px; }
+.ba-diagnostics { padding: 4px 7px; border: 1px solid #ffb24b; border-radius: 3px; color: #fff2c7; background: #573720; font: bold 9px Tahoma, sans-serif; cursor: pointer; }
+.ba-diagnostics[aria-pressed="true"] { color: #142b1b; background: #81eaa0; border-color: #d1ffe0; }
 .ba-subtitle { margin-left: 10px; color: #99b7bd; font-size: 9px; letter-spacing: 1px; }
 .ba-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 225px); min-height: 0; gap: 8px; padding: 9px; }
 .ba-stage { position: relative; display: grid; min-width: 0; min-height: 0; place-items: center; overflow: hidden; border: 1px solid #34515b; background: #081522; }

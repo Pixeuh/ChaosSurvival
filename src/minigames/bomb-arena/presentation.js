@@ -1,4 +1,5 @@
 import { PLAYER_PALETTES } from './player-colors.js';
+import { getCollisionDebugData } from './engine.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const roundedRect = (ctx, x, y, w, h, radius) => {
@@ -20,14 +21,14 @@ function drawFloorTile(ctx, x, y, size, ix, iy) {
 }
 
 function drawWall(ctx, x, y, size) {
-  ctx.fillStyle = 'rgba(18,39,47,.35)'; ctx.fillRect(x + 4, y + size - 5, size - 3, 5);
+  ctx.fillStyle = 'rgba(18,39,47,.35)'; ctx.fillRect(x + size * 4 / 60, y + size - size * 5 / 60, size - size * 3 / 60, size * 5 / 60);
   const gradient = ctx.createLinearGradient(x, y, x, y + size);
   gradient.addColorStop(0, '#c5c0a7'); gradient.addColorStop(.18, '#989886'); gradient.addColorStop(1, '#626c68');
-  roundedRect(ctx, x + 3, y + 2, size - 6, size - 7, size * .1); ctx.fillStyle = gradient; ctx.fill();
-  ctx.strokeStyle = '#485955'; ctx.lineWidth = 2; ctx.stroke();
-  ctx.strokeStyle = 'rgba(238,231,199,.65)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(x + 7, y + 7); ctx.lineTo(x + size - 7, y + 7); ctx.stroke();
-  ctx.strokeStyle = 'rgba(49,64,62,.55)'; ctx.beginPath(); ctx.moveTo(x + size * .5, y + 8); ctx.lineTo(x + size * .5, y + size * .46); ctx.moveTo(x + 7, y + size * .48); ctx.lineTo(x + size - 7, y + size * .48); ctx.stroke();
+  roundedRect(ctx, x + size * 3 / 60, y + size * 2 / 60, size * 54 / 60, size * 53 / 60, size * .1); ctx.fillStyle = gradient; ctx.fill();
+  ctx.strokeStyle = '#485955'; ctx.lineWidth = size * 2 / 60; ctx.stroke();
+  ctx.strokeStyle = 'rgba(238,231,199,.65)'; ctx.lineWidth = size * 1.5 / 60;
+  ctx.beginPath(); ctx.moveTo(x + size * 7 / 60, y + size * 7 / 60); ctx.lineTo(x + size - size * 7 / 60, y + size * 7 / 60); ctx.stroke();
+  ctx.strokeStyle = 'rgba(49,64,62,.55)'; ctx.beginPath(); ctx.moveTo(x + size * .5, y + size * 8 / 60); ctx.lineTo(x + size * .5, y + size * .46); ctx.moveTo(x + size * 7 / 60, y + size * .48); ctx.lineTo(x + size - size * 7 / 60, y + size * .48); ctx.stroke();
 }
 
 function drawCrate(ctx, x, y, size, variant = 0, alpha = 1, scale = 1) {
@@ -38,9 +39,9 @@ function drawCrate(ctx, x, y, size, variant = 0, alpha = 1, scale = 1) {
   const base = variant % 2 ? '#9a6040' : '#b47a4c';
   const gradient = ctx.createLinearGradient(x, y, x + size, y + size);
   gradient.addColorStop(0, variant % 2 ? '#c18a59' : '#d5a06a'); gradient.addColorStop(1, base);
-  roundedRect(ctx, x + 4, y + 3, size - 8, size - 8, 4); ctx.fillStyle = gradient; ctx.fill();
-  ctx.strokeStyle = '#603e31'; ctx.lineWidth = 2; ctx.stroke();
-  ctx.strokeStyle = '#e0b67b'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  roundedRect(ctx, x + size * 4 / 60, y + size * 3 / 60, size * 52 / 60, size * 52 / 60, size * 4 / 60); ctx.fillStyle = gradient; ctx.fill();
+  ctx.strokeStyle = '#603e31'; ctx.lineWidth = size * 2 / 60; ctx.stroke();
+  ctx.strokeStyle = '#e0b67b'; ctx.lineWidth = size * 3 / 60; ctx.lineCap = 'round';
   if (variant % 3 === 1) {
     ctx.beginPath(); ctx.moveTo(x + 10, y + 10); ctx.lineTo(x + size - 10, y + 10); ctx.moveTo(x + 10, y + size - 11); ctx.lineTo(x + size - 10, y + size - 11); ctx.stroke();
     ctx.fillStyle = '#704934'; ctx.fillRect(x + size * .43, y + size * .25, size * .14, size * .5);
@@ -144,6 +145,7 @@ export function createArenaEffects({ onSound = () => {}, rng = Math.random } = {
   let previous = null;
   const particles = [];
   const defeated = new Map(), poses = new Map(), motion = new Map();
+  const MOVEMENT_HOLD_MS = 90;
   const addParticles = (x, y, count, color, kind = 'spark') => {
     for (let i = 0; i < count && particles.length < 220; i++) {
       const angle = rng() * Math.PI * 2, speed = 25 + rng() * 100;
@@ -169,7 +171,7 @@ export function createArenaEffects({ onSound = () => {}, rng = Math.random } = {
         round: game.round,
       };
       const newRound = previous && current.round !== previous.round;
-      if (newRound) { particles.length = 0; defeated.clear(); poses.clear(); }
+      if (newRound) { particles.length = 0; defeated.clear(); poses.clear(); motion.clear(); }
       if (previous && !newRound) {
         const placed = [...current.bombs].filter((id) => !previous.bombs.has(id));
         if (placed.length) {
@@ -201,9 +203,20 @@ export function createArenaEffects({ onSound = () => {}, rng = Math.random } = {
         }
       }
       for (const player of game.players) {
-        const before = previous?.positions.get(player.id), dx = before ? player.x - before.x : 0, dy = before ? player.y - before.y : 0;
-        const moving = Math.hypot(dx, dy) > .001;
-        motion.set(player.id, { moving, direction: Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : dy < 0 ? 'up' : 'down' });
+        const before = newRound ? null : previous?.positions.get(player.id);
+        const dx = before ? player.x - before.x : 0, dy = before ? player.y - before.y : 0;
+        const moved = Math.hypot(dx, dy) > .001;
+        const prior = motion.get(player.id) ?? { moving: false, direction: 'down', lastMovedAt: -Infinity };
+        if (moved) {
+          prior.direction = Math.abs(dx) > Math.abs(dy)
+            ? (dx < 0 ? 'left' : 'right')
+            : (dy < 0 ? 'up' : 'down');
+          prior.lastMovedAt = now;
+        }
+        // The renderer can run between fixed 60 Hz simulation steps. Keep the
+        // walk pose through those frames instead of alternating with idle.
+        prior.moving = now - prior.lastMovedAt <= MOVEMENT_HOLD_MS;
+        motion.set(player.id, prior);
       }
       for (const [id, item] of defeated) if (item.until <= now) defeated.delete(id);
       previous = current;
@@ -260,4 +273,52 @@ export function renderBombArena(ctx, canvas, game, effects, time = 0) {
     ctx.restore();
   }
   ctx.strokeStyle = 'rgba(230,241,191,.8)'; ctx.lineWidth = 2; ctx.strokeRect(ox - 1, oy - 1, cell * 13 + 2, cell * 11 + 2);
+}
+
+export function renderCollisionDiagnostics(ctx, canvas, game) {
+  if (!ctx || !canvas || !game) return;
+  const data = getCollisionDebugData(game);
+  const cell = Math.min(canvas.width / 13, canvas.height / 11);
+  const ox = (canvas.width - cell * 13) / 2, oy = (canvas.height - cell * 11) / 2;
+  const px = (x) => ox + x * cell, py = (y) => oy + y * cell;
+  ctx.save();
+  ctx.lineWidth = Math.max(1, cell / 45);
+  ctx.strokeStyle = 'rgba(76,232,255,.72)';
+  ctx.setLineDash([cell * .035, cell * .045]);
+  for (let x = 0; x <= 13; x++) { ctx.beginPath(); ctx.moveTo(px(x), oy); ctx.lineTo(px(x), oy + cell * 11); ctx.stroke(); }
+  for (let y = 0; y <= 11; y++) { ctx.beginPath(); ctx.moveTo(ox, py(y)); ctx.lineTo(ox + cell * 13, py(y)); ctx.stroke(); }
+  ctx.setLineDash([]);
+  for (const obstacle of data.obstacles) {
+    ctx.fillStyle = obstacle.type === 'wall' ? 'rgba(255,90,78,.24)' : 'rgba(255,169,58,.26)';
+    ctx.strokeStyle = obstacle.type === 'wall' ? '#ff6258' : '#ffc05d';
+    const left = px(obstacle.left), top = py(obstacle.top);
+    const width = (obstacle.right - obstacle.left) * cell, height = (obstacle.bottom - obstacle.top) * cell;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(left, top, width, height, obstacle.cornerRadius * cell);
+    else ctx.rect(left, top, width, height);
+    ctx.fill(); ctx.stroke();
+  }
+  for (const explosion of data.explosions) {
+    ctx.fillStyle = 'rgba(255,45,190,.22)'; ctx.strokeStyle = '#ff51d5';
+    ctx.fillRect(px(explosion.x), py(explosion.y), cell * explosion.width, cell * explosion.height);
+    ctx.strokeRect(px(explosion.x), py(explosion.y), cell * explosion.width, cell * explosion.height);
+  }
+  for (const bomb of data.bombs) {
+    ctx.fillStyle = 'rgba(255,244,84,.22)'; ctx.strokeStyle = '#fff454';
+    ctx.fillRect(px(bomb.x + .5 - bomb.halfSize), py(bomb.y + .5 - bomb.halfSize), cell * bomb.halfSize * 2, cell * bomb.halfSize * 2);
+    ctx.strokeRect(px(bomb.x + .5 - bomb.halfSize), py(bomb.y + .5 - bomb.halfSize), cell * bomb.halfSize * 2, cell * bomb.halfSize * 2);
+  }
+  for (const player of data.players) {
+    ctx.beginPath(); ctx.arc(px(player.x), py(player.y), cell * player.radius, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(63,255,155,.16)'; ctx.fill(); ctx.strokeStyle = '#45ff9b'; ctx.stroke();
+  }
+  const blocked = data.lastMovementBlock;
+  if (blocked) {
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${Math.max(10, cell * .2)}px Tahoma`; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    const label = blocked.blocker ? `${blocked.playerId}: ${blocked.blocker.type} (${blocked.blocker.x}, ${blocked.blocker.y})` : `${blocked.playerId}: mouvement bloqué`;
+    ctx.fillStyle = 'rgba(12,20,24,.88)'; ctx.fillRect(ox + 5, oy + 5, Math.min(cell * 5, label.length * cell * .105 + 14), cell * .34);
+    ctx.fillStyle = '#fff'; ctx.fillText(label, ox + 12, oy + 9);
+    ctx.beginPath(); ctx.arc(px(blocked.attempted.x), py(blocked.attempted.y), cell * .06, 0, Math.PI * 2); ctx.fillStyle = '#ff3348'; ctx.fill();
+  }
+  ctx.restore();
 }

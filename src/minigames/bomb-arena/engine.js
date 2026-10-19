@@ -19,6 +19,8 @@ const PLAYER_INFO = [
 const BONUS_TYPES = ['flame', 'bomb', 'speed', 'shield'];
 export const PLAYER_COLLISION_RADIUS = 0.27;
 const BOMB_COLLISION_HALF_SIZE = 0.38;
+const WALL_COLLIDER = Object.freeze({ left: 2 / 60, top: 1 / 60, right: 1 - 2 / 60, bottom: 1 - 4 / 60 });
+const CRATE_COLLIDER = Object.freeze({ left: 3 / 60, top: 2 / 60, right: 1 - 3 / 60, bottom: 1 - 4 / 60 });
 const COLLISION_EPSILON = 1e-10;
 const key = (x, y) => `${x},${y}`;
 const rand = (rng) => Math.max(0, Math.min(0.999999, rng()));
@@ -48,7 +50,7 @@ export function createGame({ rng = Math.random, progress = null } = {}) {
   const completedRounds = Number.isSafeInteger(progress?.completedRounds)
     ? Math.max(0, Math.min(progress.completedRounds, 128))
     : 0;
-  const state = { difficulty: 'PRO', rng, round: completedRounds, wins, phase: 'ready', roundTime: 0, suddenIndex: 0, suddenClock: 0, seed: 0, message: '', messageMs: 0, matchWinnerId: null };
+  const state = { difficulty: 'PRO', rng, round: completedRounds, wins, phase: 'ready', roundTime: 0, suddenIndex: 0, suddenClock: 0, seed: 0, message: '', messageMs: 0, matchWinnerId: null, lastMovementBlock: null };
   startRound(state);
   state.phase = 'ready';
   state.countdownMs = 1600;
@@ -92,9 +94,33 @@ function wallAt(state, x, y) {
 }
 function bombAt(state, x, y) { return state.bombs.find((b) => !b.exploded && b.x === x && b.y === y); }
 
+function obstacleCollider(state, x, y) {
+  if (x < 0 || y < 0 || x >= ARENA_WIDTH || y >= ARENA_HEIGHT) return null;
+  const isWall = state.arena?.[y]?.[x] === 'wall';
+  const isCrate = state.blocks.has(key(x, y));
+  if (!isWall && !isCrate) return null;
+  const shape = isWall ? WALL_COLLIDER : CRATE_COLLIDER;
+  return {
+    type: isWall ? 'wall' : 'crate', x, y,
+    left: x + shape.left, top: y + shape.top,
+    right: x + shape.right, bottom: y + shape.bottom,
+    cornerRadius: isWall ? 0.1 + 1 / 60 : 5 / 60,
+  };
+}
+
 function circleOverlapsRect(x, y, radius, left, top, right, bottom) {
   const nearestX = clamp(x, left, right), nearestY = clamp(y, top, bottom);
   return (x - nearestX) ** 2 + (y - nearestY) ** 2 < radius ** 2 - COLLISION_EPSILON;
+}
+
+function circleOverlapsRoundedRect(x, y, radius, rect) {
+  const halfWidth = (rect.right - rect.left) / 2;
+  const halfHeight = (rect.bottom - rect.top) / 2;
+  const corner = Math.min(rect.cornerRadius ?? 0, halfWidth, halfHeight);
+  const dx = Math.abs(x - (rect.left + rect.right) / 2) - (halfWidth - corner);
+  const dy = Math.abs(y - (rect.top + rect.bottom) / 2) - (halfHeight - corner);
+  const signedDistance = Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) + Math.min(Math.max(dx, dy), 0) - corner;
+  return signedDistance < radius - COLLISION_EPSILON;
 }
 
 function cellsOverlappingCircle(x, y, radius) {
@@ -107,9 +133,10 @@ function cellsOverlappingCircle(x, y, radius) {
   return cells;
 }
 
-function canOccupy(state, player, x, y) {
+function movementBlocker(state, player, x, y) {
   for (const { x: cx, y: cy } of cellsOverlappingCircle(x, y, PLAYER_COLLISION_RADIUS)) {
-    if (wallAt(state, cx, cy)) return false;
+    const obstacle = obstacleCollider(state, cx, cy);
+    if (obstacle && circleOverlapsRoundedRect(x, y, PLAYER_COLLISION_RADIUS, obstacle)) return obstacle;
     const bomb = bombAt(state, cx, cy);
     if (bomb && !player.escapeBombs.has(bomb.id) && circleOverlapsRect(
       x, y, PLAYER_COLLISION_RADIUS,
@@ -117,9 +144,37 @@ function canOccupy(state, player, x, y) {
       cy + 0.5 - BOMB_COLLISION_HALF_SIZE,
       cx + 0.5 + BOMB_COLLISION_HALF_SIZE,
       cy + 0.5 + BOMB_COLLISION_HALF_SIZE,
-    )) return false;
+    )) return { type: 'bomb', id: bomb.id, x: cx, y: cy,
+      left: cx + 0.5 - BOMB_COLLISION_HALF_SIZE, top: cy + 0.5 - BOMB_COLLISION_HALF_SIZE,
+      right: cx + 0.5 + BOMB_COLLISION_HALF_SIZE, bottom: cy + 0.5 + BOMB_COLLISION_HALF_SIZE };
   }
-  return true;
+  return null;
+}
+
+function canOccupy(state, player, x, y) {
+  return !movementBlocker(state, player, x, y);
+}
+
+export function getCollisionDebugData(state) {
+  if (!state) return { obstacles: [], players: [], bombs: [], explosions: [], lastMovementBlock: null };
+  const obstacles = [];
+  for (let y = 0; y < ARENA_HEIGHT; y++) for (let x = 0; x < ARENA_WIDTH; x++) {
+    const shape = obstacleCollider(state, x, y);
+    if (shape) obstacles.push(shape);
+  }
+  return {
+    obstacles,
+    players: (state.players ?? []).filter((player) => player.alive).map((player) => ({
+      id: player.id, x: player.x, y: player.y, radius: PLAYER_COLLISION_RADIUS,
+    })),
+    bombs: (state.bombs ?? []).filter((bomb) => !bomb.exploded).map((bomb) => ({
+      id: bomb.id, x: bomb.x, y: bomb.y, halfSize: BOMB_COLLISION_HALF_SIZE,
+    })),
+    explosions: (state.fires ?? []).flatMap((fire) => fire.cells.map((cell) => ({
+      owner: fire.owner, x: cell.x, y: cell.y, width: 1, height: 1,
+    }))),
+    lastMovementBlock: state.lastMovementBlock ?? null,
+  };
 }
 
 export function setPlayerControls(state, controls = {}) {
@@ -339,6 +394,12 @@ function movePlayer(state, player, dt) {
       const x = axis === 'x' ? player.x + step : player.x;
       const y = axis === 'y' ? player.y + step : player.y;
       if (!canOccupy(state, player, x, y)) {
+        const blocker = movementBlocker(state, player, x, y);
+        state.lastMovementBlock = {
+          playerId: player.id,
+          attempted: { x, y },
+          blocker: blocker ? { type: blocker.type, x: blocker.x, y: blocker.y, id: blocker.id ?? null } : null,
+        };
         let low = 0, high = 1;
         for (let attempt = 0; attempt < 12; attempt++) {
           const fraction = (low + high) / 2;

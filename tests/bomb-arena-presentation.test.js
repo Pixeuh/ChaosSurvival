@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBombArenaAudio } from '../src/minigames/bomb-arena/audio.js';
-import { createArenaEffects, renderBombArena, renderCharacterRoster } from '../src/minigames/bomb-arena/presentation.js';
-import { createGame } from '../src/minigames/bomb-arena/engine.js';
+import { createArenaEffects, renderBombArena, renderCharacterRoster, renderCollisionDiagnostics } from '../src/minigames/bomb-arena/presentation.js';
+import { createGame, getCollisionDebugData } from '../src/minigames/bomb-arena/engine.js';
 import { PLAYER_COLORS } from '../src/minigames/bomb-arena/player-colors.js';
 import { BOMB_ARENA_RESULTS_DISPLAY_MS, createResultsAutoReturn, isArenaTextEntryTarget } from '../src/minigames/bomb-arena/view.js';
 
@@ -50,6 +50,41 @@ test('BombArena presentation effects react to engine snapshots without changing 
   roundReset.round = 2; roundReset.blocks = new Set(['5,5']); roundReset.bombs = []; roundReset.fires = [];
   resetEffects.observe(roundReset, 16, 16);
   assert.deepEqual(resetSounds, [], 'a fresh round is not mistaken for block destruction or an explosion');
+});
+
+test('BombArena walk pose and facing survive render frames between fixed simulation steps', () => {
+  const effects = createArenaEffects();
+  const game = state();
+  game.players.push(
+    { id: 'pixelgirl', x: 3.5, y: 3.5, alive: true, controls: {} },
+    { id: 'turbo', x: 5.5, y: 5.5, alive: true, controls: {} },
+    { id: 'luna', x: 7.5, y: 7.5, alive: true, controls: {} },
+  );
+  effects.observe(game, 16, 100);
+  game.players[0].x += .05;
+  game.players[1].x += .05;
+  game.players[2].x -= .05;
+  game.players[3].y += .05;
+  effects.observe(game, 16, 116);
+  assert.deepEqual(effects.motion('justme'), { moving: true, direction: 'right', lastMovedAt: 116 });
+  assert.deepEqual(
+    game.players.map((player) => effects.motion(player.id).moving),
+    [true, true, true, true],
+    'JustMe and all three NPCs use the same movement sampling rule',
+  );
+
+  // A render-only frame has no new simulation position, but must not switch to idle.
+  effects.observe(game, 8, 124);
+  assert.equal(effects.motion('justme').moving, true);
+  assert.equal(effects.motion('justme').direction, 'right');
+
+  game.players[0].y -= .05;
+  effects.observe(game, 16, 140);
+  assert.equal(effects.motion('justme').direction, 'up');
+  effects.observe(game, 16, 220);
+  assert.equal(effects.motion('justme').moving, true, 'the short movement hold covers jitter around a simulation tick');
+  effects.observe(game, 16, 240);
+  assert.equal(effects.motion('justme').moving, false, 'the walk pose returns to idle shortly after movement stops');
 });
 
 class FakeAudioContext {
@@ -146,4 +181,25 @@ test('BombArena movement ignores focused buttons but still protects text-entry c
   assert.equal(isArenaTextEntryTarget(button), false);
   assert.equal(isArenaTextEntryTarget(input), true);
   assert.equal(isArenaTextEntryTarget(null), false);
+});
+
+test('development collision diagnostics draw the logical grid, actual colliders, damage tiles, and last refusal', () => {
+  const calls = { line: 0, rect: 0, rounded: 0, arc: 0, text: [] };
+  const ctx = {
+    save() {}, restore() {}, setLineDash() {}, beginPath() {}, rect() {}, roundRect() { calls.rounded++; }, moveTo() {}, lineTo() { calls.line++; },
+    stroke() {}, fill() {}, fillRect() {}, strokeRect() { calls.rect++; },
+    arc() { calls.arc++; }, fillText(text) { calls.text.push(text); },
+  };
+  const game = createGame({ rng: () => .9 });
+  game.bombs = [{ id: 'diag-bomb', x: 3, y: 3, exploded: false }];
+  game.fires = [{ owner: 'turbo', cells: [{ x: 4, y: 3 }], remaining: 250 }];
+  game.lastMovementBlock = { playerId: 'justme', attempted: { x: 2.8, y: 1.5 }, blocker: { type: 'wall', x: 3, y: 1, id: null } };
+  const geometry = getCollisionDebugData(game);
+  renderCollisionDiagnostics(ctx, { width: 780, height: 660 }, game);
+  assert.equal(calls.line, 26, 'all thirteen columns and eleven rows are drawn');
+  assert.ok(calls.rounded >= geometry.obstacles.length);
+  assert.ok(calls.rect >= geometry.explosions.length + geometry.bombs.length);
+  assert.ok(calls.arc >= geometry.players.length, 'all live player hitboxes and the refused destination are shown');
+  assert.ok(calls.text.some((text) => text.includes('wall (3, 1)')),
+    'the latest refused move names the blocking wall cell');
 });

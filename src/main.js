@@ -72,7 +72,7 @@ import {
   NarrativeOrchestrator,
   DEFERRED_CONNECTION_DIALOGUES,
 } from './story/narrative-orchestrator.js';
-import { bombArenaHandoffPending, completeBombArenaHandoff } from './story/bomb-arena-handoff.js';
+import { bombArenaHandoffPending, createBombArenaHandoffRetrier } from './story/bomb-arena-handoff.js';
 import { resetGameToInitialState as resetSession, recoverGameReset } from './story/reset-game.js';
 import { applicationName, trackIdentity } from './ui/identity.js';
 import {
@@ -182,6 +182,7 @@ const launchExecutable = createExecutableLauncher({
   'toolbar-installer': (_file, fileId) => toolbarInstaller.open(fileId),
   'smiley-pack-installer': (_file, fileId) => smileyPackInstaller.open(fileId),
 });
+let bombArenaHandoffRetrier;
 const desktopApplications = new DesktopApplications(
   manager,
   ui.desktop.querySelector('.taskbar'),
@@ -195,9 +196,9 @@ const desktopApplications = new DesktopApplications(
   (event) => narrativeOrchestrator?.onBombArenaEvent(event),
   (instance) => {
     manager.close(instance.id);
-    return openBombArenaGroupConversation();
+    return tryOpenBombArenaGroupConversation();
   },
-  () => openBombArenaGroupConversation(),
+  () => tryOpenBombArenaGroupConversation(),
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
@@ -243,6 +244,7 @@ const plumberGroupEvents = () => {
     dialogues['pixelgirl-super-plombier-group'],
     ...(postMatchAvailable ? [dialogues['bomb-arena-postmatch']] : []),
     ...(postMatchActive ? [] : narrativeOrchestrator?.bombArenaRedownloadEvents() ?? []),
+    ...(narrativeOrchestrator?.bombArenaReminderEvents() ?? []),
   ];
 };
 const hoplaHotel = new HoplaHotelClient(manager, desktopApplications, () =>
@@ -442,6 +444,11 @@ narrativeOrchestrator = new NarrativeOrchestrator({
     return shown || notifications.has(id);
   },
 });
+bombArenaHandoffRetrier = createBombArenaHandoffRetrier({
+  progression,
+  onBombArenaEvent: (event) => narrativeOrchestrator.onBombArenaEvent(event),
+  activateGroup: () => phase === 'desktop' && tryOpenBombArenaGroupConversation(),
+});
 virtualFilesystem.onDelete = (change) => {
   narrativeOrchestrator?.onVirtualFilesDeleted(change);
   mediaPlayer?.onFilesDeleted(change);
@@ -494,6 +501,18 @@ function openBombArenaGroupConversation() {
   if (!group) return false;
   const view = messenger.openContact(group);
   return Boolean(view?.element?.isConnected);
+}
+
+function tryOpenBombArenaGroupConversation() {
+  try {
+    const opened = openBombArenaGroupConversation();
+    if (!opened) bombArenaHandoffRetrier?.schedule();
+    return opened;
+  } catch (error) {
+    console.error('[BombArena] Messenger could not open the saved group; retrying.', error);
+    bombArenaHandoffRetrier?.schedule();
+    return false;
+  }
 }
 
 function messageNotificationId(contact) {
@@ -754,11 +773,7 @@ async function continueFromMenu() {
   progression.begin();
   if (bombArenaHandoffPending(progression)) {
     showStoryDesktop(false, { connectPixelGirl: false });
-    completeBombArenaHandoff({
-      progression,
-      onBombArenaEvent: (event) => narrativeOrchestrator.onBombArenaEvent(event),
-      activateGroup: openBombArenaGroupConversation,
-    });
+    bombArenaHandoffRetrier?.attempt();
     return;
   }
   const pendingVictory = pendingArcadeVictory(progression);

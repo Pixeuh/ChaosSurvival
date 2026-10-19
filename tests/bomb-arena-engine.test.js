@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARENA_HEIGHT, ARENA_WIDTH, arenaCellAt, createGame, placeBomb, setPlayerControls, startRound, togglePause, updateGame } from '../src/minigames/bomb-arena/engine.js';
+import { ARENA_HEIGHT, ARENA_WIDTH, PLAYER_COLLISION_RADIUS, arenaCellAt, createGame, getCollisionDebugData, placeBomb, setPlayerControls, startRound, togglePause, updateGame } from '../src/minigames/bomb-arena/engine.js';
 
 function gameInPlay() {
   const state = createGame({ rng: () => 0.9 });
@@ -170,14 +170,14 @@ test('wall, crate, corridor and corner contacts resolve without phantom blockers
     prepareActorMove(state, actor, 3, 5, { right: true }, { x: 6, y: 5 });
     state.arena[5][4] = 'wall';
     tick(state, 30, 50);
-    assert.ok(actor.x <= 3.73 + 1e-6, `${actor.id} is blocked by the wall with shared physics`);
-    assert.ok(actor.x > 3.72, 'swept movement resolves right up to the wall contact');
+    assert.ok(actor.x <= 3.764 + 1e-6, `${actor.id} is blocked by the wall with shared physics`);
+    assert.ok(actor.x > 3.75, 'swept movement resolves right up to the visible wall edge');
   }
 
   prepareActorMove(state, justme, 3, 5, { right: true });
   state.blocks.add('4,5');
   tick(state, 30, 50);
-  assert.ok(justme.x <= 3.73 + 1e-6, 'a destructible block blocks movement while present');
+  assert.ok(justme.x <= 3.781 + 1e-6, 'a destructible block blocks movement at its visible edge while present');
   state.blocks.delete('4,5');
   tick(state, 8, 50);
   assert.ok(justme.x > 4.5, 'removing the crate immediately removes its collision');
@@ -341,7 +341,51 @@ test('wall contact and open-path distance stay stable across simulated update in
     for (let elapsed = 0; elapsed < 500; elapsed += interval) updateGame(state, interval);
     contacts.push(player.x);
   }
-  assert.ok(contacts.every((x) => Math.abs(x - 4.73) < 1e-5), `wall contact is stable: ${contacts.join(', ')}`);
+  assert.ok(contacts.every((x) => Math.abs(x - 4.7633) < 1e-4), `wall contact is stable at the visible wall edge: ${contacts.join(', ')}`);
+});
+
+test('visible wall and crate bodies match engine colliders; blocked movement exposes the exact cause', () => {
+  const state = gameInPlay();
+  const player = state.players[0];
+  state.arena[5][5] = 'wall';
+  state.blocks.add('6,5');
+  const initial = getCollisionDebugData(state);
+  const wall = initial.obstacles.find((item) => item.type === 'wall' && item.x === 5 && item.y === 5);
+  const crate = initial.obstacles.find((item) => item.type === 'crate' && item.x === 6 && item.y === 5);
+  assert.deepEqual([wall.left * 60 - 5 * 60, wall.top * 60 - 5 * 60,
+    wall.right * 60 - 5 * 60, wall.bottom * 60 - 5 * 60], [2, 1, 58, 56]);
+  assert.deepEqual([crate.left * 60 - 6 * 60, crate.top * 60 - 5 * 60,
+    crate.right * 60 - 6 * 60, crate.bottom * 60 - 5 * 60], [3, 2, 57, 56]);
+  player.x = 4.5; player.y = 5.5; player.speed = 4.8;
+  setPlayerControls(state, { right: true }); tick(state, 20, 50);
+  const diagnostic = getCollisionDebugData(state);
+  assert.equal(diagnostic.lastMovementBlock.playerId, 'justme');
+  assert.deepEqual(diagnostic.lastMovementBlock.blocker, { type: 'wall', x: 5, y: 5, id: null });
+  const touching = diagnostic.players[0];
+  assert.ok(touching.x + touching.radius <= wall.left + 1e-3,
+    'the visible wall edge and physical player boundary meet without overlap');
+});
+
+test('rounded obstacle corners allow the physically clear diagonal approach but still stop contact', () => {
+  const state = gameInPlay();
+  const player = state.players[0];
+  state.arena[4][4] = 'wall';
+  state.players.slice(1).forEach((other, index) => { other.x = 8.5 + index; other.y = 8.5; });
+  player.x = 3.86; player.y = 3.85; player.speed = 1;
+  setPlayerControls(state, { right: true, down: true });
+  updateGame(state, 10);
+  assert.ok(player.x > 3.86 && player.y > 3.85,
+    'the player can pass a transparent rounded corner region that is outside the rendered wall');
+  player.speed = 4.8;
+  tick(state, 10, 50);
+  const geometry = getCollisionDebugData(state);
+  const wall = geometry.obstacles.find((item) => item.type === 'wall' && item.x === 4 && item.y === 4);
+  const last = geometry.lastMovementBlock;
+  assert.ok(last?.blocker?.type === 'wall' && last.blocker.x === 4 && last.blocker.y === 4,
+    'the same movement eventually records contact with that wall, without tunneling through');
+  const cornerX = wall.left + wall.cornerRadius, cornerY = wall.top + wall.cornerRadius;
+  assert.ok(Math.hypot(player.x - cornerX, player.y - cornerY) >= PLAYER_COLLISION_RADIUS - 0.02,
+    'the human circle remains outside the rounded wall corner');
 });
 
 test('an exploded bomb leaves no physical blocker, and a destroyed crate clears its cell', () => {

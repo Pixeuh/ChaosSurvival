@@ -1,6 +1,6 @@
 import { createGame, drainGameEvents, setPlayerControls, togglePause, updateGame } from './engine.js';
 import { createBombArenaChat } from './chat-system.js';
-import { createArenaEffects, renderBombArena, renderCharacterRoster } from './presentation.js';
+import { createArenaEffects, renderBombArena, renderCharacterRoster, renderCollisionDiagnostics } from './presentation.js';
 import { createBombArenaAudio } from './audio.js';
 
 const RAF = (callback) => globalThis.requestAnimationFrame(callback);
@@ -10,6 +10,7 @@ const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => (
 let fallbackMatchSequence = 0;
 const createMatchId = () => globalThis.crypto?.randomUUID?.() ?? `bomb-arena-${Date.now()}-${++fallbackMatchSequence}`;
 export const BOMB_ARENA_RESULTS_DISPLAY_MS = 5000;
+const DEV_BUILD = Boolean(import.meta.env?.DEV);
 
 export function createResultsAutoReturn(onReturn, {
   setTimeoutFn = (callback, delay) => globalThis.setTimeout(callback, delay),
@@ -48,6 +49,7 @@ function formatTime(ms) {
 export function mountBombArena(instance, manager) {
   const host = instance?.element?.querySelector?.('.window-body');
   if (!host) return null;
+  const diagnosticButton = DEV_BUILD ? '<button type="button" class="ba-diagnostics" aria-pressed="false">DIAGNOSTIC COLLISIONS</button>' : '';
   host.innerHTML = `<section class="bomb-arena-app" aria-label="BombArena">
     <header class="ba-topbar"><div><b>BombArena</b><span class="ba-subtitle">ARCADE BATTLE · 2009</span></div></header>
     <main class="ba-layout"><div class="ba-stage">
@@ -59,10 +61,19 @@ export function mountBombArena(instance, manager) {
       <section class="ba-chat" aria-label="Chat de la partie"><h2>CHAT DE PARTIE</h2><div class="ba-chat-log" role="log" aria-live="polite" aria-relevant="additions"></div><button type="button" class="ba-chat-toggle" aria-expanded="false" disabled>Entrée · message rapide</button><div class="ba-chat-options" hidden role="group" aria-label="Messages prédéfinis"></div></section></aside></main>
     <footer class="ba-status"><span>BombArena.exe · prêt</span><div class="ba-audio-controls"><label>Effets <input class="ba-sfx-volume" type="range" min="0" max="100" value="65" aria-label="Volume des effets sonores"></label><label class="ba-mute-label"><input class="ba-mute" type="checkbox"> Muet</label><label class="ba-music-label">Musique <input type="range" min="0" max="100" value="0" disabled aria-label="Musique indisponible : aucun morceau dédié"></label></div></footer>
   </section>`;
+  if (DEV_BUILD) {
+    const diagnosticButton = host.ownerDocument.createElement('button');
+    diagnosticButton.type = 'button';
+    diagnosticButton.className = 'ba-diagnostics';
+    diagnosticButton.textContent = 'DIAGNOSTIC COLLISIONS';
+    diagnosticButton.setAttribute('aria-pressed', 'false');
+    host.querySelector('.ba-topbar')?.append(diagnosticButton);
+  }
   const canvas = host.querySelector('.ba-canvas'), ctx = canvas.getContext('2d');
   const rosterCanvas = host.querySelector('.ba-roster'), rosterCtx = rosterCanvas.getContext('2d');
   const menu = host.querySelector('.ba-menu'), overlay = host.querySelector('.ba-overlay');
   let game = null, chat = createBombArenaChat(), frameId = 0, lastTime = null, accumulator = 0, disposed = false;
+  let showCollisionDiagnostics = false;
   let chatMenuOpen = false, selectedChatOption = 0, renderedMessageId = 0;
   const audio = createBombArenaAudio();
   const effects = createArenaEffects({ onSound: (name) => audio.play(name) });
@@ -142,6 +153,7 @@ export function mountBombArena(instance, manager) {
     renderCharacterRoster(rosterCtx, rosterCanvas, now);
     if (!ctx || !game) return;
     renderBombArena(ctx, canvas, game, effects, now);
+    if (DEV_BUILD && showCollisionDiagnostics) renderCollisionDiagnostics(ctx, canvas, game);
     const status = game.phase;
     const suddenWarning = status === 'playing' && game.roundTime >= 85000 && game.roundTime < 90000;
     const goAnnouncement = status === 'playing' && now < goUntil;
@@ -243,6 +255,11 @@ export function mountBombArena(instance, manager) {
   const observer = new ResizeObserver(resizeCanvas); observer.observe(canvas);
   host.addEventListener('pointerdown', () => audio.unlock(), { once: true });
   host.querySelector('.ba-start').addEventListener('click', startGame);
+  host.querySelector('.ba-diagnostics')?.addEventListener('click', (event) => {
+    showCollisionDiagnostics = !showCollisionDiagnostics;
+    event.currentTarget.setAttribute('aria-pressed', String(showCollisionDiagnostics));
+    renderArena();
+  });
   if (instance.bombArenaProgress?.completedRounds > 0 && instance.bombArenaProgress.status === 'IN_PROGRESS')
     host.querySelector('.ba-start').textContent = `REPRENDRE · MANCHE ${instance.bombArenaProgress.nextRound}`;
   host.querySelectorAll('button').forEach((button) => button.addEventListener('pointerenter', () => audio.play('hover')));
