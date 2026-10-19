@@ -68,7 +68,7 @@ function normalizeAdded(added) {
   for (const [key, file] of Object.entries(added)) {
     const match = keyPattern.exec(key);
     if (
-      !match || key.toLowerCase() === 'user-desktop/a_faire.txt' ||
+      !match ||
       unsafeKeys.has(match[1]) || match[1] === 'bin' ||
       !Object.hasOwn(locations, match[1]) ||
       !Array.isArray(locations[match[1]].items) || !safeName(match[2]) ||
@@ -91,8 +91,10 @@ function normalizeAdded(added) {
       normalized.directory = true;
       normalized.location = file.location;
     }
-    if (file.extractable === 'bomb-arena') normalized.extractable = file.extractable;
-    if (file.virtualApp === 'bomb-arena') normalized.virtualApp = file.virtualApp;
+    if (['bomb-arena', 'smiley-pack-2009'].includes(file.extractable))
+      normalized.extractable = file.extractable;
+    if (['bomb-arena', 'smiley-pack-installer'].includes(file.virtualApp))
+      normalized.virtualApp = file.virtualApp;
     if (Number.isFinite(file.size) && file.size >= 0 && file.size <= 2 ** 31)
       normalized.size = Math.floor(file.size);
     if (typeof file.text === 'string' && file.text.length <= 102400) normalized.text = file.text;
@@ -121,11 +123,10 @@ export function normalizeVirtualFilesystemState(state, files = {}) {
     ...receivedPaths,
     ...receivedTokens,
   ]);
-  const aliases = new Map([['user-desktop/a_faire.txt', 'folder/a_faire.txt']]);
   const deleted = [];
   for (const value of Array.isArray(state?.deleted) ? state.deleted : []) {
     if (typeof value !== 'string') continue;
-    const key = aliases.get(value.toLowerCase()) ?? value.toLowerCase();
+    const key = value.toLowerCase();
     if (reusableReceivedPaths.has(key) && !staticFiles().has(key)) {
       for (const file of completedReceives)
         if (virtualFileId('downloads', file.name) === key)
@@ -255,27 +256,50 @@ export class VirtualFilesystem {
     }
     return { ok: true, fileId: key };
   }
-  extractBombArena(archiveFileId) {
+  extractArchive(archiveFileId) {
     const archive = this.getFile(archiveFileId);
-    if (archive?.extractable !== 'bomb-arena') return { ok: false, reason: 'invalid-archive' };
-    const executableId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
+    const definitions = {
+      'bomb-arena': {
+        folderName: 'BombArena',
+        locationId: 'bomb-arena-folder',
+        file: {
+          name: 'BombArena.exe',
+          icon: 'arcade-game',
+          detail: 'Application',
+          size: 31 * 1024 * 1024,
+          deletable: true,
+          virtualApp: 'bomb-arena',
+        },
+      },
+      'smiley-pack-2009': {
+        folderName: 'smiley_pack_2009',
+        locationId: 'smiley-pack-2009-folder',
+        file: {
+          name: 'Smiley Pack 2009.exe',
+          icon: 'document',
+          detail: 'Installateur',
+          size: 524288,
+          deletable: true,
+          virtualApp: 'smiley-pack-installer',
+        },
+      },
+    };
+    const definition = definitions[archive?.extractable];
+    if (!definition) return { ok: false, reason: 'invalid-archive' };
+    const executableId = virtualFileId(definition.locationId, definition.file.name);
     if (this.exists(executableId)) return { ok: true, existing: true, fileId: executableId };
-    const folderId = virtualFileId('downloads', 'BombArena');
+    const folderId = virtualFileId('downloads', definition.folderName);
     const existingFolder = this.getFile(folderId);
-    const folder = existingFolder?.directory === true && existingFolder.location === 'bomb-arena-folder'
+    const folder = existingFolder?.directory === true && existingFolder.location === definition.locationId
       ? { ok: true, fileId: folderId }
-      : this.addDirectory('downloads', 'BombArena', 'bomb-arena-folder');
+      : this.addDirectory('downloads', definition.folderName, definition.locationId);
     if (!folder.ok) return folder;
-    const executable = this.addFile('bomb-arena-folder', {
-      name: 'BombArena.exe',
-      icon: 'arcade-game',
-      detail: 'Application',
-      size: 31 * 1024 * 1024,
-      deletable: true,
-      virtualApp: 'bomb-arena',
-    });
+    const executable = this.addFile(definition.locationId, definition.file);
     if (!executable.ok && !this.exists(executableId)) return executable;
     return { ok: true, fileId: executableId, folderId: folder.fileId };
+  }
+  extractBombArena(archiveFileId) {
+    return this.extractArchive(archiveFileId);
   }
   deleteFile(fileId, { origin = 'manual' } = {}) {
     const key = typeof fileId === 'string' ? fileId.toLowerCase() : fileId;

@@ -2,6 +2,7 @@ import { replaceGameStorage } from './reset-game.js';
 import { normalizeVirtualFilesystemState } from './virtual-filesystem.js';
 const TYPES = ['arcade', 'conversation', 'minigame'];
 const STORAGE_KEY = 'chaos-survival-story-v1';
+export const MINIGAME_REACTION_DELAY_MS = 2000;
 export const HISTORY_KEY = 'chaos-survival-history-v1';
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const runId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
@@ -16,15 +17,20 @@ function freshData(story) {
     choices: [],
     dialogues: {},
     conversations: {},
+    optionalConversations: {},
     results: {},
     choiceOffers: {},
     files: {},
     virtualFilesystem: { deleted: [], added: {} },
+    desktopShortcuts: [],
+    desktopIconsRemoved: [],
     anomalies: {},
     dialogueArchives: {},
     unlockedConversations: [],
     level1Launches: 0,
     replayReactions: [],
+    pendingMiniGameReaction: null,
+    pendingConnectionMessages: {},
     tutorials: {},
   };
 }
@@ -47,6 +53,16 @@ function normalizeSaved(saved, story) {
   if (!Array.isArray(saved.choices)) saved.choices = [];
   if (!record(saved.flags)) saved.flags = {};
   if (!record(saved.dialogues)) saved.dialogues = {};
+  if (!record(saved.optionalConversations)) saved.optionalConversations = {};
+  for (const [id, state] of Object.entries(saved.optionalConversations)) {
+    if (!/^[a-z0-9-]{1,100}$/i.test(id) || !record(state) ||
+      !['locked', 'available', 'started', 'completed', 'expired'].includes(state.status)) {
+      delete saved.optionalConversations[id];
+      continue;
+    }
+    for (const key of ['expirationDueAt', 'expiredAt'])
+      if (!Number.isFinite(state[key])) delete state[key];
+  }
   if (!record(saved.results)) saved.results = {};
   saved.completed = [...new Set(saved.completed.filter((id) => ids.has(id)))];
   if (saved.current !== null && !ids.has(saved.current)) {
@@ -112,16 +128,28 @@ function normalizeSaved(saved, story) {
         delete saved.desktopIcons[oldKey];
       }
     }
+  if (!Array.isArray(saved.desktopIconsRemoved)) saved.desktopIconsRemoved = [];
+  saved.desktopIconsRemoved = [...new Set(saved.desktopIconsRemoved.filter(
+    (id) => typeof id === 'string' && /^(?:shortcut|file):[a-z0-9_./ -]{1,180}$/i.test(id),
+  ))];
+  if (!Array.isArray(saved.desktopShortcuts)) saved.desktopShortcuts = [];
+  saved.desktopShortcuts = saved.desktopShortcuts.filter((shortcut) =>
+    record(shortcut) &&
+    typeof shortcut.id === 'string' && /^[a-z0-9-]{1,80}$/i.test(shortcut.id) &&
+    typeof shortcut.targetFileId === 'string' && /^[a-z0-9-]{1,40}\/[^/\\]{1,160}$/i.test(shortcut.targetFileId) &&
+    typeof shortcut.name === 'string' && shortcut.name.length > 0 && shortcut.name.length <= 160 &&
+    typeof shortcut.icon === 'string' && /^[a-z0-9-]{1,40}$/i.test(shortcut.icon),
+  ).map((shortcut) => ({
+    id: shortcut.id.toLowerCase(),
+    targetFileId: shortcut.targetFileId.toLowerCase(),
+    name: shortcut.name,
+    icon: shortcut.icon.toLowerCase(),
+  }));
   saved.virtualFilesystem = normalizeVirtualFilesystemState(saved.virtualFilesystem, saved.files);
   if (record(saved.textFiles)) {
-    for (const [oldPath, newPath] of [['user-desktop/a_faire.txt', 'folder/a_faire.txt']]) {
-      const previousKey = Object.keys(saved.textFiles).find(
-        (key) => key.replaceAll('\\', '/').toLowerCase() === oldPath,
-      );
-      if (!previousKey) continue;
-      if (!Object.hasOwn(saved.textFiles, newPath)) saved.textFiles[newPath] = saved.textFiles[previousKey];
-      delete saved.textFiles[previousKey];
-    }
+    for (const key of Object.keys(saved.textFiles))
+      if (key.replaceAll('\\', '/').toLowerCase().startsWith('user-desktop/'))
+        delete saved.textFiles[key];
   }
   for (const [id, state] of Object.entries(saved.dialogues)) {
     if (
@@ -153,6 +181,23 @@ function normalizeSaved(saved, story) {
         typeof event.template === 'string' && Number.isFinite(event.dueAt) && typeof event.ready === 'boolean',
     );
   }
+  const reaction = saved.pendingMiniGameReaction;
+  if (
+    reaction !== undefined &&
+    reaction !== null &&
+    (!record(reaction) || typeof reaction.runId !== 'string' ||
+      typeof reaction.sequenceId !== 'string' || typeof reaction.dialogueId !== 'string' ||
+      (reaction.storySequenceId !== undefined && typeof reaction.storySequenceId !== 'string') ||
+      !Number.isFinite(reaction.dueAt))
+  ) saved.pendingMiniGameReaction = null;
+  if (!record(saved.pendingConnectionMessages)) saved.pendingConnectionMessages = {};
+  for (const [eventId, message] of Object.entries(saved.pendingConnectionMessages))
+    if (
+      !record(message) || typeof message.runId !== 'string' ||
+      typeof message.contactId !== 'string' || typeof message.dialogueId !== 'string' ||
+      !Number.isFinite(message.dueAt) ||
+      (message.connectedAt !== undefined && !Number.isFinite(message.connectedAt))
+    ) delete saved.pendingConnectionMessages[eventId];
   return saved;
 }
 
@@ -197,10 +242,27 @@ export class Progression {
         delete this.data.contactConnections[id];
     }
     if (!record(this.data.tutorials)) this.data.tutorials = {};
+    if (!record(this.data.pendingConnectionMessages)) this.data.pendingConnectionMessages = {};
+    for (const [eventId, message] of Object.entries(this.data.pendingConnectionMessages))
+      if (message.runId !== this.data.runId) delete this.data.pendingConnectionMessages[eventId];
     this.data.files ??= {};
     this.data.anomalies ??= {};
     this.data.dialogueArchives ??= {};
     this.data.runId ??= runId();
+    const pendingReaction = this.data.pendingMiniGameReaction;
+    if (pendingReaction) {
+      const sourceSequence = story.sequences.find((item) => item.id === pendingReaction.sequenceId);
+      const reactionSequence = story.sequences.find((item) => item.id === pendingReaction.storySequenceId);
+      if (
+        pendingReaction.runId !== this.data.runId ||
+        (pendingReaction.storySequenceId !== undefined &&
+          (!this.data.completed.includes(pendingReaction.sequenceId) ||
+            sourceSequence?.next !== reactionSequence?.id ||
+            reactionSequence?.type !== 'conversation' ||
+            reactionSequence.dialogue !== pendingReaction.dialogueId ||
+            this.data.current !== reactionSequence.id))
+      ) this.data.pendingMiniGameReaction = null;
+    }
     this.data.started ??= Boolean(
       this.data.completed.length ||
       this.data.choices.length ||
@@ -267,16 +329,47 @@ export class Progression {
     await handler(sequence, this);
     return sequence;
   }
-  complete(id, result = {}) {
+  complete(id, result = {}, completedAt = Date.now()) {
     if (this.data.completed.includes(id)) return false;
     if (this.data.current !== id) throw new Error('Cette séquence n’est pas la séquence active.');
+    const completedSequence = this.current;
     this.data.completed.push(id);
     this.data.results[id] = result;
     this.data.current = this.current.next;
     const next = this.current;
+    this.data.pendingMiniGameReaction = null;
+    if (['arcade', 'minigame'].includes(completedSequence?.type) && next?.type === 'conversation')
+      this.deferMiniGameReaction(id, next.dialogue, completedAt, next.id);
     if (next?.type === 'conversation' && !this.data.unlockedConversations.includes(next.dialogue))
       this.data.unlockedConversations.push(next.dialogue);
     this.data.started = true;
+    this.save();
+    return true;
+  }
+  consumeMiniGameReaction(dialogueId) {
+    if (this.data.pendingMiniGameReaction?.dialogueId !== dialogueId) return false;
+    this.data.pendingMiniGameReaction = null;
+    return true;
+  }
+  consumeConnectionMessage(dialogueId) {
+    let consumed = false;
+    for (const [eventId, message] of Object.entries(this.data.pendingConnectionMessages ?? {}))
+      if (message.dialogueId === dialogueId) {
+        delete this.data.pendingConnectionMessages[eventId];
+        consumed = true;
+      }
+    return consumed;
+  }
+  deferMiniGameReaction(sourceId, dialogueId, completedAt = Date.now(), storySequenceId) {
+    if (typeof sourceId !== 'string' || typeof dialogueId !== 'string' || !Number.isFinite(completedAt))
+      return false;
+    this.data.pendingMiniGameReaction = {
+      runId: this.data.runId,
+      sequenceId: sourceId,
+      ...(typeof storySequenceId === 'string' ? { storySequenceId } : {}),
+      dialogueId,
+      dueAt: completedAt + MINIGAME_REACTION_DELAY_MS,
+    };
     this.save();
     return true;
   }

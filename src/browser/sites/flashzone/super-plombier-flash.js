@@ -172,6 +172,7 @@ export function renderSuperPlombierFlash({ progression, onDispose, onResume, onS
     paused = false;
     pressed.clear();
     round.begin(performance.now());
+    music.stop();
     music.start();
     deathCount = round.deaths;
     intro.hidden = true;
@@ -216,6 +217,8 @@ export function renderSuperPlombierFlash({ progression, onDispose, onResume, onS
     round.tick(now, { left: pressed.has('ArrowLeft'), right: pressed.has('ArrowRight') });
     if (round.deaths !== deathCount) {
       deathCount = round.deaths;
+      music.stop();
+      music.start();
       status.textContent = 'Aïe ! Le niveau repart du début.';
       status.hidden = false;
     }

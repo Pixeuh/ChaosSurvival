@@ -50,12 +50,15 @@ export class HoplaHotelClient {
     }
     const id = this.manager.spawn('desktopapp', {
       preview: true,
+      resizable: true,
+      maximizable: true,
+      minWidth: 320,
+      minHeight: 220,
       content: { title: data.name, iconName: 'browser', body: '' },
       onDismiss: () => {
         const instance = this.instance;
         instance.cleanup?.();
         this.disposeMusic();
-        instance.observer.disconnect();
         instance.element.removeEventListener('click', instance.home);
         instance.task.remove();
         this.applications.instances.delete('hopla-hotel');
@@ -97,23 +100,6 @@ export class HoplaHotelClient {
       top: `${bounds.minY + (bounds.maxY - bounds.minY - height) / 2}px`,
     });
     this.manager.dragged.add(element);
-    instance.observer = new ResizeObserver(() => {
-      if (!element.isConnected || element.hidden) return;
-      const current = area();
-      const maxWidth = current.maxX - current.minX;
-      const maxHeight = current.maxY - current.minY;
-      element.style.maxWidth = `${maxWidth}px`;
-      element.style.maxHeight = `${maxHeight}px`;
-      element.style.minWidth = `${Math.min(320, maxWidth)}px`;
-      element.style.minHeight = `${Math.min(220, maxHeight)}px`;
-      element.style.width = `${Math.min(parseFloat(element.style.width), maxWidth)}px`;
-      element.style.height = `${Math.min(parseFloat(element.style.height), maxHeight)}px`;
-      const limits = this.manager.movementBounds(element);
-      element.style.left = `${Math.max(limits.minX, Math.min(limits.maxX, parseFloat(element.style.left)))}px`;
-      element.style.top = `${Math.max(limits.minY, Math.min(limits.maxY, parseFloat(element.style.top)))}px`;
-    });
-    instance.observer.observe(element);
-    instance.observer.observe(this.manager.field.closest('.desktop') ?? this.manager.field);
     this.showRoom(data.room);
     this.applications.restore(instance);
     return instance;

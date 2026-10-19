@@ -1,11 +1,14 @@
 import definitions from '../config/desktop-apps.json' with { type: 'json' };
 import filesystem from '../config/filesystem.json' with { type: 'json' };
 import { bindFileActivation } from '../utils/activation.js';
-import { icon } from './icons.js';
+import { fileIcon, icon } from './icons.js';
 import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
 import { attachNotepad } from './notepad.js';
+import { executableAssociation } from './executable-registry.js';
+import { isMediaTrack } from './media-library.js';
+import { fileTypeForName, getDisplayFileName } from './file-names.js';
 
 export const desktopApps = definitions;
 
@@ -38,12 +41,20 @@ export function explorerItem(location, item) {
 
 export function fileViewer(item) {
   if (item.location) return null;
-  if (/\.txt$/i.test(item.name)) return 'notepad';
+  if (fileTypeForName(item.name) === 'text') return 'notepad';
   if (/\.jpg$/i.test(item.name)) return 'image';
   return 'generic';
 }
 export function localPicture(path) {
   return typeof path === 'string' && /^\.\/(?:wallpaper\.svg|covers\/[a-z0-9-]+\.svg)$/.test(path);
+}
+
+function isTextEntry(target) {
+  return Boolean(
+    target &&
+      (target.isContentEditable ||
+        /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName ?? '')),
+  );
 }
 
 export class DesktopApplications {
@@ -56,6 +67,7 @@ export class DesktopApplications {
     virtualFilesystem = null,
     onFilesystemChange = () => {},
     onOpenReceived = null,
+    onLaunchExecutable = null,
   ) {
     Object.assign(this, {
       manager,
@@ -64,6 +76,7 @@ export class DesktopApplications {
       onLaunchArcade,
       onFilesystemChange,
       onOpenReceived,
+      onLaunchExecutable,
     });
     this.textFiles = textFiles;
     this.virtualFilesystem = virtualFilesystem;
@@ -79,6 +92,10 @@ export class DesktopApplications {
     }
     const id = this.manager.spawn('desktopapp', {
       preview: true,
+      resizable: true,
+      maximizable: true,
+      minWidth: 520,
+      minHeight: 330,
       x: 0.25,
       y: 0.12,
       content: {
@@ -141,19 +158,62 @@ export class DesktopApplications {
     });
     element
       .querySelector('.titlebar')
-      .insertBefore(minimize, element.querySelector('.close-button'));
+      .insertBefore(
+        minimize,
+        element.querySelector('.maximize-button') ?? element.querySelector('.close-button'),
+      );
     task.addEventListener('click', () => this.restore(instance));
     return instance;
   }
+  attachExistingWindow(kind, id, title, iconName) {
+    const existing = this.instances.get(kind);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    if (existing) {
+      existing.task.remove();
+      this.instances.delete(kind);
+    }
+    const managed = this.manager.windows.get(id);
+    if (!managed) return null;
+    const instance = this.attachWindow(kind, id, title, iconName);
+    const onDismiss = managed.onDismiss;
+    managed.onDismiss = (...args) => {
+      try {
+        onDismiss?.(...args);
+      } finally {
+        if (this.instances.get(kind) === instance) this.instances.delete(kind);
+        instance.task.remove();
+        this.onWindowState();
+      }
+    };
+    return instance;
+  }
   openFile(location, item) {
-    const viewer = fileViewer(item);
-    if (!viewer) return;
     const fileId = item.fileId ?? virtualFileId(location.id, item.name);
     if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) return;
-    if (item.virtualApp === 'bomb-arena') return this.openBombArena(item, fileId);
-    if (item.receivedFile && item.launch && this.onOpenReceived)
+    if (isMediaTrack(item) && this.onLaunchExecutable)
+      return this.onLaunchExecutable('windows-media-play', item, fileId);
+    const executable = executableAssociation(item, fileId);
+    if (executable === 'chaos-survival' && this.onLaunchArcade) return this.onLaunchArcade();
+    if (executable === 'bomb-arena') return this.openBombArena(item, fileId);
+    if (executable === 'mini-game' && item.receivedFile && this.onOpenReceived)
       return this.onOpenReceived(item);
+    if (
+      [
+        'windows-love-messenger',
+        'internet-adventurer',
+        'windows-media-play',
+        'toolbar-installer',
+        'smiley-pack-installer',
+      ].includes(executable) &&
+      this.onLaunchExecutable
+    ) return this.onLaunchExecutable(executable, item, fileId);
     if (isArcadeExecutable(item) && this.onLaunchArcade) return this.onLaunchArcade();
+    if (executable === 'unknown') return this.openExecutableError(fileId);
+    const viewer = fileViewer(item);
+    if (!viewer) return;
     const key = `file:${location.id}/${item.name}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {
@@ -165,8 +225,15 @@ export class DesktopApplications {
         ? item.name
         : `${item.name} — ${viewer === 'notepad' ? 'Bloc-notes' : 'Visionneuse d’images'}`;
     const iconName = viewer === 'image' ? 'picture' : 'document';
+    const windowOptions =
+      viewer === 'notepad'
+        ? { resizable: true, maximizable: true, minWidth: 360, minHeight: 260 }
+        : viewer === 'image'
+          ? { resizable: true, maximizable: true, minWidth: 320, minHeight: 240 }
+          : {};
     const id = this.manager.spawn('desktopapp', {
       preview: true,
+      ...windowOptions,
       content: {
         title: 'Document',
         iconName,
@@ -175,7 +242,7 @@ export class DesktopApplications {
             ? '<div class="generic-file-content"><pre></pre><p class="generic-file-unavailable" hidden>Windows ne peut pas ouvrir ce fichier. Aucun contenu ni visualiseur spécifique n’est défini pour ce fichier fictif.</p></div><div class="window-status">Windows XD · Lecture seule</div>'
             : viewer === 'notepad'
               ? '<div class="msn-menu notepad-menu"></div><textarea class="notepad-content" aria-label="Contenu du fichier texte" spellcheck="false"></textarea><div class="window-status" role="status"></div><section class="notepad-confirm" role="dialog" aria-label="Bloc-notes : enregistrer les modifications" aria-modal="true" hidden><strong>Bloc-notes Windows XD</strong><p></p><div><button class="xp-button" data-answer="yes">Oui</button><button class="xp-button" data-answer="no">Non</button><button class="xp-button" data-answer="cancel">Annuler</button></div></section>'
-              : '<div class="explorer-menu file-menu">Fichier <span>Affichage</span><span>Image</span><span>Aide</span></div><div class="picture-stage"><img class="picture-content" alt="" /><p class="picture-error" hidden>Aperçu non disponible pour cette image.</p></div><div class="picture-toolbar">▧ Ajuster à la fenêtre</div><div class="window-status">Visionneuse d’images Windows XD</div>',
+              : '<div class="explorer-menu file-menu">Fichier <span>Affichage</span><span>Image</span><span>Aide</span></div><div class="picture-stage"><img class="picture-content" alt="" /><p class="picture-error" hidden>Aperçu non disponible pour cette image.</p></div><div class="window-status">Visionneuse d’images Windows XD</div>',
       },
       onDismiss: () => {
         instance.disposeEditor?.();
@@ -216,6 +283,67 @@ export class DesktopApplications {
     this.restore(instance);
     return instance;
   }
+  openExecutableError(fileId) {
+    const key = `executable-error:${fileId}`;
+    const existing = this.instances.get(key);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    const title = 'Windows XD';
+    const id = this.manager.spawn('desktopapp', {
+      preview: true,
+      content: {
+        title,
+        iconName: 'error',
+        body: '<section class="executable-error-dialog" role="alert"><span class="executable-error-symbol" aria-hidden="true">×</span><p>Impossible d’exécuter cette application.</p><button type="button" class="xp-button">OK</button></section>',
+      },
+      onDismiss: () => {
+        this.instances.delete(key);
+        instance.task.remove();
+        this.onWindowState();
+      },
+    });
+    const instance = this.attachWindow(key, id, title, 'error');
+    instance.element.classList.add('executable-error-window');
+    instance.element.querySelector('.executable-error-dialog button').addEventListener('click', () =>
+      this.manager.close(id),
+    );
+    this.restore(instance);
+    return instance;
+  }
+  openMissingFileShortcut(file) {
+    if (this.virtualFilesystem?.exists(file?.fileId)) return null;
+    const fileId = typeof file?.fileId === 'string' ? file.fileId : '';
+    const key = `missing-shortcut:${fileId}`;
+    const existing = this.instances.get(key);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    const title = 'Windows XD';
+    const id = this.manager.spawn('desktopapp', {
+      preview: true,
+      content: {
+        title,
+        iconName: 'error',
+        body: '<section class="executable-error-dialog" role="alert"><span class="executable-error-symbol" aria-hidden="true">×</span><p class="missing-shortcut-message"></p><button type="button" class="xp-button">OK</button></section>',
+      },
+      onDismiss: () => {
+        this.instances.delete(key);
+        instance.task.remove();
+        this.onWindowState();
+      },
+    });
+    const instance = this.attachWindow(key, id, title, 'error');
+    instance.element.querySelector('.missing-shortcut-message').textContent =
+      `Impossible de trouver le fichier cible « ${String(file?.name ?? '')} ».`;
+    instance.element.querySelector('.executable-error-dialog button').addEventListener('click', () =>
+      this.manager.close(id),
+    );
+    this.restore(instance);
+    return instance;
+  }
   restore(instance) {
     instance.element.hidden = false;
     instance.element.style.zIndex = ++this.manager.z;
@@ -251,9 +379,9 @@ export class DesktopApplications {
     for (const item of definition.items) {
       const button = document.createElement('button');
       button.className = 'explorer-item';
-      button.innerHTML = icon(item.icon);
+      button.innerHTML = icon(fileIcon(item));
       const label = document.createElement('strong');
-      label.textContent = item.name;
+      label.textContent = getDisplayFileName(item);
       const detail = document.createElement('small');
       detail.textContent = item.detail;
       button.append(label, detail);
@@ -314,6 +442,7 @@ export class DesktopApplications {
   }
   setupExplorer(instance) {
     const body = instance.element.querySelector('.window-body');
+    const content = instance.element.querySelector('.explorer-items');
     const menu = document.createElement('div');
     menu.className = 'explorer-context-menu';
     menu.setAttribute('role', 'menu');
@@ -370,7 +499,94 @@ export class DesktopApplications {
       if (!menu.contains?.(event.target)) menu.hidden = true;
     };
     document.addEventListener('click', closeOutside);
-    instance.disposeExplorer = () => document.removeEventListener('click', closeOutside);
+    const deleteShortcut = (event) => {
+      const active = this.manager.isActive
+        ? this.manager.isActive(instance.element)
+        : this.manager.activeWindow?.() === instance.element;
+      if (
+        event.key !== 'Delete' ||
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !active ||
+        isTextEntry(event.target) ||
+        isTextEntry(document.activeElement) ||
+        !instance.explorerConfirmation.hidden ||
+        !instance.explorerProperties.hidden
+      ) return;
+      const item = instance.selectedItem;
+      if (!item?.fileId || !this.virtualFilesystem?.canDelete(item.fileId)) return;
+      event.preventDefault();
+      this.askDelete(instance, item);
+    };
+    document.addEventListener('keydown', deleteShortcut);
+    let fileDrag = null;
+    let suppressDragClick = null;
+    const onFileDragStart = (event) => {
+      if (event.button !== 0 || fileDrag) return;
+      const row = event.target.closest?.('.explorer-item');
+      const item = row && instance.current?.items.find((entry) => entry.fileId === row.dataset.fileId);
+      if (!item?.fileId || item.location || !this.virtualFilesystem?.exists(item.fileId)) return;
+      const selected = [...(content.querySelectorAll?.('.explorer-item[aria-selected="true"]') ?? [])];
+      if (selected.length > 1) return;
+      fileDrag = {
+        pointerId: event.pointerId,
+        row,
+        fileId: item.fileId,
+        startX: event.clientX,
+        startY: event.clientY,
+        started: false,
+      };
+    };
+    const onFileDragMove = (event) => {
+      const drag = fileDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const startsNow = !drag.started;
+      if (startsNow && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+      drag.started = true;
+      event.preventDefault();
+      if (startsNow)
+        try { drag.row.setPointerCapture?.(drag.pointerId); } catch { /* Pointer may already be released. */ }
+      this.onDesktopShortcutDrag?.('preview', drag.fileId, event.clientX, event.clientY);
+    };
+    const finishFileDrag = (event, canceled = false) => {
+      const drag = fileDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      fileDrag = null;
+      this.onDesktopShortcutDrag?.(
+        canceled || !drag.started ? 'cancel' : 'drop',
+        drag.fileId,
+        event.clientX,
+        event.clientY,
+      );
+      if (drag.started && !canceled) suppressDragClick = drag.row;
+    };
+    const onFileDragEnd = (event) => finishFileDrag(event);
+    const onFileDragCancel = (event) => finishFileDrag(event, true);
+    const onExplorerClick = (event) => {
+      if (!suppressDragClick || event.target.closest?.('.explorer-item') !== suppressDragClick) return;
+      suppressDragClick = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    content.addEventListener('pointerdown', onFileDragStart);
+    content.addEventListener('click', onExplorerClick, true);
+    document.addEventListener('pointermove', onFileDragMove);
+    document.addEventListener('pointerup', onFileDragEnd);
+    document.addEventListener('pointercancel', onFileDragCancel);
+    instance.disposeExplorer = () => {
+      if (fileDrag) this.onDesktopShortcutDrag?.('cancel', fileDrag.fileId);
+      fileDrag = null;
+      content.removeEventListener('pointerdown', onFileDragStart);
+      content.removeEventListener('click', onExplorerClick, true);
+      document.removeEventListener('pointermove', onFileDragMove);
+      document.removeEventListener('pointerup', onFileDragEnd);
+      document.removeEventListener('pointercancel', onFileDragCancel);
+      document.removeEventListener('click', closeOutside);
+      document.removeEventListener('keydown', deleteShortcut);
+    };
     menu.addEventListener('click', (event) => {
       event.stopPropagation();
       const action = event.target.closest?.('[data-explorer-action]')?.dataset.explorerAction;
@@ -428,7 +644,8 @@ export class DesktopApplications {
     const canDelete = Boolean(item.fileId && this.virtualFilesystem.canDelete(item.fileId));
     deleteButton.disabled = !canDelete;
     menu.querySelector('[data-explorer-action="extract"]').hidden =
-      item.extractable !== 'bomb-arena' || !this.virtualFilesystem.exists(item.fileId);
+      !['bomb-arena', 'smiley-pack-2009'].includes(item.extractable) ||
+      !this.virtualFilesystem.exists(item.fileId);
     deleteButton.title = canDelete ? '' : 'Impossible de supprimer ce fichier. Accès refusé.';
     const body = instance.element.querySelector('.window-body').getBoundingClientRect();
     menu.hidden = false;
@@ -495,6 +712,10 @@ export class DesktopApplications {
     }
     const id = this.manager.spawn('desktopapp', {
       preview: true,
+      resizable: true,
+      maximizable: true,
+      minWidth: 320,
+      minHeight: 240,
       x: 0.3,
       y: 0.2,
       content: {
@@ -515,10 +736,12 @@ export class DesktopApplications {
   }
   extractWithWinRoar(item) {
     if (
-      item?.extractable !== 'bomb-arena' || !item.fileId ||
+      !['bomb-arena', 'smiley-pack-2009'].includes(item?.extractable) || !item.fileId ||
       !this.virtualFilesystem?.exists(item.fileId)
     ) return null;
-    const key = 'winroar:bomb-arena';
+    const key = item.extractable === 'bomb-arena'
+      ? 'winroar:bomb-arena'
+      : `winroar:${item.fileId}`;
     const existing = this.instances.get(key);
     if (existing?.element.isConnected) {
       this.restore(existing);
@@ -541,6 +764,9 @@ export class DesktopApplications {
       },
     });
     const instance = this.attachWindow(key, id, 'WinRoar', 'archive');
+    if (item.extractable !== 'bomb-arena')
+      instance.element.querySelector('.winroar-extraction strong').textContent =
+        `Extraction de ${item.name}`;
     const progress = instance.element.querySelector('.winroar-extraction progress');
     const status = instance.element.querySelector('.winroar-extraction [role="status"]');
     let elapsed = 0;
@@ -554,10 +780,16 @@ export class DesktopApplications {
       if (elapsed < 3000) return;
       clearInterval(instance.extractionTimer);
       instance.extractionTimer = null;
-      const result = this.virtualFilesystem.extractBombArena(item.fileId);
-      status.textContent = result.ok
-        ? result.existing ? 'BombArena.exe existe déjà.' : 'Extraction terminée.'
-        : 'Impossible de terminer l’extraction.';
+      const result = item.extractable === 'bomb-arena'
+        ? this.virtualFilesystem.extractBombArena(item.fileId)
+        : this.virtualFilesystem.extractArchive(item.fileId);
+      status.textContent = item.extractable === 'bomb-arena'
+        ? result.ok
+          ? result.existing ? 'BombArena.exe existe déjà.' : 'Extraction terminée.'
+          : 'Impossible de terminer l’extraction.'
+        : result.ok
+          ? result.existing ? 'Les fichiers extraits existent déjà.' : 'Extraction terminée.'
+          : 'Impossible de terminer l’extraction.';
       if (result.ok) {
         this.refreshExplorers();
         this.onFilesystemChange({ origin: 'system', extracted: result.fileId });

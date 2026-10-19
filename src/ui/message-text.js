@@ -9,9 +9,13 @@ const emoticons = {
   '<3': '♥',
   ":')": '😂',
 };
+const classicPattern = Object.keys(emoticons).sort((a, b) => b.length - a.length)
+  .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+
 export function appendMessageText(element, text) {
-  for (const part of text.split(/(>:\)|:'\)|:\)|:D|:\||;\)|:P|:\$|<3)/g)) {
-    if (!emoticons[part]) {
+  for (const part of String(text).split(new RegExp(`(${classicPattern})`, 'g'))) {
+    if (!Object.hasOwn(emoticons, part)) {
       element.append(document.createTextNode(part));
       continue;
     }

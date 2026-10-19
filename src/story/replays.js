@@ -1,5 +1,4 @@
 import { ConversationThread } from './conversation-thread.js';
-export const PIXELGIRL_INTRO_RECEIVE_DELAY_MS = 3000;
 export class ReplayReactions {
   constructor(progression, definitions, config) {
     Object.assign(this, { progression, definitions, config });
@@ -66,21 +65,6 @@ export class ReplayReactions {
         (entry) => entry.speaker === 'contact',
       ) ?? false
     );
-  }
-  desktopShown(now = Date.now()) {
-    const definition = this.thread.getEvents().find((event) => event.id === 'pixelgirl-intro');
-    if (!definition) return false;
-    const saved = this.progression.data.dialogues[definition.id];
-    if (saved?.transcript?.length || Number.isFinite(saved?.receiveDueAt)) return false;
-    const first = definition.nodes[definition.start]?.messages[0];
-    if (!first) return false;
-    const firstMessageDelay =
-      first.delayMs + first.typingMs + (first.typingPauseMs ?? 0);
-    this.thread.schedule(
-      definition,
-      now + PIXELGIRL_INTRO_RECEIVE_DELAY_MS - firstMessageDelay,
-    );
-    return Number.isFinite(this.progression.data.dialogues[definition.id]?.receiveDueAt);
   }
   launch(now = Date.now()) {
     const data = this.progression.data;

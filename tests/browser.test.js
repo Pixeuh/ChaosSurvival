@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { HOME_URL, normalizeUrl, PageRegistry, localPages } from '../src/browser/registry.js';
 import { BrowserSession } from '../src/browser/session.js';
+import { InternetAdventurer } from '../src/ui/browser.js';
 import { renderSearch } from '../src/browser/pages/xd-search.js';
 import { renderError } from '../src/browser/pages/error.js';
 import { Progression } from '../src/story/progression.js';
@@ -17,6 +18,84 @@ function fixture() {
   const progression = new Progression(story, storage);
   return { progression, storage, session: new BrowserSession(progression) };
 }
+
+test('Internet Adventurer opts into managed resizing at its existing initial size', (t) => {
+  const { progression } = fixture();
+  const previousResizeObserver = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  t.after(() => {
+    if (previousResizeObserver === undefined) delete globalThis.ResizeObserver;
+    else globalThis.ResizeObserver = previousResizeObserver;
+  });
+
+  const form = { addEventListener() {} };
+  const classes = new Set();
+  const element = {
+    isConnected: true,
+    classList: { add: (...names) => names.forEach((name) => classes.add(name)) },
+    addEventListener() {},
+    querySelector(selector) {
+      assert.equal(selector, '.browser-address');
+      return form;
+    },
+  };
+  let spawnOptions;
+  let spawnCount = 0;
+  const manager = {
+    dragged: new Set(),
+    spawn(type, options) {
+      assert.equal(type, 'desktopapp');
+      spawnCount++;
+      spawnOptions = options;
+      return 1;
+    },
+    movementBounds: () => ({ minX: 0, maxX: 100, minY: 0, maxY: 100 }),
+  };
+  const instance = { id: 1, element, task: { remove() {} } };
+  const applications = {
+    instances: new Map(),
+    attachWindow() { return instance; },
+    restore() {},
+    onWindowState() {},
+  };
+  const browser = new InternetAdventurer(manager, applications, progression);
+  browser.load = () => {};
+  browser.open();
+
+  assert.equal(spawnOptions.windowClass, 'internet-adventurer');
+  assert.equal(spawnOptions.resizable, true);
+  assert.equal(spawnOptions.maximizable, true);
+  assert.equal(spawnOptions.minWidth, 320);
+  assert.equal(spawnOptions.minHeight, 240);
+  assert.ok(classes.has('internet-adventurer'));
+  assert.equal(browser.session.address, HOME_URL);
+
+  const openInstance = browser.instance;
+  browser.session.navigate('http://www.xdsearch.fr/?q=depuis-explorer');
+  browser.open();
+  assert.equal(browser.instance, openInstance);
+  assert.equal(browser.session.address, 'http://www.xdsearch.fr/?q=depuis-explorer');
+  assert.equal(spawnCount, 1);
+});
+
+test('Internet Adventurer layout keeps its toolbars fixed while the page area scrolls and grows', () => {
+  const css = readFileSync(new URL('../src/styles-browser.css', import.meta.url), 'utf8');
+  const toolbar = css.match(/\.browser-toolbar\s*\{([^}]+)\}/)?.[1] ?? '';
+  const page = css.match(/\.browser-page\s*\{([^}]+)\}/)?.[1] ?? '';
+  const initial = css.match(/\.desktop \.popup\.internet-adventurer\s*\{([^}]+)\}/)?.[1] ?? '';
+
+  assert.match(toolbar, /flex-shrink:\s*0/);
+  assert.match(page, /flex:\s*1/);
+  assert.match(page, /min-height:\s*0/);
+  assert.match(page, /overflow:\s*auto/);
+  assert.match(initial, /width:\s*min\(740px, 100%\)/);
+  assert.match(initial, /height:\s*470px/);
+  assert.doesNotMatch(initial, /resize:\s*both/);
+});
+
 test('URLs normalize aliases and paths locally and reject host files, scripts, credentials and ports', () => {
   for (const input of [
     'http://www.xdsearch.fr',

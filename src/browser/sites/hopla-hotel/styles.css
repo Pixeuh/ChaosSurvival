@@ -7,6 +7,12 @@
     sans-serif;
   min-height: 100%;
 }
+.hopla-hotel:not(.hotel-room) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
 .hopla-hotel a {
   color: #195a92;
   text-decoration: underline;
@@ -55,6 +61,20 @@
   border: 2px solid #315778;
   background: #5f9ebe;
   color: #fff;
+}
+.hopla-hotel:not(.hotel-room) > .hotel-banner {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+.hopla-hotel:not(.hotel-room) > .hotel-banner > * {
+  flex-shrink: 0;
+  max-width: 100%;
 }
 .hotel-banner p {
   margin: 12px auto;
@@ -376,7 +396,6 @@
   line-height: 1.35;
 }
 .desktop .popup.hopla-hotel-client {
-  resize: both;
   overflow: hidden;
   max-height: none;
 }

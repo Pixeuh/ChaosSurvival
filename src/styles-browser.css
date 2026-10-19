@@ -4,7 +4,6 @@
   min-width: min(320px, 100%);
   min-height: 240px;
   max-height: 100%;
-  resize: both;
   overflow: hidden;
 }
 .internet-adventurer > .window-body {
@@ -109,6 +108,9 @@
   font:
     13px Arial,
     sans-serif;
+}
+.browser-page:has(.bubble-pop) {
+  contain: size;
 }
 .browser-statusbar {
   display: flex;

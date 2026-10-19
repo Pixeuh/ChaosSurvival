@@ -337,6 +337,39 @@ button svg {
 .close-button:hover {
   filter: brightness(1.2);
 }
+.maximize-button {
+  display: grid;
+  place-items: center;
+  height: 23px;
+  width: 24px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  padding: 0;
+  border: 1px solid #fff;
+  border-radius: 3px;
+  background: linear-gradient(#70a9ee, #2166cb);
+  box-shadow: inset 1px 1px 1px #ffffff9c;
+  color: #fff;
+  font: bold 14px/1 Arial, sans-serif;
+  text-shadow: 1px 1px 0 #17467f;
+}
+.maximize-button svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.4;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  filter: drop-shadow(0 1px 0 #17467f);
+}
+.maximize-button:hover {
+  filter: brightness(1.2);
+}
+.maximize-button:active {
+  filter: brightness(0.85);
+}
 .close-button:active {
   filter: brightness(0.85);
 }
@@ -349,10 +382,83 @@ button svg {
   display: flex;
   flex-direction: column;
 }
+.popup.window-managed-sizing {
+  box-sizing: border-box;
+  max-width: none;
+  max-height: none;
+}
+.window-resize-handle {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+  user-select: none;
+}
+.window-resize-n,
+.window-resize-s {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+}
+.window-resize-n {
+  top: 0;
+  cursor: ns-resize;
+}
+.window-resize-s {
+  bottom: 0;
+  cursor: ns-resize;
+}
+.window-resize-e,
+.window-resize-w {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+}
+.window-resize-e {
+  top: 28px;
+  right: 0;
+  cursor: ew-resize;
+}
+.window-resize-w {
+  left: 0;
+  cursor: ew-resize;
+}
+.window-resize-ne,
+.window-resize-nw,
+.window-resize-se,
+.window-resize-sw {
+  width: 12px;
+  height: 12px;
+}
+.window-resize-ne {
+  top: 0;
+  right: 28px;
+  cursor: nesw-resize;
+}
+.window-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.window-resize-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+.window-resize-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.window-maximized .window-resize-handle {
+  display: none;
+}
 .is-playing .popup {
   /* Reserve space to stagger titlebars, even on the minimum window size. */
   max-height: min(360px, calc(100% - 80px));
   animation: window-in 0.1s ease-out;
+}
+.is-playing .popup.window-managed-sizing {
+  max-height: none;
 }
 .music-accent .desktop-wash {
   background: linear-gradient(135deg, #ffbce530, transparent 55%, #a1ffff25);
@@ -1498,6 +1604,46 @@ h1 .title-star {
   background: #daeafa;
   color: #7b91a8;
   font-size: 9px;
+}
+.start-menu-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: #d7e8f8;
+  border-top: 1px solid #b8cee4;
+}
+.start-menu-actions button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #24466f;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.start-menu-actions button:hover {
+  border-color: #8bb4df;
+  background: #edf4fc;
+}
+.start-menu-actions .icon {
+  width: 20px;
+  height: 20px;
+}
+.start-menu-power-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc4a32;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
 }
 /* Game states and animations */
 .danger #chaos-fill {

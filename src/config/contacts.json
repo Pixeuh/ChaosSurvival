@@ -75,7 +75,10 @@
   },
   {
     "id": "k7",
-    "kind": "decorative",
+    "kind": "narrative",
+    "dialogue": "k7-intro",
+    "unlockFlag": "k7IntroductionStarted",
+    "connection": true,
     "visibleInitially": true,
     "nickname": "K7",
     "status": "Hors ligne",

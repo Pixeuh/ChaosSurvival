@@ -1,6 +1,44 @@
+import { fileIcon, icon } from './icons.js';
+import { getDisplayFileName } from './file-names.js';
+
 const WIDTH = 120;
 const HEIGHT = 104;
 const MARGIN = 20;
+const SYSTEM_SHORTCUT_IDS = new Set(['shortcut:computer', 'shortcut:folder', 'shortcut:bin']);
+const INITIAL_SHORTCUT_TARGETS = new Map([
+  ['arcade', 'my-games/chaossurvival.exe'],
+]);
+const INITIAL_ICON_ORDER = [
+  'shortcut:bin',
+  'shortcut:computer',
+  'shortcut:folder',
+  'shortcut:msn',
+  'shortcut:browser',
+  'shortcut:windows-media-play',
+  'shortcut:music',
+];
+const LEGACY_AUTOMATIC_LAYOUTS = [
+  {
+    'shortcut:bin': { col: 0, row: 0 },
+    'shortcut:computer': { col: 0, row: 1 },
+    'shortcut:folder': { col: 0, row: 2 },
+    'shortcut:msn': { col: 0, row: 3 },
+    'shortcut:windows-media-play': { col: 0, row: 4 },
+    'shortcut:music': { col: 0, row: 5 },
+    'shortcut:browser': { col: 0, row: 6 },
+  },
+  {
+    'shortcut:bin': { col: 0, row: 0 },
+    'shortcut:computer': { col: 0, row: 1 },
+    'shortcut:folder': { col: 0, row: 2 },
+    'shortcut:msn': { col: 0, row: 3 },
+    'shortcut:browser': { col: 0, row: 4 },
+    'shortcut:music': { col: 0, row: 5 },
+  },
+];
+export function iconCellTop(cell) {
+  return MARGIN + cell.row * HEIGHT;
+}
 const validCell = (cell) =>
   cell &&
   Number.isInteger(cell.col) &&
@@ -25,9 +63,35 @@ export function nearestIconCell(x, y, grid) {
     row: Math.max(0, Math.min(grid.rows - 1, Math.round((y - MARGIN) / HEIGHT))),
   };
 }
+export function nearestFreeIconCell(x, y, grid, occupied) {
+  const cells = [];
+  for (let col = 0; col < grid.cols; col++)
+    for (let row = 0; row < grid.rows; row++)
+      if (!occupied.has(`${col}:${row}`)) cells.push({ col, row });
+  cells.sort((a, b) =>
+    (MARGIN + a.col * grid.step - x) ** 2 + (MARGIN + a.row * HEIGHT - y) ** 2 -
+    ((MARGIN + b.col * grid.step - x) ** 2 + (MARGIN + b.row * HEIGHT - y) ** 2),
+  );
+  return cells[0] ?? null;
+}
 export function iconCellLeft(cell, grid, width, iconWidth, edge = 'left') {
   const col = edge === 'right' ? grid.cols - 1 : cell.col;
   return MARGIN + col * grid.step;
+}
+export function discardLegacyAutomaticPositions(saved) {
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return false;
+  let best = null;
+  for (const layout of LEGACY_AUTOMATIC_LAYOUTS) {
+    const matches = Object.entries(layout).filter(([id, cell]) => {
+      const position = saved[id];
+      return validCell(position) && position.custom !== true && position.edge !== 'right' && same(position, cell);
+    });
+    if (matches.length >= 4 && (!best || matches.length > best.matches.length))
+      best = { layout, matches };
+  }
+  if (!best) return false;
+  for (const [id] of best.matches) delete saved[id];
+  return best.matches.length > 0;
 }
 export function layoutIconCells(ids, saved, grid) {
   const cells = [];
@@ -64,12 +128,19 @@ export function layoutIconCells(ids, saved, grid) {
           .find(free);
     if (cell) result.set(id, cell);
   }
-  // Default bin placement is the first free cell. Personal cells always win.
-  if (ids.includes('shortcut:bin') && !result.has('shortcut:bin')) {
-    const cell = cells.find(free);
-    if (cell) result.set('shortcut:bin', cell);
+  const mediaId = 'shortcut:windows-media-play';
+  const arcadeId = 'shortcut:music';
+  if (ids.includes(mediaId) && !result.has(mediaId) && result.has(arcadeId)) {
+    const gameCell = result.get(arcadeId);
+    const cellAbove = { col: gameCell.col, row: gameCell.row - 1 };
+    if (cellAbove.row >= 0 && free(cellAbove)) result.set(mediaId, cellAbove);
   }
-  for (const id of ids)
+  const initialIds = INITIAL_ICON_ORDER.filter((id) => ids.includes(id));
+  const assignmentOrder = [
+    ...initialIds,
+    ...ids.filter((id) => !INITIAL_ICON_ORDER.includes(id)),
+  ];
+  for (const id of assignmentOrder)
     if (!result.has(id)) {
       const cell = cells.find(free);
       if (cell) result.set(id, cell);
@@ -105,14 +176,16 @@ export function groupIconCells(cells, ids, delta, grid) {
 
 export class DesktopIcons {
   reset() {
+    this.clearShortcutDropPreview();
     this.cancel();
     this.suppressClick = null;
     this.select(null);
     this.refresh();
   }
-  constructor(desktop, progression) {
+  constructor(desktop, progression, virtualFilesystem = null) {
     this.desktop = desktop;
     this.progression = progression;
+    this.virtualFilesystem = virtualFilesystem;
     this.selectedIds = new Set();
     desktop.classList.add('icon-grid');
     desktop.addEventListener('dragstart', (event) => {
@@ -146,7 +219,9 @@ export class DesktopIcons {
     return button?.closest('.desktop-icons, .desktop-files') ? button : null;
   }
   id(button) {
-    return button.dataset.fileId
+    return button.dataset.shortcutId
+      ? `shortcut:${button.dataset.shortcutId}`
+      : button.dataset.fileId
       ? `file:${button.dataset.fileId}`
       : // Keep the previous saved cell when the music launcher becomes an EXE.
         `shortcut:${button.dataset.shortcut === 'arcade' ? 'music' : button.dataset.shortcut}`;
@@ -154,11 +229,152 @@ export class DesktopIcons {
   buttons() {
     return [...this.desktop.querySelectorAll('.desktop-icons button, .desktop-files button')];
   }
+  targetFileId(button) {
+    const targetFileId = button?.dataset?.fileId ?? INITIAL_SHORTCUT_TARGETS.get(button?.dataset?.shortcut);
+    return typeof targetFileId === 'string' ? targetFileId.toLowerCase() : null;
+  }
+  removedIds() {
+    return Array.isArray(this.progression.data.desktopIconsRemoved)
+      ? this.progression.data.desktopIconsRemoved
+      : [];
+  }
+  remove(button) {
+    return this.removeMany([button]);
+  }
+  removeMany(buttons) {
+    const ids = [...new Set(buttons
+      .filter((button) => button?.dataset?.shortcut || button?.classList?.contains('desktop-virtual-shortcut'))
+      .map((button) => this.id(button))
+      .filter((id) => id && !SYSTEM_SHORTCUT_IDS.has(id) && !this.removedIds().includes(id)))];
+    if (!ids.length) return false;
+    // Pin the current layout before an icon leaves the grid so its neighbors stay put.
+    for (const [savedId, cell] of this.cells ?? [])
+      if (!this.saved[savedId]) this.saved[savedId] = { ...cell, custom: true };
+    this.progression.data.desktopIcons = this.saved;
+    this.progression.data.desktopIconsRemoved = [...this.removedIds(), ...ids];
+    const removedCustom = new Set(ids.filter((id) => id.startsWith('shortcut:user-')));
+    if (removedCustom.size)
+      this.progression.data.desktopShortcuts = (this.progression.data.desktopShortcuts ?? [])
+        .filter((shortcut) => !removedCustom.has(`shortcut:${shortcut.id}`));
+    for (const id of ids) this.selectedIds.delete(id);
+    this.progression.save();
+    this.refresh();
+    return true;
+  }
+  dropTarget(fileId, clientX, clientY) {
+    if (this.desktop.inert || !this.virtualFilesystem?.exists(fileId)) return null;
+    const target = document.elementFromPoint?.(clientX, clientY);
+    if (!target || !this.desktop.contains(target)) return null;
+    if (target.closest?.('.popup, .taskbar, .start-menu, #start-menu, .start-panel, .windows-xd-context-menu, .windows-xd-context-confirmation'))
+      return null;
+    const iconButton = target.closest?.('.desktop-icons button, .desktop-files button');
+    if (iconButton)
+      return iconButton.dataset.fileId === fileId &&
+        (iconButton.dataset.shortcutId || iconButton.classList?.contains('desktop-virtual-shortcut'))
+        ? { duplicate: iconButton }
+        : null;
+    this.refresh();
+    const rect = this.desktop.getBoundingClientRect();
+    const taskbar = this.desktop.querySelector('.taskbar')?.getBoundingClientRect();
+    if (taskbar && clientY >= taskbar.top) return null;
+    const occupied = new Set([...this.cells.values()].map((cell) => `${cell.col}:${cell.row}`));
+    const cell = nearestFreeIconCell(clientX - rect.left, clientY - rect.top, this.grid, occupied);
+    return cell ? { cell } : null;
+  }
+  clearShortcutDropPreview() {
+    this.dropPreview?.remove();
+    this.dropPreview = null;
+  }
+  existingFileIcon(fileId) {
+    const target = typeof fileId === 'string' ? fileId.toLowerCase() : '';
+    return this.buttons().find((button) => {
+      const isShortcut = button.dataset.shortcutId ||
+        button.classList?.contains('desktop-virtual-shortcut') ||
+        INITIAL_SHORTCUT_TARGETS.has(button.dataset.shortcut);
+      return !button.hidden && button.style.visibility !== 'hidden' && isShortcut &&
+        this.targetFileId(button) === target;
+    }) ?? null;
+  }
+  updateShortcutDropPreview(fileId, clientX, clientY) {
+    this.clearShortcutDropPreview();
+    const existing = this.existingFileIcon(fileId);
+    if (existing) {
+      this.select(existing);
+      return true;
+    }
+    const target = this.dropTarget(fileId, clientX, clientY);
+    if (!target) return false;
+    if (target.duplicate) {
+      this.select(target.duplicate);
+      return true;
+    }
+    const file = this.virtualFilesystem.getFile(fileId);
+    const rect = this.desktop.getBoundingClientRect();
+    const preview = document.createElement('div');
+    preview.className = 'shortcut-drop-preview';
+    preview.setAttribute('aria-hidden', 'true');
+    preview.innerHTML = icon(fileIcon(file));
+    const label = document.createElement('span');
+    label.textContent = getDisplayFileName(file);
+    preview.append(label);
+    preview.style.left = `${iconCellLeft(target.cell, this.grid, rect.width, 100)}px`;
+    preview.style.top = `${iconCellTop(target.cell)}px`;
+    this.desktop.append(preview);
+    this.dropPreview = preview;
+    return true;
+  }
+  createFileShortcut(fileId, clientX, clientY) {
+    this.clearShortcutDropPreview();
+    if (!this.virtualFilesystem?.exists(fileId)) return { ok: false, reason: 'missing' };
+    const existing = this.existingFileIcon(fileId);
+    if (existing) {
+      this.select(existing);
+      return { ok: true, existing: true };
+    }
+    const target = this.dropTarget(fileId, clientX, clientY);
+    if (!target) return { ok: false, reason: 'invalid-drop' };
+    if (target.duplicate) {
+      this.select(target.duplicate);
+      return { ok: true, existing: true };
+    }
+    const file = this.virtualFilesystem.getFile(fileId);
+    const id = `user-${globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`;
+    const shortcut = { id, targetFileId: file.fileId, name: file.name, icon: fileIcon(file) };
+    const shortcuts = Array.isArray(this.progression.data.desktopShortcuts)
+      ? this.progression.data.desktopShortcuts
+      : [];
+    const previousSavedData = this.progression.data.desktopIcons;
+    const previousShortcuts = this.progression.data.desktopShortcuts;
+    const nextSaved = { ...this.saved };
+    for (const [existingId, cell] of this.cells)
+      if (!Object.hasOwn(nextSaved, existingId)) nextSaved[existingId] = { ...cell, custom: true };
+    nextSaved[`shortcut:${id}`] = { ...target.cell, custom: true };
+    this.saved = nextSaved;
+    this.progression.data.desktopIcons = nextSaved;
+    this.progression.data.desktopShortcuts = [...shortcuts, shortcut];
+    if (!this.progression.save()) {
+      this.progression.data.desktopIcons = previousSavedData;
+      this.progression.data.desktopShortcuts = previousShortcuts;
+      this.saved = previousSavedData && typeof previousSavedData === 'object' ? previousSavedData : {};
+      return { ok: false, reason: 'save' };
+    }
+    this.onShortcutsChanged?.();
+    return { ok: true, shortcut };
+  }
   select(button) {
     this.selectMany(button ? [button] : []);
   }
   selectMany(buttons) {
     this.selectedIds = new Set(buttons.map((button) => this.id(button)));
+    for (const item of this.buttons())
+      item.setAttribute('aria-pressed', String(this.selectedIds.has(this.id(item))));
+  }
+  contextSelection(button) {
+    if (!this.selectedIds.has(this.id(button))) this.select(button);
+    return this.buttons().filter((item) => this.selectedIds.has(this.id(item)));
+  }
+  deselectMany(buttons) {
+    for (const button of buttons) this.selectedIds.delete(this.id(button));
     for (const item of this.buttons())
       item.setAttribute('aria-pressed', String(this.selectedIds.has(this.id(item))));
   }
@@ -177,7 +393,10 @@ export class DesktopIcons {
     this.runId = this.progression.data.runId;
     const saved = this.progression.data.desktopIcons;
     this.saved = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-    const buttons = this.buttons();
+    const removed = new Set(this.removedIds());
+    const allButtons = this.buttons();
+    for (const button of allButtons) button.hidden = removed.has(this.id(button));
+    const buttons = allButtons.filter((button) => !button.hidden);
     const rect = this.desktop.getBoundingClientRect();
     this.grid = iconGrid(
       rect.width,
@@ -187,6 +406,7 @@ export class DesktopIcons {
       Math.max(0, ...buttons.map((button) => button.offsetWidth)),
     );
     let changed = false;
+    if (discardLegacyAutomaticPositions(this.saved)) changed = true;
     // Legacy saves store absolute cells only. Treat their former last column as
     // right-anchored once, then retain that intent on later resizes.
     if (!this.hasRefreshed) {
@@ -216,11 +436,7 @@ export class DesktopIcons {
       button.style.visibility = cell ? '' : 'hidden';
       if (!cell) continue;
       button.style.left = `${iconCellLeft(cell, this.grid, rect.width, button.offsetWidth, this.saved[id]?.edge)}px`;
-      button.style.top = `${MARGIN + cell.row * HEIGHT}px`;
-      if (!validCell(this.saved[id])) {
-        this.saved[id] = { ...cell };
-        changed = true;
-      }
+      button.style.top = `${iconCellTop(cell)}px`;
     }
     if (changed && this.progression.hasSave) this.persist();
   }
@@ -358,7 +574,9 @@ export class DesktopIcons {
       if (moved) {
         for (const [id, cell] of moved) {
           this.saved[id] =
-            cell.col === this.grid.cols - 1 ? { ...cell, edge: 'right' } : { ...cell };
+            cell.col === this.grid.cols - 1
+              ? { ...cell, edge: 'right', custom: true }
+              : { ...cell, custom: true };
         }
         this.persist();
       }

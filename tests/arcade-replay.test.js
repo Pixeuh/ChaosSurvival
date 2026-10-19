@@ -210,12 +210,17 @@ test('development shortcut uses arcade victory and never duplicates results or s
   const registration = main.match(
     /installDevelopmentVictoryShortcut\(document, \(\) => \{[\s\S]*?\n    \}\);/,
   )[0];
+  const foregroundGroupConversation = main.match(
+    /const foregroundGroupConversation = \(\) => \{[\s\S]*?\n    \};/,
+  )[0];
   const context = {
     progression,
     queueArcadeVictory,
     installDevelopmentVictoryShortcut,
     miniGameLauncher: { active: null },
     browser: { currentPage: null },
+    manager: { windows: new Map() },
+    messenger: { conversations: new Map() },
     rules: { active: false },
     state: { score: 1200, closed: 12 },
     audio: {
@@ -247,6 +252,7 @@ test('development shortcut uses arcade victory and never duplicates results or s
     const BEST_SCORE_KEY = 'test'; const arcadeSequenceId = 'arcade-1';
     function setPhase(next) { phase = next; }
     ${finish}
+    ${foregroundGroupConversation}
     ${registration}
     this.setPhase = setPhase;`,
     context,

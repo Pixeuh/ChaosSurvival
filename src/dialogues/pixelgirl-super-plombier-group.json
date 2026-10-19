@@ -190,7 +190,7 @@
     ], "next": "bomb-arena-transfer" },
     "bomb-arena-transfer": { "messages": [
       { "speaker": "contact", "author": "xX_PixelGirl_Xx", "type": "file", "text": "BombArena.zip", "file": { "id": "bomb-arena", "name": "BombArena.zip", "sizeLabel": "18 Mo", "size": 18874368, "description": "Archive ZIP", "deletable": true, "extractable": "bomb-arena", "reusableAfterDelete": true }, "delayMs": 450, "typingMs": 400 },
-      { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "voilààà cliquez pour télécharger :3 il faut aller dans \"mes documents\", click droit, \"extraire\" !!! ça devrait être dans le dossier \"mes fichiers reçus\" !!", "delayMs": 300, "typingMs": 400 }
+      { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "voilààà cliquez pour télécharger :3 !! oubliez pas de l'extraire", "delayMs": 300, "typingMs": 400 }
     ], "transfer": { "fileId": "bomb-arena", "accept": "bomb-arena-after-transfer", "refuse": "bomb-arena-transfer-refused" } },
     "bomb-arena-after-transfer": { "messages": [
       { "speaker": "contact", "author": "Turb0", "text": "ALLEZ ON SE BOUGE", "delayMs": 450, "typingMs": 400 },

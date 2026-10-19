@@ -149,6 +149,115 @@ test('Wizz send events persist one chronological system entry for each sender wi
   assert.equal(restored.state.history.length, 4);
 });
 
+test('Wizz button cooldown lasts five seconds per conversation and is cleaned up on close', (t) => {
+  const previous = {
+    document: globalThis.document,
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  let nextTimer = 0;
+  const timers = new Map();
+  globalThis.setTimeout = (callback, delay) => {
+    const id = ++nextTimer;
+    timers.set(id, { callback, delay });
+    return id;
+  };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  const makeNode = () => {
+    const listeners = new Map();
+    const node = {
+      children: [],
+      hidden: false,
+      disabled: false,
+      attributes: {},
+      classList: { contains: () => false },
+      addEventListener(type, callback) {
+        const entries = listeners.get(type) ?? new Set();
+        entries.add(callback);
+        listeners.set(type, entries);
+      },
+      removeEventListener(type, callback) { listeners.get(type)?.delete(callback); },
+      listenerCount(type) { return listeners.get(type)?.size ?? 0; },
+      dispatch(type, event = {}) {
+        if (type === 'click' && this.disabled) return;
+        for (const callback of listeners.get(type) ?? []) callback(event);
+      },
+      click() { this.dispatch('click'); },
+      append(...nodes) { this.children.push(...nodes); },
+      replaceChildren(...nodes) { this.children = nodes; },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      contains() { return false; },
+      querySelectorAll(selector) {
+        return selector === 'button:not(:disabled)' ? this.children.filter((child) => !child.disabled) : [];
+      },
+    };
+    return node;
+  };
+  const documentListeners = new Map();
+  globalThis.document = {
+    createElement: () => makeNode(),
+    addEventListener: (type, callback) => documentListeners.set(type, callback),
+    removeEventListener: (type) => documentListeners.delete(type),
+  };
+  t.after(() => {
+    if (previous.document === undefined) delete globalThis.document;
+    else globalThis.document = previous.document;
+    globalThis.setTimeout = previous.setTimeout;
+    globalThis.clearTimeout = previous.clearTimeout;
+  });
+  const makeWindow = (contactId) => {
+    const menu = makeNode();
+    const wizzButton = makeNode();
+    const element = {
+      dataset: { messengerContact: contactId },
+      classList: { contains: () => false },
+      querySelector: (selector) => selector === '.msn-menu' ? menu :
+        selector === '[data-msn-action="wizz"]' ? wizzButton : null,
+    };
+    return { element, menu, wizzButton };
+  };
+  const messenger = Object.create(Messenger.prototype);
+  const sent = [];
+  messenger.sendWizz = (id) => { sent.push(id); return true; };
+  const first = makeWindow('pixelgirl');
+  const second = makeWindow('turbo');
+  messenger.installMenus(first.element, () => ({ id: 'pixelgirl' }));
+  messenger.installMenus(second.element, () => ({ id: 'turbo' }));
+
+  first.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl']);
+  assert.equal(first.wizzButton.disabled, true);
+  assert.equal(timers.size, 1);
+  const firstTimer = timers.entries().next().value;
+  assert.equal(firstTimer[1].delay, 5000);
+  first.element.hidden = true;
+  first.element.hidden = false;
+  first.wizzButton.click();
+  const actions = first.menu.children.find((group) => group.children[0].textContent === 'Actions');
+  const menuWizz = actions.children[1].children.find((button) => button.textContent === 'Wizz !');
+  menuWizz.click();
+  assert.deepEqual(sent, ['pixelgirl'], 'rapid clicks and minimizing do not bypass or extend cooldown');
+  assert.equal(timers.size, 1);
+
+  second.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl', 'turbo'], 'another conversation has its own cooldown');
+  assert.equal(timers.size, 2);
+  firstTimer[1].callback();
+  timers.delete(firstTimer[0]);
+  assert.equal(first.wizzButton.disabled, false);
+  assert.equal(second.wizzButton.disabled, true);
+  first.wizzButton.click();
+  assert.deepEqual(sent, ['pixelgirl', 'turbo', 'pixelgirl']);
+  assert.equal(timers.size, 2);
+
+  second.element.disposeMenu();
+  assert.equal(timers.size, 1, 'closing a conversation clears its pending timer');
+  assert.equal(documentListeners.size, 0);
+  first.element.disposeMenu();
+  assert.equal(timers.size, 0);
+  assert.equal(first.wizzButton.listenerCount('click'), 0);
+});
+
 test('an incoming Wizz in the active conversation plays its effect without becoming unread', async () => {
   const progression = new Progression(read('../src/config/story.json'));
   progression.begin();
@@ -421,9 +530,17 @@ test('text and picture viewers have independent windows and task controls withou
   };
   const app = new DesktopApplications(manager, create());
   const explorer = app.open('folder');
+  assert.equal(manager.calls[0].resizable, true);
+  assert.equal(manager.calls[0].maximizable, true);
+  assert.equal(manager.calls[0].minWidth, 520);
+  assert.equal(manager.calls[0].minHeight, 330);
   const location = explorer.current;
   const txt = location.items.find((item) => item.name.endsWith('.txt'));
   const notepad = app.openFile(location, txt);
+  assert.equal(manager.calls[1].resizable, true);
+  assert.equal(manager.calls[1].maximizable, true);
+  assert.equal(manager.calls[1].minWidth, 360);
+  assert.equal(manager.calls[1].minHeight, 260);
   assert.equal(explorer.current, location);
   assert.equal(explorer.element.isConnected, true);
   assert.equal(notepad.element.querySelector('.notepad-content').value, txt.text);
@@ -438,8 +555,16 @@ test('text and picture viewers have independent windows and task controls withou
   assert.equal(app.openFile(location, txt), notepad);
   const images = explorerLocation('images');
   const picture = app.openFile(images, images.items[0]);
+  assert.equal(manager.calls[3].resizable, true);
+  assert.equal(manager.calls[3].maximizable, true);
+  assert.equal(manager.calls[3].minWidth, 320);
+  assert.equal(manager.calls[3].minHeight, 240);
   assert.equal(picture.element.querySelector('.picture-content').src, images.items[0].image);
+  assert.doesNotMatch(manager.calls[3].content.body, /Ajuster à la fenêtre|picture-toolbar/);
   assert.equal(manager.windows.size, 3);
+  app.openFile(location, { name: 'readme.bin', text: 'Fichier texte générique' });
+  assert.equal(manager.calls[4].resizable, undefined, 'generic files keep their existing behavior');
+  assert.equal(manager.calls[4].maximizable, undefined);
   notepad.element.querySelector('.titlebar').children[0].handlers.click();
   assert.equal(notepad.element.hidden, true);
   const previousZ = manager.z;
@@ -469,7 +594,7 @@ test('text and picture viewers have independent windows and task controls withou
     const rows = explorer.element.querySelector('.explorer-items').children;
     const history = [...explorer.history];
     for (const [index, item] of current.items.entries()) {
-      if (item.location) continue;
+      if (item.location || /\.exe$/i.test(item.name)) continue;
       rows[index].handlers.dblclick();
       assert.equal(explorer.current, current, item.name);
       assert.deepEqual(explorer.history, history, item.name);
@@ -495,6 +620,41 @@ test('text and picture viewers have independent windows and task controls withou
     }
   }
   assert.equal(JSON.stringify(filesystem), before);
+  const launchedApplications = [];
+  const applicationInstances = new Map();
+  let applicationRestores = 0;
+  app.onLaunchExecutable = (applicationId) => {
+    launchedApplications.push(applicationId);
+    if (applicationInstances.has(applicationId)) {
+      applicationRestores++;
+      return applicationInstances.get(applicationId);
+    }
+    const instance = { applicationId };
+    applicationInstances.set(applicationId, instance);
+    return instance;
+  };
+  for (const [locationId, executableName, applicationId] of [
+    ['messenger-files', 'love-messenger.exe', 'windows-love-messenger'],
+    ['browser-files', 'adventurer.exe', 'internet-adventurer'],
+    ['downloads', 'toolbar_setup.exe', 'toolbar-installer'],
+  ]) {
+    const executableLocation = explorerLocation(locationId);
+    const executable = executableLocation.items.find((item) => item.name === executableName);
+    app.render(explorer, executableLocation);
+    const row = explorer.element.querySelector('.explorer-items').children.find(
+      (item) => item.children[0].textContent === executableName.slice(0, executableName.lastIndexOf('.')),
+    );
+    const callsBefore = manager.calls.length;
+    row.handlers.dblclick();
+    const firstInstance = app.openFile(executableLocation, executable);
+    assert.equal(firstInstance.applicationId, applicationId);
+    assert.deepEqual(launchedApplications.slice(-2), [applicationId, applicationId]);
+    assert.equal(app.openFile(executableLocation, executable), firstInstance);
+    assert.equal(manager.calls.length, callsBefore, `${executableName} never opens a generic viewer`);
+  }
+  assert.equal(applicationInstances.size, 3);
+  assert.equal(applicationRestores, 6);
+
   const unknown = { name: 'new-file.unrecognized' };
   const synthetic = { ...location, id: 'test', items: [unknown] };
   app.render(explorer, synthetic);
@@ -503,6 +663,11 @@ test('text and picture viewers have independent windows and task controls withou
   assert.equal(fallback.element.querySelector('.generic-file-content pre').textContent, '');
   assert.equal(fallback.element.querySelector('.generic-file-unavailable').hidden, false);
   assert.equal(explorer.current, synthetic);
+  const unknownExecutable = app.openFile(synthetic, { name: 'unknown.exe', text: 'ignored file payload' });
+  assert.match(
+    manager.calls.at(-1).content.body,
+    /Impossible d’exécuter cette application\./,
+  );
   let launches = 0;
   app.onLaunchArcade = () => {
     launches++;
@@ -540,6 +705,25 @@ test('text and picture viewers have independent windows and task controls withou
   app.closeOpenFile(deletableText.fileId);
   assert.equal(openNote.element.isConnected, false, 'deleting an open note closes it without saving');
   assert.equal(app.textFiles.read(deletableText.fileId, deletableText.text).text, deletableText.text);
+});
+
+test('resizable document CSS keeps text scrollable and images naturally sized and contained', () => {
+  const css = readFileSync(new URL('../src/styles-story.css', import.meta.url), 'utf8');
+  const list = css.match(/\.messenger-contact-list\s*\{([^}]+)\}/)?.[1] ?? '';
+  const editor = css.match(/\.notepad-content\s*\{([^}]+)\}/)?.[1] ?? '';
+  const image = css.match(/\.picture-content\s*\{([^}]+)\}/)?.[1] ?? '';
+
+  assert.match(list, /flex:\s*1/);
+  assert.match(list, /min-height:\s*0/);
+  assert.match(list, /overflow:\s*auto/);
+  assert.match(editor, /flex:\s*1/);
+  assert.match(editor, /overflow:\s*auto/);
+  assert.match(editor, /font:\s*13px/);
+  assert.match(image, /width:\s*auto/);
+  assert.match(image, /height:\s*auto/);
+  assert.match(image, /max-width:\s*100%/);
+  assert.match(image, /max-height:\s*100%/);
+  assert.match(image, /object-fit:\s*contain/);
 });
 
 test('every JPG has a bundled illustration and viewers reject host paths and remote images', () => {
@@ -685,10 +869,15 @@ test('main contacts are visible offline initially and become available in place 
   });
   assert.equal(connected.find((contact) => contact.id === 'turbo').online, true);
   assert.equal(new Set(connected.map((contact) => contact.id)).size, 9);
-  for (const [id, nickname, personalMessage] of [
-    ['k7', 'K7', '♫ ON AIR !!!'],
-    ['m0rbid', 'x_M0RBID_x', ''],
-  ]) {
+  const k7 = locked.find((entry) => entry.id === 'k7');
+  assert.equal(k7.kind, 'narrative');
+  assert.equal(k7.nickname, 'K7');
+  assert.equal(k7.status, 'Hors ligne');
+  assert.equal(k7.online, false);
+  assert.equal(k7.available, false);
+  assert.equal(k7.dialogue, 'k7-intro');
+  assert.equal(k7.connection, true);
+  for (const [id, nickname, personalMessage] of [['m0rbid', 'x_M0RBID_x', '']]) {
     const contact = locked.find((entry) => entry.id === id);
     assert.equal(contact.kind, 'decorative');
     assert.equal(contact.nickname, nickname);
@@ -850,6 +1039,53 @@ test('Messenger keeps one independent window per contact including future contac
     'offline:skater',
     'open:future',
   ]);
+});
+
+test('opening Windows Love Messenger reuses and restores its existing contacts window', () => {
+  const instance = { element: { isConnected: true } };
+  let restored = 0;
+  let rendered = 0;
+  const messenger = Object.assign(Object.create(Messenger.prototype), {
+    views: new Map([['contacts', instance]]),
+    applications: { restore: (view) => { assert.equal(view, instance); restored++; } },
+    roster: { renderContacts: () => rendered++ },
+  });
+
+  assert.equal(messenger.open(), instance);
+  assert.equal(messenger.open(), instance);
+  assert.equal(restored, 2);
+  assert.equal(rendered, 2);
+});
+
+test('only the main Messenger contacts panel opts into resize and maximize', () => {
+  const calls = [];
+  const manager = {
+    spawn(type, options) {
+      calls.push({ type, options });
+      return calls.length;
+    },
+  };
+  const applications = {
+    instances: new Map(),
+    attachWindow(kind, id) {
+      return {
+        id,
+        kind,
+        element: { classList: { add() {} }, dataset: {} },
+        task: { remove() {} },
+      };
+    },
+  };
+  const messenger = new Messenger({ manager, applications, onWindowState() {} });
+  messenger.panel('contacts', 'Windows Love Messenger', '<div></div>');
+  messenger.panel('options', 'Options', '<div></div>');
+
+  assert.equal(calls[0].options.resizable, true);
+  assert.equal(calls[0].options.maximizable, true);
+  assert.equal(calls[0].options.minWidth, 300);
+  assert.equal(calls[0].options.minHeight, 320);
+  assert.equal(calls[1].options.resizable, undefined);
+  assert.equal(calls[1].options.maximizable, undefined);
 });
 
 test('incoming conversations reuse one minimized window and respect saved explicit closes', () => {
@@ -1343,6 +1579,11 @@ test('offline contacts reuse the conversation window, remain empty and preserve 
   const original = JSON.stringify(progression.data);
   const contact = read('../src/config/contacts.json')[0];
   view.openOffline(contact);
+  const conversationOptions = manager.windows.get(Number(view.element.dataset.windowId)).options;
+  assert.equal(conversationOptions.resizable, true);
+  assert.equal(conversationOptions.maximizable, true);
+  assert.equal(conversationOptions.minWidth, 480);
+  assert.equal(conversationOptions.minHeight, 400);
   assert.equal(view.element.querySelector('.contact-name').textContent, contact.nickname);
   assert.ok(view.element.querySelector('.contact-status').textContent.startsWith('Hors ligne'));
   assert.equal(view.log.children.length, 0);

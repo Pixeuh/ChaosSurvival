@@ -2,8 +2,8 @@ import { DialogueSession, pendingChoices, hasPendingMessages } from './dialogue.
 
 // JSON dialogues are event scripts. A contact owns one durable discussion.
 export class ConversationThread {
-  constructor(contactId, progression, getEvents) {
-    Object.assign(this, { contactId, progression, getEvents });
+  constructor(contactId, progression, getEvents, isEventAvailable = () => true) {
+    Object.assign(this, { contactId, progression, getEvents, isEventAvailable });
     this.repaired = false;
     this.sync();
   }
@@ -59,8 +59,13 @@ export class ConversationThread {
         entry.type === 'file' && this.progression.data.files[entry.fileKey]?.status === 'pending',
     );
   }
+  eligibleEvents() {
+    return this.getEvents().filter((event) =>
+      this.isEventAvailable(event) && !this.progression.data.dialogues[event.id]?.expired,
+    );
+  }
   get activeDefinition() {
-    const events = this.getEvents();
+    const events = this.eligibleEvents();
     const pending = events.filter(
       (event) =>
         !this.progression.data.dialogues[event.id]?.finished || this.hasPendingFile(event.id),
@@ -76,7 +81,7 @@ export class ConversationThread {
     );
   }
   get pendingResponses() {
-    return this.getEvents()
+    return this.eligibleEvents()
       .map((definition) => ({
         definition,
         choices: pendingChoices(
@@ -90,7 +95,7 @@ export class ConversationThread {
       .sort((a, b) => a.position - b.position);
   }
   get hasPendingMessages() {
-    return this.getEvents().some((definition) =>
+    return this.eligibleEvents().some((definition) =>
       hasPendingMessages(
         definition,
         this.progression.data.dialogues[definition.id],
@@ -120,7 +125,7 @@ export class ConversationThread {
       ...added.filter((entry) => entry.speaker === 'contact').map((entry) => entry.key),
     );
     const active = this.activeDefinition?.id ?? null;
-    const pending = this.getEvents()
+    const pending = this.eligibleEvents()
       .filter(
         (event) => event.id !== active && !this.progression.data.dialogues[event.id]?.finished,
       )
@@ -139,25 +144,76 @@ export class ConversationThread {
     const session = new DialogueSession(definition, this.progression);
     const message = session.nextMessage();
     if (!message) return;
-    if (!Number.isFinite(session.state.receiveDueAt)) {
-      session.state.receiveDueAt =
-        now + message.delayMs + message.typingMs + (message.typingPauseMs ?? 0);
+    const reactionDueAt = this.miniGameReactionDueAt(definition);
+    const dueAt = Number.isFinite(session.state.receiveDueAt)
+      ? Math.max(session.state.receiveDueAt, reactionDueAt ?? -Infinity)
+      : Math.max(
+          now + message.delayMs + message.typingMs + (message.typingPauseMs ?? 0),
+          reactionDueAt ?? -Infinity,
+        );
+    if (session.state.receiveDueAt !== dueAt) {
+      session.state.receiveDueAt = dueAt;
       session.persist();
     }
   }
+  miniGameReactionDueAt(definition) {
+    const reaction = this.progression.data.pendingMiniGameReaction;
+    if (reaction?.dialogueId === definition.id) {
+      const saved = this.progression.data.dialogues[definition.id];
+      const source = this.progression.story.sequences.find(
+        (sequence) => sequence.id === reaction.sequenceId,
+      );
+      const target = reaction.storySequenceId
+        ? this.progression.story.sequences.find(
+            (sequence) => sequence.id === reaction.storySequenceId,
+          )
+        : null;
+      if (
+        reaction.runId === this.progression.data.runId &&
+        (!reaction.storySequenceId ||
+          (this.progression.data.completed.includes(reaction.sequenceId) &&
+            source?.next === target?.id &&
+            target?.type === 'conversation' &&
+            target.dialogue === definition.id &&
+            this.progression.data.current === target.id)) &&
+        !saved?.transcript?.length &&
+        !(Number.isInteger(saved?.cursor) && saved.cursor > 0)
+      )
+        return reaction.dueAt;
+      this.progression.consumeMiniGameReaction(definition.id);
+      this.progression.save();
+    }
+    return null;
+  }
   typingContacts(now = Date.now()) {
     const active = new Map();
-    for (const event of this.getEvents()) {
+    for (const event of this.eligibleEvents()) {
       const state = this.progression.data.dialogues[event.id];
       const message = state && !state.finished && event.nodes[state.node]?.messages[state.cursor];
       if (!message || message.speaker !== 'contact' || !Number.isFinite(state.receiveDueAt))
         continue;
       const total = message.delayMs + message.typingMs;
-      const typingEndsAt = state.receiveDueAt - (message.typingPauseMs ?? 0);
-      // Reuse the existing wait budget, including scripts with typingMs = 0.
-      const typing =
-        message.typingMs ||
-        Math.min(total, Math.max(180, Math.min(900, (message.text?.length ?? 20) * 18)));
+      // A connection can reserve a first-message deadline outside the dialogue's
+      // own delay/typing fields (for example, a 3-second post-connection wait).
+      // Reuse that existing wait for a brief typing cue when the first message
+      // itself has zero duration; do not move its receive deadline.
+      const connectionWait = Object.values(
+        this.progression.data.pendingConnectionMessages ?? {},
+      ).find(
+        (pending) =>
+          pending.runId === this.progression.data.runId &&
+          pending.dialogueId === event.id,
+      );
+      const receiveDueAt = Math.max(state.receiveDueAt, connectionWait?.dueAt ?? -Infinity);
+      const typingEndsAt = receiveDueAt - (message.typingPauseMs ?? 0);
+      const firstContactMessage =
+        state.cursor === 0 && !(state.transcript ?? []).some((entry) => entry.speaker === 'contact');
+      const connectionBudget =
+        firstContactMessage && Number.isFinite(connectionWait?.connectedAt)
+          ? Math.max(0, receiveDueAt - connectionWait.connectedAt)
+          : 0;
+      const fallbackTyping = Math.max(180, Math.min(900, (message.text?.length ?? 20) * 18));
+      const typing = message.typingMs || Math.min(total || connectionBudget, fallbackTyping);
       if (
         now >= typingEndsAt - typing &&
         now < typingEndsAt &&
@@ -190,10 +246,16 @@ export class ConversationThread {
     const state = this.progression.data.dialogues[definition.id];
     if (!Number.isFinite(state?.receiveDueAt)) return false;
     const session = new DialogueSession(definition, this.progression);
-    let dueAt = state.receiveDueAt;
+    let dueAt = Math.max(state.receiveDueAt, this.miniGameReactionDueAt(definition) ?? -Infinity);
+    if (dueAt !== state.receiveDueAt) {
+      state.receiveDueAt = dueAt;
+      session.persist();
+    }
     let delivered = false;
     while (session.nextMessage() && dueAt <= now) {
-      session.deliver();
+      if (session.state.cursor === 0)
+        this.progression.consumeMiniGameReaction(definition.id);
+      if (!session.deliver(now)) break;
       delivered = true;
       let transitions = 0;
       while (!session.nextMessage() && session.advance()) {
@@ -215,11 +277,12 @@ export class ConversationThread {
   isReceiving(id) {
     const scheduled = this.progression.data.dialogues[id];
     if (Number.isFinite(scheduled?.receiveDueAt) && !scheduled.finished) return true;
-    const first = this.getEvents()[0];
+    const events = this.eligibleEvents();
+    const first = events[0];
     if (first?.id === id)
       return Boolean(Number.isFinite(scheduled?.receiveDueAt) && !scheduled.finished);
 
-    const event = this.getEvents()
+    const event = events
       .slice(1)
       .find((event) => event.id === id);
     const state = this.progression.data.dialogues[id];
@@ -234,7 +297,7 @@ export class ConversationThread {
   receive(now = Date.now()) {
     const previousKeys = new Set(this.state.history.map((entry) => entry.key));
     const incoming = [];
-    for (const event of this.getEvents()) {
+    for (const event of this.eligibleEvents()) {
       if (this.progression.data.dialogues[event.id]?.finished && !this.hasPendingFile(event.id))
         continue;
       // Receive independently of other pending choices; only replies need the UI.
@@ -269,9 +332,12 @@ export class ConversationThread {
                 total + message.delayMs + message.typingMs + (message.typingPauseMs ?? 0),
               0,
             );
+      dueAt = Math.max(dueAt, this.miniGameReactionDueAt(event) ?? -Infinity);
       let delivered = false;
       while (session.nextMessage() && dueAt <= now) {
-        session.deliver();
+        if (session.state.cursor === 0)
+          this.progression.consumeMiniGameReaction(event.id);
+        if (!session.deliver(now)) break;
         delivered = true;
         const next = session.nextMessage();
         if (next) {

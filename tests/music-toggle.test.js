@@ -19,7 +19,8 @@ test('music button toggles its own track without opening a settings panel', () =
 
   globalThis.document = { createElement: (tag) => { assert.equal(tag, 'button'); return button; } };
   try {
-    createMusicToggle(desktop, audio);
+    const toggle = createMusicToggle(desktop, audio);
+    assert.equal(typeof toggle.render, 'function');
     assert.equal(hud.button, button);
     assert.equal(button.textContent, 'Musique : ON');
     assert.equal(button.attributes['aria-pressed'], 'true');
@@ -30,6 +31,9 @@ test('music button toggles its own track without opening a settings panel', () =
     listeners.click();
     assert.equal(audio.muted, false);
     assert.equal(button.textContent, 'Musique : ON');
+    audio.setMuted(true);
+    toggle.render();
+    assert.equal(button.textContent, 'Musique : OFF');
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

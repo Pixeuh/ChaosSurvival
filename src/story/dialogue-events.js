@@ -58,8 +58,9 @@ export class DialogueEvents {
       )
         continue;
       connection.status = 'online';
+      connection.connectedAt = now;
       this.progression.save();
-      this.onConnection(id);
+      this.onConnection(id, now);
     }
   }
   triggerConnection(contactId, now = Date.now(), notify = true) {

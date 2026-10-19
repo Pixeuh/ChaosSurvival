@@ -84,6 +84,8 @@ test('all articles follow the requested distribution, with valid dates and MSN c
           ).contact.nickname,
       ),
   );
+  // K7's existing SkyPage comments keep the page nickname, while Messenger uses the new handle.
+  allowedAuthors.add('K7');
   const images = new Set([
     './skypage/sparkle.svg',
     './skypage/heart.svg',

@@ -145,6 +145,7 @@ export function validateDialogue(dialogue) {
 }
 
 export function pendingChoices(dialogue, state, progression) {
+  if (state?.expired) return [];
   const node = state && dialogue.nodes[state.node];
   if (!node || state.finished || state.cursor < node.messages.length) return [];
   return (node.choices ?? []).filter((choice) =>
@@ -154,7 +155,7 @@ export function pendingChoices(dialogue, state, progression) {
 
 // Empty nodes and automatic joins do not end a contact's message sequence.
 export function hasPendingMessages(dialogue, state, progression) {
-  if (!state || state.finished) return false;
+  if (!state || state.finished || state.expired) return false;
   const visited = new Set();
   let id = state.node;
   let cursor = state.cursor;
@@ -249,13 +250,56 @@ export class DialogueSession {
     }
     return null;
   }
-  deliver() {
+  deliver(now = Date.now()) {
     const message = this.nextMessage();
     if (!message) return null;
+    const isFirstContactMessage =
+      message.speaker === 'contact' &&
+      !this.state.transcript.some((entry) => entry.speaker === 'contact');
+    if (isFirstContactMessage) {
+      const contactId = this.dialogue.contact?.id;
+      const connection = this.progression.data.contactConnections?.[contactId];
+      if (connection?.status === 'pending') {
+        this.traceConnectionMessage('held-before-connection', {
+          contactId,
+          connectionDueAt: connection.dueAt,
+          availableAt: now,
+        });
+        return null;
+      }
+      const pending = Object.entries(this.progression.data.pendingConnectionMessages ?? {})
+        .filter(([, item]) =>
+          item?.runId === this.progression.data.runId && item.dialogueId === this.dialogue.id,
+        )
+        .sort((a, b) => b[1].dueAt - a[1].dueAt)[0];
+      if (pending) {
+        const [eventId, deadline] = pending;
+        if (now < deadline.dueAt) {
+          this.traceConnectionMessage('held', {
+            eventId,
+            contactId: deadline.contactId,
+            connectedAt: deadline.connectedAt ?? this.progression.data.contactConnections?.[deadline.contactId]?.connectedAt,
+            dueAt: deadline.dueAt,
+            availableAt: now,
+          });
+          return null;
+        }
+        this.progression.consumeConnectionMessage(this.dialogue.id);
+        this.traceConnectionMessage('received', {
+          eventId,
+          contactId: deadline.contactId,
+          connectedAt: deadline.connectedAt ?? this.progression.data.contactConnections?.[deadline.contactId]?.connectedAt,
+          dueAt: deadline.dueAt,
+          availableAt: deadline.dueAt,
+          receivedAt: now,
+          caller: new Error().stack?.split('\n')[2]?.trim(),
+        });
+      }
+    }
     const entry = {
       speaker: message.speaker,
       text: message.text ?? message.file.name,
-      receivedAt: Date.now(),
+      receivedAt: now,
     };
     if (message.author !== undefined) entry.author = message.author;
     if (message.type === 'file') {
@@ -276,6 +320,13 @@ export class DialogueSession {
     this.state.cursor++;
     this.persist();
     return message;
+  }
+  traceConnectionMessage(action, details) {
+    if (import.meta.env?.DEV)
+      console.debug(`[DEV][MSN connection] ${action}`, {
+        dialogueId: this.dialogue.id,
+        ...details,
+      });
   }
   get choices() {
     return pendingChoices(this.dialogue, this.state, this.progression);

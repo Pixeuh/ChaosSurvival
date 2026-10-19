@@ -18,4 +18,5 @@ export function createMusicToggle(desktop, audio) {
     render();
   });
   render();
+  return { render };
 }

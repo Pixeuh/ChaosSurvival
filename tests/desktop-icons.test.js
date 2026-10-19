@@ -3,15 +3,27 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   DesktopIcons,
+  discardLegacyAutomaticPositions,
   groupIconCells,
   iconCellLeft,
+  iconCellTop,
   rectanglesTouch,
   iconGrid,
   layoutIconCells,
   nearestIconCell,
+  nearestFreeIconCell,
 } from '../src/ui/desktop-icons.js';
 import { Progression } from '../src/story/progression.js';
+import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
+function memory() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+}
 
 test('the arcade EXE keeps the legacy music shortcut position without changing other saved icon IDs', () => {
   assert.equal(
@@ -28,6 +40,98 @@ test('the arcade EXE keeps the legacy music shortcut position without changing o
   );
 });
 
+test('context selection keeps a selected group and replaces it for an unselected target', () => {
+  const makeButton = (shortcut) => ({
+    dataset: { shortcut },
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+  });
+  const first = makeButton('msn');
+  const second = makeButton('browser');
+  const outside = makeButton('windows-media-play');
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    selectedIds: new Set(['shortcut:msn', 'shortcut:browser']),
+    buttons: () => [first, second, outside],
+  });
+  assert.deepEqual(icons.contextSelection(second), [first, second]);
+  assert.deepEqual(icons.contextSelection(outside), [outside]);
+  assert.deepEqual(icons.selectedIds, new Set(['shortcut:windows-media-play']));
+});
+
+test('removing a shortcut persists its tombstone, pins remaining positions and New Game restores defaults', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const mediaExecutable = virtualFileId('media-files', 'media-play.exe');
+  assert.equal(filesystem.exists(mediaExecutable), true);
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    progression,
+    saved: {},
+    cells: new Map([
+      ['shortcut:computer', { col: 0, row: 0 }],
+      ['shortcut:msn', { col: 0, row: 1 }],
+      ['shortcut:browser', { col: 0, row: 2 }],
+    ]),
+    selectedIds: new Set(['shortcut:msn']),
+    refresh() {},
+  });
+  const button = { dataset: { shortcut: 'msn' } };
+  assert.equal(icons.remove(button), true);
+  assert.deepEqual(progression.data.desktopIconsRemoved, ['shortcut:msn']);
+  assert.deepEqual(progression.data.desktopIcons, {
+    'shortcut:computer': { col: 0, row: 0, custom: true },
+    'shortcut:msn': { col: 0, row: 1, custom: true },
+    'shortcut:browser': { col: 0, row: 2, custom: true },
+  });
+  assert.equal(icons.selectedIds.has('shortcut:msn'), false);
+  assert.equal(filesystem.exists(mediaExecutable), true, 'removing a launcher never removes its executable');
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.desktopIconsRemoved, ['shortcut:msn']);
+  assert.deepEqual(restored.data.desktopIcons, progression.data.desktopIcons);
+  restored.newGame();
+  assert.deepEqual(restored.data.desktopIconsRemoved, []);
+  assert.equal(restored.data.desktopIcons, undefined);
+});
+
+test('removing multiple shortcuts persists them together without deleting their executable targets or system icons', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    progression,
+    saved: {},
+    cells: new Map([
+      ['shortcut:computer', { col: 0, row: 0 }],
+      ['shortcut:msn', { col: 0, row: 1 }],
+      ['shortcut:windows-media-play', { col: 0, row: 2 }],
+    ]),
+    selectedIds: new Set(['shortcut:computer', 'shortcut:msn', 'shortcut:windows-media-play']),
+    refresh() {},
+  });
+  const computer = { dataset: { shortcut: 'computer' } };
+  const messenger = { dataset: { shortcut: 'msn' } };
+  const media = { dataset: { shortcut: 'windows-media-play' } };
+  const messengerExecutable = virtualFileId('messenger-files', 'love-messenger.exe');
+  const mediaExecutable = virtualFileId('media-files', 'media-play.exe');
+
+  assert.equal(icons.removeMany([computer, messenger, media]), true);
+  assert.deepEqual(progression.data.desktopIconsRemoved, [
+    'shortcut:msn',
+    'shortcut:windows-media-play',
+  ]);
+  assert.equal(icons.selectedIds.has('shortcut:msn'), false);
+  assert.equal(icons.selectedIds.has('shortcut:windows-media-play'), false);
+  assert.equal(filesystem.exists(messengerExecutable), true);
+  assert.equal(filesystem.exists(mediaExecutable), true);
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.desktopIconsRemoved, progression.data.desktopIconsRemoved);
+  restored.newGame();
+  assert.deepEqual(restored.data.desktopIconsRemoved, []);
+});
+
 test('desktop icons fill the first column before the next and preserve existing custom cells', () => {
   const ids = ['computer', 'folder', 'msn', 'music', 'bin', 'game'];
   const grid = iconGrid(1280, 800);
@@ -39,6 +143,141 @@ test('desktop icons fill the first column before the next and preserve existing 
   const withNew = layoutIconCells([...ids, 'new-file'], saved, grid);
   for (const id of ids) assert.deepEqual(withNew.get(id), saved[id]);
   assert.deepEqual(withNew.get('new-file'), { col: 0, row: 3 });
+});
+
+test('file shortcuts use a free drop cell, persist a distinct target link, deduplicate, and delete only the link', (t) => {
+  const oldDocument = globalThis.document;
+  const background = { closest: () => null };
+  globalThis.document = { elementFromPoint: () => background };
+  t.after(() => {
+    if (oldDocument === undefined) delete globalThis.document;
+    else globalThis.document = oldDocument;
+  });
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  const filesystem = new VirtualFilesystem(progression);
+  const targetId = virtualFileId('music', 'Sport Dubstep.mp3');
+  const nav = { children: [] };
+  const desktop = {
+    inert: false,
+    contains: () => true,
+    append(element) { element.parentNode = this; },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }),
+    querySelector: (selector) => selector === '.taskbar' ? { getBoundingClientRect: () => ({ top: 760 }) } : null,
+  };
+  const occupied = new Map([
+    ['shortcut:computer', { col: 0, row: 1 }],
+    ['shortcut:folder', { col: 0, row: 2 }],
+  ]);
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    desktop, progression, virtualFilesystem: filesystem, saved: {}, cells: occupied,
+    grid: iconGrid(1280, 800), selectedIds: new Set(),
+    refresh() {}, buttons: () => nav.children, select(button) { this.selected = button; },
+    onShortcutsChanged() {
+      const shortcut = {
+        dataset: { fileId: targetId, shortcutId: progression.data.desktopShortcuts[0].id },
+        style: {}, hidden: false,
+        setAttribute() {},
+        classList: { contains: (name) => name === 'desktop-virtual-shortcut' },
+      };
+      nav.children.splice(0, nav.children.length, shortcut);
+    },
+  });
+  const nearest = nearestFreeIconCell(30, 30, icons.grid, new Set(['0:0', '0:1', '0:2']));
+  assert.notDeepEqual(nearest, { col: 0, row: 0 });
+  const created = icons.createFileShortcut(targetId, 240, 200);
+  assert.equal(created.ok, true);
+  assert.equal(filesystem.exists(targetId), true, 'creating a shortcut leaves its target file in place');
+  assert.deepEqual(progression.data.desktopShortcuts, [created.shortcut]);
+  assert.equal(created.shortcut.icon, 'music');
+  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 0, row: 1, custom: true });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 0, row: 2, custom: true });
+  assert.equal(progression.data.desktopIcons[`shortcut:${created.shortcut.id}`].custom, true);
+  assert.deepEqual(icons.createFileShortcut(targetId, 240, 200), { ok: true, existing: true });
+  assert.equal(nav.children.length, 1, 'repeated drops reuse the existing shortcut');
+  const otherTarget = virtualFileId('music', 'I Love Chiptune Punk.mp3');
+  globalThis.document.elementFromPoint = () => ({ closest: (selector) => selector.includes('.popup') ? {} : null });
+  assert.deepEqual(icons.createFileShortcut(otherTarget, 300, 240), { ok: false, reason: 'invalid-drop' });
+  assert.equal(progression.data.desktopShortcuts.length, 1, 'dropping on another window creates nothing');
+
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.desktopShortcuts, [created.shortcut]);
+  const restoredFs = new VirtualFilesystem(restored);
+  const shortcutButton = nav.children[0];
+  const restoredIcons = Object.create(DesktopIcons.prototype);
+  Object.assign(restoredIcons, {
+    desktop, progression: restored, virtualFilesystem: restoredFs,
+    saved: restored.data.desktopIcons, cells: occupied, selectedIds: new Set(),
+    buttons: () => nav.children, select(button) { this.selected = button; }, refresh() {},
+  });
+  assert.deepEqual(restoredIcons.createFileShortcut(targetId, 240, 200), { ok: true, existing: true });
+  assert.equal(nav.children.length, 1, 'a saved shortcut is recognized after reload');
+  assert.equal(restoredIcons.remove(shortcutButton), true);
+  assert.equal(restoredFs.exists(targetId), true, 'deleting the shortcut never deletes its EXE');
+  assert.deepEqual(restored.data.desktopShortcuts, []);
+  assert.ok(restored.data.desktopIconsRemoved.includes(`shortcut:${created.shortcut.id}`));
+  const afterDelete = new Progression(story, storage);
+  assert.deepEqual(afterDelete.data.desktopIconsRemoved, restored.data.desktopIconsRemoved);
+  const recreated = Object.create(DesktopIcons.prototype);
+  globalThis.document.elementFromPoint = () => background;
+  Object.assign(recreated, {
+    desktop, progression: afterDelete, virtualFilesystem: new VirtualFilesystem(afterDelete),
+    saved: afterDelete.data.desktopIcons, cells: occupied, grid: iconGrid(1280, 800), selectedIds: new Set(),
+    buttons: () => [], select() {}, refresh() {}, onShortcutsChanged() {},
+  });
+  const recreatedShortcut = recreated.createFileShortcut(targetId, 240, 200);
+  assert.equal(recreatedShortcut.ok, true, 'a deleted shortcut can be recreated');
+  assert.equal(recreatedShortcut.shortcut.targetFileId, targetId);
+  assert.equal(recreated.virtualFilesystem.exists(targetId), true);
+  afterDelete.newGame();
+  assert.deepEqual(afterDelete.data.desktopShortcuts, []);
+  assert.deepEqual(afterDelete.data.desktopIconsRemoved, []);
+});
+
+test('desktop file shortcut deduplication uses target paths and includes the initial ChaosSurvival.exe icon', (t) => {
+  const oldDocument = globalThis.document;
+  globalThis.document = { elementFromPoint: () => ({ closest: () => null }) };
+  t.after(() => {
+    if (oldDocument === undefined) delete globalThis.document;
+    else globalThis.document = oldDocument;
+  });
+  const progression = new Progression(story, memory());
+  const filesystem = new VirtualFilesystem(progression);
+  const gameId = virtualFileId('my-games', 'ChaosSurvival.exe');
+  const initialGameIcon = {
+    dataset: { shortcut: 'arcade' }, style: {}, hidden: false,
+    classList: { contains: () => false }, setAttribute() {},
+  };
+  const nav = { children: [] };
+  const desktop = {
+    inert: false, contains: () => true,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 800 }),
+    querySelector: () => null,
+  };
+  const icons = Object.create(DesktopIcons.prototype);
+  Object.assign(icons, {
+    desktop, progression, virtualFilesystem: filesystem, saved: {}, cells: new Map(),
+    grid: iconGrid(1280, 800), selectedIds: new Set(),
+    buttons: () => [initialGameIcon, ...nav.children],
+    select(button) { this.selected = button; }, refresh() {},
+  });
+  const savedPositions = progression.data.desktopIcons;
+  assert.deepEqual(icons.createFileShortcut(gameId, 240, 200), { ok: true, existing: true });
+  assert.equal(icons.selected, initialGameIcon, 'the existing desktop launcher is selected');
+  assert.equal(nav.children.length, 0);
+  assert.deepEqual(progression.data.desktopShortcuts, []);
+  assert.equal(progression.data.desktopIcons, savedPositions, 'existing icon positions are untouched');
+
+  const firstSameName = filesystem.addFile('music', { name: 'same-name.exe', detail: 'Application' });
+  const secondSameName = filesystem.addFile('my-games', { name: 'same-name.exe', detail: 'Application' });
+  assert.equal(firstSameName.ok, true);
+  assert.equal(secondSameName.ok, true);
+  icons.onShortcutsChanged = () => {};
+  assert.equal(icons.createFileShortcut(firstSameName.fileId, 240, 200).ok, true);
+  assert.equal(icons.createFileShortcut(secondSameName.fileId, 360, 200).ok, true);
+  assert.equal(progression.data.desktopShortcuts.length, 2, 'different target paths with the same name get separate shortcuts');
+  assert.notEqual(progression.data.desktopShortcuts[0].targetFileId, progression.data.desktopShortcuts[1].targetFileId);
 });
 
 test('desktop columns use one even pitch and keep the right margin at each width', () => {
@@ -116,6 +355,108 @@ test('the bin defaults to top left while personal and legacy saved positions rem
   assert.deepEqual(layoutIconCells(ids, saved, grid).get('shortcut:bin'), saved['shortcut:bin']);
   const legacy = Object.fromEntries(ids.map((id, row) => [id, { col: 0, row }]));
   assert.deepEqual(Object.fromEntries(layoutIconCells(ids, legacy, grid)), legacy);
+});
+
+test('a fresh desktop lays out the seven launch icons in the requested visual order', () => {
+  const ids = [
+    'shortcut:computer',
+    'shortcut:folder',
+    'shortcut:msn',
+    'shortcut:browser',
+    'shortcut:windows-media-play',
+    'shortcut:music',
+    'shortcut:bin',
+  ];
+  const grid = iconGrid(1280, 800, 40, 90, 100);
+  const cells = layoutIconCells(ids, {}, grid);
+  const expected = [
+    'shortcut:bin',
+    'shortcut:computer',
+    'shortcut:folder',
+    'shortcut:msn',
+    'shortcut:browser',
+    'shortcut:windows-media-play',
+    'shortcut:music',
+  ];
+  assert.equal(grid.rows, 7, 'the initial 1280×800 desktop fits seven icon rows');
+  expected.forEach((id, row) => {
+    assert.deepEqual(cells.get(id), { col: 0, row });
+    assert.equal(iconCellTop(cells.get(id)), 20 + row * 104);
+  });
+  assert.equal(new Set([...cells.values()].map(({ col, row }) => `${col}:${row}`)).size, 7);
+
+  const withNarrativeFile = layoutIconCells([...ids, 'file:media-files/bombarena.exe'], {}, grid);
+  assert.deepEqual(withNarrativeFile.get('file:media-files/bombarena.exe'), { col: 1, row: 0 });
+  for (const id of expected) assert.deepEqual(withNarrativeFile.get(id), cells.get(id));
+
+  const shortGrid = layoutIconCells(ids, {}, { cols: 4, rows: 5 });
+  assert.equal(new Set([...shortGrid.values()].map(({ col, row }) => `${col}:${row}`)).size, 7);
+  assert.ok([...shortGrid.values()].every(({ col, row }) => col < 4 && row < 5));
+});
+
+test('DesktopIcons applies the initial cells as actual aligned CSS coordinates', (t) => {
+  const previous = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class { observe() {} };
+  t.after(() => { globalThis.ResizeObserver = previous; });
+  const shortcuts = ['computer', 'folder', 'msn', 'browser', 'windows-media-play', 'arcade', 'bin'];
+  const buttons = shortcuts.map((shortcut) => ({
+    dataset: { shortcut },
+    style: {},
+    attrs: {},
+    offsetWidth: 100,
+    offsetHeight: 90,
+    classList: { add() {}, remove() {} },
+    setAttribute(name, value) { this.attrs[name] = value; },
+    closest() { return this; },
+    setPointerCapture() {},
+    hasPointerCapture() { return false; },
+  }));
+  const desktop = {
+    classList: { add() {} },
+    addEventListener() {},
+    querySelectorAll: () => buttons,
+    querySelector: () => ({ getBoundingClientRect: () => ({ height: 40, top: 760 }) }),
+    getBoundingClientRect: () => ({ width: 1280, height: 800, top: 0 }),
+  };
+  const progression = new Progression(story, { getItem: () => null, setItem() {} });
+  new DesktopIcons(desktop, progression);
+  const order = ['bin', 'computer', 'folder', 'msn', 'browser', 'windows-media-play', 'arcade'];
+  const orderedButtons = order.map((name) => buttons.find(({ dataset }) => dataset.shortcut === name));
+  assert.deepEqual(orderedButtons.map(({ style }) => style.top), order.map((_, row) => `${20 + row * 104}px`));
+  assert.equal(new Set(orderedButtons.map(({ style }) => style.left)).size, 1);
+});
+
+test('legacy automatic icon cells migrate to the new order while custom and new-game positions behave correctly', () => {
+  const oldAuto = Object.fromEntries([
+    ['shortcut:bin', { col: 0, row: 0 }],
+    ['shortcut:computer', { col: 0, row: 1 }],
+    ['shortcut:folder', { col: 0, row: 2 }],
+    ['shortcut:msn', { col: 0, row: 3 }],
+    ['shortcut:browser', { col: 0, row: 6 }],
+    ['shortcut:windows-media-play', { col: 0, row: 4 }],
+    ['shortcut:music', { col: 0, row: 5 }],
+  ]);
+  oldAuto['shortcut:browser'] = { col: 2, row: 2, custom: true };
+  assert.equal(discardLegacyAutomaticPositions(oldAuto), true);
+  assert.deepEqual(oldAuto, { 'shortcut:browser': { col: 2, row: 2, custom: true } });
+
+  const grid = iconGrid(1280, 800, 40, 90, 100);
+  const expectedOrder = [
+    'shortcut:bin', 'shortcut:computer', 'shortcut:folder', 'shortcut:msn',
+    'shortcut:browser', 'shortcut:windows-media-play', 'shortcut:music',
+  ];
+  const ids = [...expectedOrder];
+  const savedGame = { 'shortcut:music': { col: 3, row: 4, custom: true } };
+  const personalized = layoutIconCells(ids, savedGame, grid);
+  assert.deepEqual(personalized.get('shortcut:music'), { col: 3, row: 4 });
+  assert.deepEqual(personalized.get('shortcut:windows-media-play'), { col: 3, row: 3 });
+
+  const progression = new Progression(story, { getItem: () => null, setItem() {} });
+  progression.data.desktopIcons = savedGame;
+  progression.newGame();
+  assert.equal(progression.data.desktopIcons, undefined);
+  const reset = layoutIconCells(ids, progression.data.desktopIcons ?? {}, grid);
+  assert.deepEqual(expectedOrder.map((id) => reset.get(id)), expectedOrder.map((_, row) => ({ col: 0, row })));
 });
 
 test('the final grid row fits real icon heights above the taskbar at every resolution', () => {
@@ -242,7 +583,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   handlers.pointermove(event(270, 134));
   assert.match(button.style.transform, /translate/);
   handlers.pointerup(event(270, 134));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1, custom: true });
   let blocked = false;
   handlers.dblclick({
     target: button,
@@ -255,7 +596,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   handlers.pointerdown(event(270, 134));
   handlers.pointermove(event(30, 30));
   handlers.pointerup(event(30, 30));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:music'], { col: 2, row: 1, custom: true });
   assert.equal(button.attrs['aria-pressed'], 'true');
   handlers.pointerdown(event(270, 134));
   handlers.pointerup(event(270, 134));
@@ -270,6 +611,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
   assert.deepEqual(new Progression(story, storage).data.desktopIcons['shortcut:music'], {
     col: 2,
     row: 1,
+    custom: true,
   });
   desktop.width = 240;
   icons.refresh();
@@ -291,6 +633,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
     col: icons.grid.cols - 1,
     row: 1,
     edge: 'right',
+    custom: true,
   });
   for (const width of [1600, 800, 1600]) {
     desktop.width = width;
@@ -443,18 +786,18 @@ test('empty-area dragging selects icons without moving them and clears the box o
   icons.down(event(40, 40, buttons[0]));
   icons.move(event(160, 40, buttons[0]));
   icons.up(event(160, 40, buttons[0]));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 1, row: 0 });
-  assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 1, row: 1 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 1, row: 0, custom: true });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:folder'], { col: 1, row: 1, custom: true });
   phaseClass = 'rhythm-active';
   icons.select(buttons[0]);
   icons.down(event(160, 40, buttons[0]));
   icons.move(event(280, 40, buttons[0]));
   icons.up(event(280, 40, buttons[0]));
-  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 2, row: 0 });
+  assert.deepEqual(progression.data.desktopIcons['shortcut:computer'], { col: 2, row: 0, custom: true });
   phaseClass = 'story-desktop';
   const restored = new Progression(story, storage);
-  assert.deepEqual(restored.data.desktopIcons['shortcut:computer'], { col: 2, row: 0 });
-  assert.deepEqual(restored.data.desktopIcons['shortcut:folder'], { col: 1, row: 1 });
+  assert.deepEqual(restored.data.desktopIcons['shortcut:computer'], { col: 2, row: 0, custom: true });
+  assert.deepEqual(restored.data.desktopIcons['shortcut:folder'], { col: 1, row: 1, custom: true });
   assert.equal(icons.selectedIds.size, 1);
   icons.down(event(500, 500));
   icons.up(event(500, 500));

@@ -139,7 +139,7 @@
       ],
       "choices": [
         { "id": "cat-video-send", "text": "ptdrrr envoie", "next": "cat-video-send-reply" },
-        { "id": "video-funny", "text": "elle a l'air grave marrante la vidéo", "next": "video-funny-reply" },
+        { "id": "video-funny", "text": "elle a l'air marrante la vidéo", "next": "video-funny-reply" },
         { "id": "friends-long", "text": "vous vous connaissez depuis longtemps ?", "next": "friends-long-reply" }
       ]
     },
@@ -151,7 +151,7 @@
     },
     "video-funny-reply": {
       "messages": [
-        { "speaker": "contact", "text": "ouais elle est cool", "delayMs": 250, "typingMs": 350 },
+        { "speaker": "contact", "text": "ouais mdrrr", "delayMs": 250, "typingMs": 350 },
         { "speaker": "contact", "text": "si je retrouve le lien je te l'enverrai", "delayMs": 300, "typingMs": 450 }
       ],
       "next": "goodbye"

@@ -4,6 +4,7 @@ const { readFile } = require('node:fs/promises');
 const { resolveLocalAsset } = require('./local-assets.cjs');
 const { developmentUrl, securityPolicy, protectSession, protectWindow } = require('./security.cjs');
 const { createVideoOpener } = require('./video-links.cjs');
+const { createQuitHandler } = require('./quit-handler.cjs');
 
 // A packaged executable always loads its own bundled game.
 const devUrl = !app.isPackaged ? developmentUrl(process.env.CHAOS_DEV_URL) : undefined;
@@ -22,6 +23,7 @@ async function createWindow() {
     title: 'Chaos Survival',
     width: 1280,
     height: 800,
+    fullscreen: true,
     minWidth: 800,
     minHeight: 600,
     useContentSize: true,
@@ -71,6 +73,7 @@ app
       'chaos:open-video',
       createVideoOpener(policy, (url) => shell.openExternal(url)),
     );
+    ipcMain.handle('chaos:quit', createQuitHandler(policy, app));
     ipcMain.handle(
       'chaos:get-fullscreen',
       (event) =>

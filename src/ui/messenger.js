@@ -232,6 +232,9 @@ export class Messenger {
     let instance;
     const id = this.manager.spawn('narrative', {
       preview: true,
+      ...(key === 'contacts'
+        ? { resizable: true, maximizable: true, minWidth: 300, minHeight: 320 }
+        : {}),
       content: { title, iconName: 'msn', body },
       onDismiss: () => {
         instance.element.disposeMenu?.();
@@ -300,7 +303,7 @@ export class Messenger {
     const instance = this.panel(
       'emoticons',
       'Émoticônes',
-      '<div class="messenger-profile"><h3>Mes émoticônes préférées</h3><div class="messenger-emoticons"></div><p class="emoticon-preview">Choisis une émoticône pour son aperçu. Les messages se choisissent dans la zone de réponse.</p></div>',
+      '<div class="messenger-profile"><h3>Mes émoticônes préférées</h3><div class="messenger-emoticons"></div><p class="emoticon-preview">Choisis une émoticône pour son aperçu.</p></div>',
     );
     const list = instance.element.querySelector('.messenger-emoticons');
     list.replaceChildren();
@@ -348,16 +351,25 @@ export class Messenger {
   }
   installMenus(element, contact, offline = () => false) {
     element.disposeMenu?.();
-    const wizz = () => {
-      if (offline() || element.classList.contains('messenger-roster')) return;
-      this.sendWizz(element.dataset.messengerContact);
-    };
+    let wizzCoolingDown = false;
+    let wizzCooldownTimer = null;
     const wizzButton = element.querySelector('[data-msn-action="wizz"]');
+    const wizz = () => {
+      if (offline() || wizzCoolingDown || element.classList.contains('messenger-roster')) return;
+      if (!this.sendWizz(element.dataset.messengerContact)) return;
+      wizzCoolingDown = true;
+      if (wizzButton) wizzButton.disabled = true;
+      wizzCooldownTimer = globalThis.setTimeout(() => {
+        wizzCooldownTimer = null;
+        wizzCoolingDown = false;
+        if (wizzButton) wizzButton.disabled = offline();
+      }, 5000);
+    };
     if (wizzButton) {
       wizzButton.disabled = offline();
       wizzButton.addEventListener('click', wizz);
     }
-    element.disposeMenu = messengerMenu(element, [
+    const disposeMenu = messengerMenu(element, [
       [
         'Fichier',
         [
@@ -405,6 +417,15 @@ export class Messenger {
         ],
       ],
     ]);
+    element.disposeMenu = () => {
+      disposeMenu();
+      if (wizzCooldownTimer !== null) {
+        globalThis.clearTimeout(wizzCooldownTimer);
+        wizzCooldownTimer = null;
+      }
+      wizzCoolingDown = false;
+      wizzButton?.removeEventListener('click', wizz);
+    };
   }
   isConversationActive(view) {
     if (!view.element?.isConnected || view.element.hidden) return false;

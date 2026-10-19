@@ -45,6 +45,11 @@ export class InternetAdventurer {
     const title = applicationName('browser');
     const id = this.manager.spawn('desktopapp', {
       preview: true,
+      windowClass: 'internet-adventurer',
+      resizable: true,
+      maximizable: true,
+      minWidth: 320,
+      minHeight: 240,
       content: {
         title,
         iconName: 'browser',

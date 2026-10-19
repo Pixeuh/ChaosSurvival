@@ -1,0 +1,91 @@
+.smiley-pack-installer-window {
+  display: flex;
+  width: 455px;
+  height: 315px;
+  min-width: 455px;
+  min-height: 315px;
+  max-width: 455px;
+  max-height: 315px;
+  flex-direction: column;
+}
+
+.smiley-pack-installer-window .window-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #ece9d8;
+}
+
+.smiley-pack-installer-content {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  color: #222;
+  font: 13px Tahoma, Arial, sans-serif;
+}
+
+.smiley-pack-installer-banner {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  color: #fff;
+  background: linear-gradient(110deg, #0756a4, #3b91d4);
+  box-shadow: inset 0 -1px #154e85;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+.smiley-pack-installer-banner .icon {
+  width: 34px;
+  height: 34px;
+}
+
+.smiley-pack-installer-page {
+  flex: 1;
+  padding: 20px 22px;
+  background: #fff;
+  line-height: 1.5;
+}
+
+.smiley-pack-installer-page h2 {
+  margin: 0 0 14px;
+  color: #174c7a;
+  font-size: 14px;
+}
+
+.smiley-pack-installer-page p {
+  margin: 0;
+}
+
+.smiley-pack-installer-page progress {
+  width: 100%;
+  height: 18px;
+  margin-top: 18px;
+  accent-color: #176ac0;
+}
+
+.smiley-pack-installer-actions {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px;
+  border-top: 1px solid #c7c4b8;
+}
+
+.smiley-pack-installer-actions .xp-button {
+  min-width: 82px;
+}
+
+.smiley-pack-installer-window .smiley-pack-installer-actions .xp-button:disabled {
+  cursor: inherit;
+  color: #888;
+}
+
+.smiley-pack-installer-window.is-installing,
+.smiley-pack-installer-window.is-installing * {
+  cursor: progress !important;
+}
