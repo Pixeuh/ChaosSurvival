@@ -354,6 +354,27 @@ test('BubblePop opens directly at level 1 with its announcement and one animatio
   cleanup2();
   assert.equal(clock.frames.size, 0);
 });
+test('BubblePop transition and result screens use the gameplay stage inside a fixed browser viewport', () => {
+  const browserCss = readFileSync(new URL('../src/styles-browser.css', import.meta.url), 'utf8');
+  const flashzoneCss = readFileSync(
+    new URL('../src/browser/sites/flashzone/styles.css', import.meta.url),
+    'utf8',
+  );
+  const windowRule = browserCss.match(/\.desktop \.popup\.internet-adventurer\s*\{([^}]+)\}/)?.[1] ?? '';
+  assert.match(windowRule, /height:\s*470px/);
+  assert.match(windowRule, /width:\s*min\(740px, 100%\)/);
+  assert.match(browserCss, /\.browser-page:has\(\.bubble-pop\)\s*\{\s*contain:\s*size;/);
+  const arena = flashzoneCss.match(/\.bubble-arena\s*\{([^}]+)\}/)?.[1] ?? '';
+  const screens = ['bubble-level-transition', 'bubble-result'].map((name) =>
+    flashzoneCss.match(new RegExp(`\\.${name}\\s*\\{([^}]+)\\}`))?.[1] ?? '',
+  );
+  assert.match(arena, /width:\s*min\(100%, 480px\)/);
+  assert.match(arena, /aspect-ratio:\s*4\s*\/\s*5/);
+  for (const screen of screens) {
+    assert.match(screen, /width:\s*min\(100%, 480px\)/);
+    assert.match(screen, /aspect-ratio:\s*4\s*\/\s*5/);
+  }
+});
 test('BubblePop campaign gates the three levels, accumulates score, and resets after defeat or replay', () => {
   const campaign = new BubbleCampaign();
   assert.deepEqual([campaign.level, campaign.difficulty, campaign.score], [1, 'facile', 0]);

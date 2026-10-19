@@ -12,6 +12,7 @@ export class MiniGameLauncher {
     onVictory = () => {},
     onFinish = () => {},
     canOpenFile = () => true,
+    onWindowOpened = () => {},
   ) {
     Object.assign(this, {
       definitions,
@@ -23,6 +24,7 @@ export class MiniGameLauncher {
       onVictory,
       onFinish,
       canOpenFile,
+      onWindowOpened,
     });
     this.active = null;
   }
@@ -67,6 +69,7 @@ export class MiniGameLauncher {
     };
     this.sounds.unlock();
     this.active.open();
+    this.onWindowOpened(this.active);
     return this.active;
   }
   reset() {

@@ -109,6 +109,9 @@
     13px Arial,
     sans-serif;
 }
+.browser-page:has(.bubble-pop) {
+  contain: size;
+}
 .browser-statusbar {
   display: flex;
   justify-content: space-between;

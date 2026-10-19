@@ -8,6 +8,7 @@ import { createMusicToggle } from '../src/ui/music-toggle.js';
 
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const electronMainSource = readFileSync(new URL('../electron/main.cjs', import.meta.url), 'utf8');
 
 function extractResetFunction() {
   const start = mainSource.indexOf('async function resetGameToInitialState() {');
@@ -30,6 +31,7 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
   const progression = new Progression(story, storage);
   progression.begin();
   progression.complete('arcade-1', { score: 123 });
+  let nativeFullscreen = true;
   const manager = { clear: () => calls.push('windows.clear'), sequence: 8, z: 90 };
   const miniGameLauncher = { reset: () => calls.push('minigames.reset') };
   const notifications = { clear: () => calls.push('notifications.clear') };
@@ -84,7 +86,18 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
     secondaryAction: () => {},
     clearEffects() {},
     browser: { reset: () => calls.push('virtual-files.reset') },
-    settings: { reset: () => calls.push('settings.reset'), defaults: { musicVolume: 0.5 } },
+    settings: {
+      data: { fullscreen: false },
+      reset() {
+        this.data.fullscreen = false;
+        calls.push('settings.reset');
+      },
+      update(values) {
+        Object.assign(this.data, values);
+        calls.push(`settings.update:${values.fullscreen}`);
+      },
+      defaults: { musicVolume: 0.5 },
+    },
     messenger: {
       conversations: new Map([['old', {}]]),
       views: new Map([['old', {}]]),
@@ -121,7 +134,8 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
     setVolume: (volume) => calls.push(`volume:${volume}`),
     menu: { syncSettings: () => calls.push('menu.sync') },
     renderStats: () => calls.push('stats.render'),
-    setFullscreen: async () => calls.push('fullscreen.reset'),
+    window: { chaosWindow: { getFullscreen: async () => nativeFullscreen } },
+    document: { fullscreenElement: null },
     continueFromMenu: () => {
       progression.begin();
       context.phase = 'playing';
@@ -148,7 +162,23 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
   assert.ok(calls.includes('virtual-files.reset'));
   assert.ok(calls.includes('minigames.reset'));
   assert.ok(calls.includes('level-1.start'));
+  assert.equal(context.settings.data.fullscreen, true, 'New Game preserves the active native fullscreen mode');
+  assert.ok(calls.includes('settings.update:true'));
+  assert.equal(calls.includes('fullscreen.reset'), false, 'New Game never toggles the window display mode');
   assert.equal(audio.muted, false);
   assert.ok(calls.includes('music-toggle.render'));
   assert.equal('notifiedMessages' in context, false);
+
+  nativeFullscreen = false;
+  context.phase = 'menu';
+  calls.length = 0;
+  await vm.runInNewContext(`'use strict'; ${extractResetFunction()}\nresetGameToInitialState();`, context);
+  assert.equal(context.settings.data.fullscreen, false, 'New Game also preserves a voluntarily windowed state');
+  assert.equal(calls.includes('fullscreen.reset'), false);
+});
+
+test('Electron creates Chaos Survival in native fullscreen while retaining fullscreen exit commands', () => {
+  const options = electronMainSource.match(/new BrowserWindow\(\{([\s\S]*?)webPreferences:/)?.[1] ?? '';
+  assert.match(options, /fullscreen:\s*true/);
+  assert.match(electronMainSource, /window\.setFullScreen\(!window\.isFullScreen\(\)\)/);
 });

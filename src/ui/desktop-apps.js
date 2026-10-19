@@ -164,6 +164,31 @@ export class DesktopApplications {
     task.addEventListener('click', () => this.restore(instance));
     return instance;
   }
+  attachExistingWindow(kind, id, title, iconName) {
+    const existing = this.instances.get(kind);
+    if (existing?.element.isConnected) {
+      this.restore(existing);
+      return existing;
+    }
+    if (existing) {
+      existing.task.remove();
+      this.instances.delete(kind);
+    }
+    const managed = this.manager.windows.get(id);
+    if (!managed) return null;
+    const instance = this.attachWindow(kind, id, title, iconName);
+    const onDismiss = managed.onDismiss;
+    managed.onDismiss = (...args) => {
+      try {
+        onDismiss?.(...args);
+      } finally {
+        if (this.instances.get(kind) === instance) this.instances.delete(kind);
+        instance.task.remove();
+        this.onWindowState();
+      }
+    };
+    return instance;
+  }
   openFile(location, item) {
     const fileId = item.fileId ?? virtualFileId(location.id, item.name);
     if (this.virtualFilesystem && !this.virtualFilesystem.exists(fileId)) return;

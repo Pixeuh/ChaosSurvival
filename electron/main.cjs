@@ -23,6 +23,7 @@ async function createWindow() {
     title: 'Chaos Survival',
     width: 1280,
     height: 800,
+    fullscreen: true,
     minWidth: 800,
     minHeight: 600,
     useContentSize: true,

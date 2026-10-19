@@ -87,6 +87,85 @@ test('DesktopApplications delegates received games and extracted BombArena to th
   ]);
 });
 
+test('an existing mini-game window gets one managed task tab and shared restore and close lifecycle', (t) => {
+  class Element {
+    constructor() {
+      this.handlers = {};
+      this.dataset = {};
+      this.children = [];
+      this.attributes = {};
+      this.style = {};
+      this.isConnected = true;
+      this.hidden = false;
+      this.titlebar = { insertBefore: (node) => this.children.push(node) };
+    }
+    addEventListener(type, handler) { this.handlers[type] = handler; }
+    append(node) { this.children.push(node); }
+    insertBefore(node) { this.children.push(node); }
+    querySelector(selector) {
+      if (selector === '.titlebar') return this.titlebar;
+      return null;
+    }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    remove() { this.isConnected = false; }
+  }
+  const previousDocument = globalThis.document;
+  globalThis.document = { createElement: () => new Element() };
+  t.after(() => {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  });
+
+  const taskbar = {
+    tasks: [],
+    querySelector: () => ({}),
+    insertBefore(task) { this.tasks.push(task); },
+  };
+  let windowStateChanges = 0;
+  const element = new Element();
+  const originalOnDismiss = () => { element.disposed = true; };
+  const managedWindow = { element, onDismiss: originalOnDismiss };
+  const manager = {
+    windows: new Map([[7, managedWindow]]),
+    z: 10,
+    close(id) {
+      const window = this.windows.get(id);
+      if (!window) return;
+      this.windows.delete(id);
+      window.element.remove();
+      window.onDismiss({ reason: 'close' });
+    },
+  };
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    taskbar,
+    instances: new Map(),
+    onWindowState: () => windowStateChanges++,
+  });
+
+  const first = app.attachExistingWindow('mini-game:smiley-catcher', 7, 'SUPER_MEGA_GAME.exe', 'music');
+  assert.equal(taskbar.tasks.length, 1);
+  assert.equal(first.task.dataset.app, 'mini-game:smiley-catcher');
+  assert.equal(first.task.children.at(-1).textContent, 'SUPER_MEGA_GAME.exe');
+  assert.equal(app.attachExistingWindow('mini-game:smiley-catcher', 7, 'SUPER_MEGA_GAME.exe', 'music'), first);
+  assert.equal(taskbar.tasks.length, 1, 'relaunching an open game reuses its task tab');
+
+  const minimizeButton = element.children[0];
+  minimizeButton.handlers.click();
+  assert.equal(element.hidden, true);
+  assert.equal(taskbar.tasks.length, 1, 'minimize keeps the task tab registered');
+  first.task.handlers.click();
+  assert.equal(element.hidden, false);
+  assert.equal(Number(element.style.zIndex), 12, 'task click restores and raises the game window');
+
+  manager.close(7);
+  assert.equal(element.disposed, true, 'the original mini-game cleanup still runs');
+  assert.equal(app.instances.has('mini-game:smiley-catcher'), false);
+  assert.equal(first.task.isConnected, false, 'closing removes the task tab');
+  assert.equal(windowStateChanges, 4);
+  assert.equal(manager.windows.has(7), false, 'closing does not recreate or delete a virtual executable');
+});
+
 test('all installed application executables are routed through the shared launcher callback', () => {
   const launches = [];
   const app = Object.assign(Object.create(DesktopApplications.prototype), {

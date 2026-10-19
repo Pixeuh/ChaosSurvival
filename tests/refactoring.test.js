@@ -108,6 +108,7 @@ test('xD variants remain literal in private, group, player and restored Messenge
 test('additional engines reuse file gating and completion without duplicating progression or instances', () => {
   let factories = 0,
     opens = 0,
+    windowOpened = 0,
     before = 0;
   registerMiniGame('test-engine', (definition, manager, sounds, complete) => {
     factories++;
@@ -135,6 +136,14 @@ test('additional engines reuse file gating and completion without duplicating pr
     {},
     { unlock() {} },
     () => before++,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    (game) => {
+      windowOpened++;
+      assert.equal(game.definition.id, 'test-game');
+    },
   );
   assert.equal(launcher.open(file), null);
   assert.equal(before, 0);
@@ -143,6 +152,7 @@ test('additional engines reuse file gating and completion without duplicating pr
   assert.equal(launcher.open(file), first);
   assert.equal(factories, 1);
   assert.equal(opens, 2);
+  assert.equal(windowOpened, 2, 'the window integration callback runs on each activation');
   first.finish();
   const saved = JSON.stringify(progression.data);
   first.finish();
@@ -150,6 +160,7 @@ test('additional engines reuse file gating and completion without duplicating pr
   first.element.isConnected = false;
   const replay = launcher.open(file);
   assert.notEqual(replay, first);
+  assert.equal(windowOpened, 3, 'a reopened game is offered for taskbar registration');
   replay.finish();
   assert.equal(JSON.stringify(progression.data), saved);
   launcher.reset();

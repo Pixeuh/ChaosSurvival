@@ -339,6 +339,16 @@ const miniGameLauncher = new MiniGameLauncher(
   },
   undefined,
   (file) => virtualFilesystem.exists(virtualFileId('downloads', file.name)),
+  (game) => {
+    const windowId = Number(game.element?.dataset.windowId);
+    if (!Number.isInteger(windowId)) return;
+    desktopApplications.attachExistingWindow(
+      `mini-game:${game.definition.id}`,
+      windowId,
+      game.element.querySelector('.window-title > span').textContent,
+      'music',
+    );
+  },
 );
 const dialogueEvents = new DialogueEvents(
   progression,
@@ -621,9 +631,13 @@ async function resetGameToInitialState() {
         clearEffects();
       },
       rebuild: async () => {
+        const fullscreen = window.chaosWindow
+          ? await window.chaosWindow.getFullscreen()
+          : Boolean(document.fullscreenElement);
         buddy.restore();
         browser.reset();
         settings.reset();
+        settings.update({ fullscreen });
         messenger.conversations.clear();
         messenger.views.clear();
         messenger.roster = null;
@@ -653,7 +667,6 @@ async function resetGameToInitialState() {
         musicToggle.render();
         menu.syncSettings();
         renderStats();
-        await setFullscreen(false);
       },
       restart: continueFromMenu,
     });
@@ -1393,4 +1406,9 @@ receiveReplayReactions();
 setInterval(updateClock, 10000);
 ui.trackTime.textContent = `00:00 / ${formatTime(chart.durationSeconds)}`;
 returnToMenu();
-if (settings.data.fullscreen) setFullscreen(true).catch(() => {});
+if (window.chaosWindow) {
+  window.chaosWindow.getFullscreen().then((fullscreen) => {
+    settings.update({ fullscreen });
+    menu.syncSettings();
+  }).catch(() => {});
+} else if (settings.data.fullscreen) setFullscreen(true).catch(() => {});
