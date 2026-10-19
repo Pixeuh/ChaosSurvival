@@ -232,7 +232,10 @@ export class WindowsMediaPlay {
     const existing = this.applications.instances.get('windows-media-play');
     if (existing?.element.isConnected) {
       this.applications.restore(existing);
-      if (isMediaTrack(file) && fileId) void this.playFile(fileId);
+      if (isMediaTrack(file) && fileId) {
+        this.syncTracks();
+        void this.playFile(fileId);
+      }
       return existing;
     }
     const title = applicationName('media');
@@ -290,7 +293,8 @@ export class WindowsMediaPlay {
     );
   }
   tracksFromFilesystem() {
-    return this.virtualFilesystem.getLocation('music').items
+    return ['music', 'downloads']
+      .flatMap((location) => this.virtualFilesystem.getLocation(location).items)
       .filter(isMediaTrack)
       .map((file) => ({ ...file, src: mediaAudioResource(file.audioRef) }));
   }

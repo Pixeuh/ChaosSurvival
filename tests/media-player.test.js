@@ -129,6 +129,34 @@ test('virtual MP3 deletion persists on reload and New Game restores only the ori
   assert.equal(fresh.exists(trackId), true);
 });
 
+test('K7 transfer exposes the provided local MP3 as SON_FINAL_8.mp3 and keeps it in received files after reload', () => {
+  const disk = memory();
+  const progression = new Progression(story, disk);
+  const filesystem = new VirtualFilesystem(progression);
+  const file = progression.receiveFile({
+    id: 'k7-son-final-8',
+    name: 'SON_FINAL_8.mp3',
+    sizeLabel: '1,8 Mo',
+    size: 1838184,
+    description: 'Fichier MP3 partagé par K7',
+    title: 'SON_FINAL_8',
+    artist: 'K7',
+    audioRef: 'k7-son-final-8',
+  }, 'k7-intro', 'remix-transfer');
+  assert.equal(filesystem.getLocation('downloads').items.some((item) => item.name === file.name), false,
+    'the proposed file stays unavailable until transfer completes');
+  progression.finishTransfer(file.key);
+
+  const restoredFilesystem = new VirtualFilesystem(new Progression(story, disk));
+  const received = restoredFilesystem.getLocation('downloads').items.find((item) => item.name === 'SON_FINAL_8.mp3');
+  assert.ok(received);
+  assert.equal(received.audioRef, 'k7-son-final-8');
+  assert.equal(isMediaTrack(received), true);
+  const source = mediaAudioResource(received.audioRef);
+  assert.equal(existsSync(fileURLToPath(source)), true);
+  assert.equal(fileURLToPath(source), fileURLToPath(new URL('../assets/dragon-studio-uplifting-trance-584759.mp3', import.meta.url)));
+});
+
 test('player controls use real media events, one audio element, and stop cleanly on disposal', async () => {
   const filesystem = new VirtualFilesystem(new Progression(story, memory()));
   const tracks = getTracks(filesystem);
@@ -436,6 +464,24 @@ test('the shared executable route opens one resizable player, plays explorer tra
   assert.equal(player.playback.currentTrack.fileId, track.fileId);
   assert.equal(player.playback.state, 'playing');
   assert.equal(audioElements.length, 1, 'the simplified interface uses only the playback element');
+
+  const k7File = player.virtualFilesystem.progression.receiveFile({
+    id: 'k7-son-final-8',
+    name: 'SON_FINAL_8.mp3',
+    sizeLabel: '1,8 Mo',
+    size: 1838184,
+    description: 'Fichier MP3 partagé par K7',
+    title: 'SON_FINAL_8',
+    artist: 'K7',
+    audioRef: 'k7-son-final-8',
+  }, 'k7-intro', 'remix-transfer');
+  player.virtualFilesystem.progression.finishTransfer(k7File.key);
+  const received = player.virtualFilesystem.getLocation('downloads').items.find((item) => item.name === 'SON_FINAL_8.mp3');
+  assert.equal(applicationsRouter.openFile(player.virtualFilesystem.getLocation('downloads'), received), first);
+  await Promise.resolve();
+  assert.equal(player.playback.currentTrack.fileId, received.fileId);
+  assert.equal(player.audio.src, mediaAudioResource('k7-son-final-8'));
+  assert.equal(audioElements.length, 1, 'the K7 track uses the existing Windows Media Play instance');
   const playbackAudio = player.audio;
   first.element.hidden = true;
   assert.equal(playbackAudio.paused, false, 'hiding/minimizing the window does not pause the audio');

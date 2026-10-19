@@ -156,7 +156,7 @@ test('custom desktop shortcuts render from saved target IDs, route through the o
   assert.equal(filesystem.deleteFile(fileId).ok, true);
   files.render();
   assert.equal(nav.children.length, 1, 'the shortcut remains as a broken link after its target is removed');
-  assert.equal(nav.children[0].children.at(-1).textContent, 'Sport Dubstep.mp3');
+  assert.equal(nav.children[0].children.at(-1).textContent, 'Sport Dubstep');
   nav.children[0].handlers.dblclick();
   assert.equal(opened[1].location, null);
   assert.equal(opened[1].item.shortcutTarget, true);
@@ -174,6 +174,7 @@ test('ChaosSurvival.exe launches from My Games and its deletion persists without
   const fileId = virtualFileId('my-games', 'ChaosSurvival.exe');
   const location = filesystem.getLocation('my-games');
   const item = filesystem.getFile(fileId);
+  assert.equal(filesystem.metadata(fileId).name, 'ChaosSurvival.exe');
   assert.equal(location.address, 'C:\\Documents and Settings\\Joueur\\Mes documents\\My Games');
   assert.equal(location.items.filter((entry) => entry.name === 'ChaosSurvival.exe').length, 1);
   assert.equal(filesystem.metadata(fileId).path,
@@ -710,6 +711,7 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   desktopFiles.render();
   const desktopButton = desktopItems.children[0];
   assert.equal(desktopButton.dataset.fileId, virtualFileId('downloads', 'SUPER_MEGA_GAME.exe'));
+  assert.equal(desktopButton.children.at(-1).textContent, 'SUPER_MEGA_GAME');
   let activeWindow = null;
   const app = new DesktopApplications({
     windows: new Map(), close() {}, isActive: (element) => activeWindow === element,
@@ -821,6 +823,7 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   const receivedRow = first.element.querySelector('.explorer-items').children.find(
     (item) => item.dataset.fileId === receivedId,
   );
+  assert.equal(receivedRow.children[0].textContent, 'SUPER_MEGA_GAME');
   assert.equal(receivedRow.innerHTML, desktopButton.innerHTML,
     'the Explorer item reuses the exact icon markup shown on the desktop shortcut');
   receivedRow.handlers.click();
@@ -841,6 +844,7 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   const archiveRow = first.element.querySelector('.explorer-items').children.find(
     (item) => item.dataset.fileId === archiveId,
   );
+  assert.equal(archiveRow.children[0].textContent, 'BombArena');
   archiveRow.handlers.contextmenu({ clientX: 45, clientY: 60, preventDefault() {} });
   const extractAction = first.explorerMenu.children.find(
     (item) => item.dataset.explorerAction === 'extract',
@@ -851,7 +855,7 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   desktopFiles.render();
   const bombArenaShortcut = () => desktopItems.children.filter((item) => item.className.includes('desktop-virtual-shortcut'));
   assert.equal(bombArenaShortcut().length, 1);
-  assert.equal(bombArenaShortcut()[0].children.at(-1).textContent, 'BombArena.exe');
+  assert.equal(bombArenaShortcut()[0].children.at(-1).textContent, 'BombArena');
   bombArenaShortcut()[0].handlers.dblclick();
   assert.equal(openedDesktopFiles.at(-1).virtualApp, 'bomb-arena');
   assert.equal(filesystem.deleteFile(virtualFileId('bomb-arena-folder', 'BombArena.exe')).ok, true);

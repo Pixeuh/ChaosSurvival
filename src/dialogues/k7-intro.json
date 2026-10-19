@@ -1,0 +1,279 @@
+{
+  "id": "k7-intro",
+  "version": 1,
+  "contact": {
+    "id": "k7",
+    "name": "K7",
+    "nickname": "K7",
+    "status": "En ligne",
+    "personalMessage": "♫ ON AIR !!!",
+    "avatar": "./avatars/k7.svg"
+  },
+  "player": { "nickname": "Moi", "avatar": "./avatars/player.svg" },
+  "start": "first-contact",
+  "completion": { "stayOnline": true },
+  "nodes": {
+    "first-contact": {
+      "messages": [
+        { "speaker": "contact", "text": "yoooooooo", "delayMs": 0, "typingMs": 0 },
+        { "speaker": "contact", "text": "t'es là ??", "delayMs": 350, "typingMs": 280 },
+        { "speaker": "contact", "text": "j'ai enfin fini le son mdrrrr", "delayMs": 650, "typingMs": 520 },
+        { "speaker": "contact", "text": "enfin", "delayMs": 500, "typingMs": 240 },
+        { "speaker": "contact", "text": "presque", "delayMs": 550, "typingMs": 300 }
+      ],
+      "choices": [
+        { "id": "ask-which-sound", "text": "quel son ? xD", "next": "which-sound" },
+        { "id": "ask-to-hear", "text": "ah ouais fais écouter", "next": "hear-my-art" },
+        { "id": "wrong-conversation", "text": "on se connaît ? mdr", "next": "wrong-conv" }
+      ]
+    },
+    "which-sound": { "messages": [
+      { "speaker": "contact", "text": "bah LE son", "delayMs": 250, "typingMs": 350 },
+      { "speaker": "contact", "text": "celui dont je t'ai parlé hier", "delayMs": 500, "typingMs": 520 },
+      { "speaker": "contact", "text": "...", "delayMs": 800, "typingMs": 220 },
+      { "speaker": "contact", "text": "attends", "delayMs": 1100, "typingMs": 280 },
+      { "speaker": "contact", "text": "c'est pas toi à qui j'en ai parlé ?", "delayMs": 600, "typingMs": 650 }
+    ], "next": "opening-common" },
+    "hear-my-art": { "messages": [
+      { "speaker": "contact", "text": "AAAAAAH enfin quelqu'un qui s'intéresse à mon art", "delayMs": 300, "typingMs": 900 },
+      { "speaker": "contact", "text": "jte préviens c'est du lourd", "delayMs": 550, "typingMs": 500 },
+      { "speaker": "contact", "text": "enfin attends", "delayMs": 650, "typingMs": 350 },
+      { "speaker": "contact", "text": "faut que je change un truc", "delayMs": 900, "typingMs": 580 }
+    ], "next": "opening-common" },
+    "wrong-conv": { "messages": [
+      { "speaker": "contact", "text": "bah ouais ???", "delayMs": 300, "typingMs": 420 },
+      { "speaker": "contact", "text": "...", "delayMs": 1200, "typingMs": 250 },
+      { "speaker": "contact", "text": "aaah je me suis trompé de conv dsl", "delayMs": 1500, "typingMs": 950 }
+    ], "next": "opening-common" },
+    "opening-common": { "messages": [
+      { "speaker": "contact", "text": "mais sinon.......", "delayMs": 650, "typingMs": 380 }
+    ], "next": "player-activity" },
+    "player-activity": {
+      "messages": [
+        { "speaker": "contact", "text": " tu fais quoi toi ?", "delayMs": 500, "typingMs": 500 },
+        { "speaker": "contact", "text": "à part survivre aux jeux éclatés de ce pc mdr", "delayMs": 600, "typingMs": 750 }
+      ],
+      "choices": [
+        { "id": "discovering", "text": "je découvre un peu tout", "next": "discovering-reply" },
+        { "id": "talking-to-people", "text": "je parle avec des gens", "next": "people-reply" },
+        { "id": "nothing-special", "text": "rien de spécial et toi ?", "next": "nothing-reply" }
+      ]
+    },
+    "discovering-reply": { "messages": [
+      { "speaker": "contact", "text": "ah ouais bah bonne découverte", "delayMs": 350, "typingMs": 600 },
+      { "speaker": "contact", "text": "ya des pépites quand même", "delayMs": 500, "typingMs": 420 },
+      { "speaker": "contact", "text": "bon faut chercher entre les 800 jeux de merde", "delayMs": 500, "typingMs": 750 }
+    ], "next": "music-question" },
+    "people-reply": { "messages": [
+      { "speaker": "contact", "text": "ah bah ça tombe bien mdr", "delayMs": 350, "typingMs": 500 },
+      { "speaker": "contact", "text": "moi je parle souvent avec des gens sur hopla, tu connais turbo ??", "delayMs": 550, "typingMs": 520 },
+      { "speaker": "contact", "text": "il est sympa hein", "delayMs": 400, "typingMs": 320 },
+      { "speaker": "contact", "text": "faut juste pas parler de jeu avec lui", "delayMs": 450, "typingMs": 600 }
+    ], "next": "music-question" },
+    "nothing-reply": { "messages": [
+      { "speaker": "contact", "text": "bah pareil", "delayMs": 300, "typingMs": 300 },
+      { "speaker": "contact", "text": "enfin nan", "delayMs": 600, "typingMs": 260 },
+      { "speaker": "contact", "text": "j'ai mon remix à finir", "delayMs": 500, "typingMs": 500 },
+      { "speaker": "contact", "text": "mais ça fait 3 jours que je dis ça", "delayMs": 550, "typingMs": 650 }
+    ], "next": "music-question" },
+    "music-question": {
+      "messages": [
+        { "speaker": "contact", "text": "sinon t'écoutes quoi comme musique ??", "delayMs": 650, "typingMs": 650 }
+      ],
+      "choices": [
+        { "id": "music-electro", "text": "surtout de l'électro", "next": "electro-reply", "set": { "k7MusicPreference": "electro" } },
+        { "id": "music-rock", "text": "plutôt du rock", "next": "rock-reply", "set": { "k7MusicPreference": "rock" } },
+        { "id": "music-varied", "text": "un peu de tout", "next": "varied-reply", "set": { "k7MusicPreference": "varied" } },
+        { "id": "music-none", "text": "pas spécialement de musique", "next": "no-music-reply", "set": { "k7MusicPreference": "none" } }
+      ]
+    },
+    "electro-reply": { "messages": [
+      { "speaker": "contact", "text": "AAAAAH", "delayMs": 350, "typingMs": 300 },
+      { "speaker": "contact", "text": "enfin quelqu'un de cultivé", "delayMs": 600, "typingMs": 620 },
+      { "speaker": "contact", "text": "mdrrrr", "delayMs": 450, "typingMs": 300 },
+      { "speaker": "contact", "text": "t'écoutes quoi ?? house ? trance ?", "delayMs": 500, "typingMs": 600 },
+      { "speaker": "contact", "text": "moi en ce moment je suis à fond dans la trance", "delayMs": 500, "typingMs": 700 }
+    ], "next": "radio-intro" },
+    "rock-reply": { "messages": [
+      { "speaker": "contact", "text": "ah ouais stylé", "delayMs": 350, "typingMs": 420 },
+      { "speaker": "contact", "text": "j'en écoute pas énormément", "delayMs": 450, "typingMs": 500 },
+      { "speaker": "contact", "text": "mais ya des morceaux avec des guitares de malade", "delayMs": 500, "typingMs": 700 },
+      { "speaker": "contact", "text": "faudrait que j'essaie d'en mettre dans un remix un jour", "delayMs": 500, "typingMs": 700 }
+    ], "next": "radio-intro" },
+    "varied-reply": { "messages": [
+      { "speaker": "contact", "text": "ah ouais la réponse diplomatique mdr", "delayMs": 350, "typingMs": 700 },
+      { "speaker": "contact", "text": "mais en vrai pareil", "delayMs": 450, "typingMs": 420 },
+      { "speaker": "contact", "text": "enfin je dis ça", "delayMs": 650, "typingMs": 400 },
+      { "speaker": "contact", "text": "mais 80% de mon dossier musique c'est de l'électro", "delayMs": 500, "typingMs": 750 }
+    ], "next": "radio-intro" },
+    "no-music-reply": { "messages": [
+      { "speaker": "contact", "text": "ah ouais ??", "delayMs": 350, "typingMs": 350 },
+      { "speaker": "contact", "text": "j'avoue j'aurais du mal moi", "delayMs": 550, "typingMs": 600 },
+      { "speaker": "contact", "text": "j'ai quasiment toujours un truc dans les oreilles", "delayMs": 500, "typingMs": 750 },
+      { "speaker": "contact", "text": "même quand je fais rien", "delayMs": 450, "typingMs": 450 }
+    ], "next": "radio-intro" },
+    "radio-intro": { "messages": [
+      { "speaker": "contact", "text": "en vrai je passe beaucoup trop de temps sur la musique", "delayMs": 700, "typingMs": 700 },
+      { "speaker": "contact", "text": "j'ai une petite webradio aussi", "delayMs": 500, "typingMs": 500 },
+      { "speaker": "contact", "text": "bon ya pas 500 auditeurs hein mdrrr", "delayMs": 500, "typingMs": 650 },
+      { "speaker": "contact", "text": "mais c'est sympa", "delayMs": 500, "typingMs": 350 }
+    ], "choices": [
+      { "id": "radio-praise", "text": "ah ouais trop bien !", "next": "radio-praise-reply" },
+      { "id": "radio-listeners", "text": "ya combien de gens qui écoutent ?", "next": "radio-listeners-reply" },
+      { "id": "radio-music", "text": "tu passes quoi dessus ?", "next": "radio-music-reply" }
+    ] },
+    "radio-praise-reply": { "messages": [
+      { "speaker": "contact", "text": "haha merci", "delayMs": 350, "typingMs": 350 },
+      { "speaker": "contact", "text": "après c'est pas un truc de fou non plus", "delayMs": 450, "typingMs": 650 },
+      { "speaker": "contact", "text": "mais j'aime bien faire ça", "delayMs": 500, "typingMs": 450 }
+    ], "next": "remix-story" },
+    "radio-listeners-reply": { "messages": [
+      { "speaker": "contact", "text": "ça dépend des jours", "delayMs": 350, "typingMs": 450 },
+      { "speaker": "contact", "text": "des fois une dizaine", "delayMs": 450, "typingMs": 400 },
+      { "speaker": "contact", "text": "des fois moins", "delayMs": 450, "typingMs": 350 },
+      { "speaker": "contact", "text": "mais bon tant que ya quelqu'un ça me va", "delayMs": 500, "typingMs": 650 }
+    ], "next": "remix-story" },
+    "radio-music-reply": { "messages": [
+      { "speaker": "contact", "text": "surtout de l'électro", "delayMs": 350, "typingMs": 450 },
+      { "speaker": "contact", "text": "des trucs connus et des remixes", "delayMs": 450, "typingMs": 550 },
+      { "speaker": "contact", "text": "et parfois mes propres sons", "delayMs": 500, "typingMs": 450 },
+      { "speaker": "contact", "text": "quand j'ose les passer mdrr", "delayMs": 500, "typingMs": 500 }
+    ], "next": "remix-story" },
+    "remix-story": { "messages": [
+      { "speaker": "contact", "text": "d'ailleurs j'ai passé toute l'aprem sur un remix", "delayMs": 700, "typingMs": 700 },
+      { "speaker": "contact", "text": "il était terminé à 15h", "delayMs": 450, "typingMs": 480 },
+      { "speaker": "contact", "text": "mais j'ai changé la basse", "delayMs": 450, "typingMs": 500 },
+      { "speaker": "contact", "text": "du coup fallait refaire le mix", "delayMs": 500, "typingMs": 550 },
+      { "speaker": "contact", "text": "et après j'ai remis la basse d'avant", "delayMs": 500, "typingMs": 550 },
+      { "speaker": "contact", "text": "parce qu'elle était mieux", "delayMs": 500, "typingMs": 500 }
+    ], "choices": [
+      { "id": "remix-wasted-time", "text": "donc t'as rien fait pendant 4h ?", "next": "remix-wasted-reply" },
+      { "id": "remix-relatable", "text": "ah ouais je connais ça", "next": "remix-relatable-reply" },
+      { "id": "remix-better", "text": "et il est mieux maintenant ?", "next": "remix-better-reply" }
+    ] },
+    "remix-wasted-reply": { "messages": [
+      { "speaker": "contact", "text": "COMMENT ÇA RIEN FAIT", "delayMs": 400, "typingMs": 600 },
+      { "speaker": "contact", "text": "j'ai acquis de l'expérience", "delayMs": 650, "typingMs": 550 }
+    ], "next": "send-remix" },
+    "remix-relatable-reply": { "messages": [
+      { "speaker": "contact", "text": "MERCI", "delayMs": 350, "typingMs": 380 },
+      { "speaker": "contact", "text": "quelqu'un qui comprend !", "delayMs": 550, "typingMs": 650 },
+      { "speaker": "contact", "text": "c'est une maladie ce truc", "delayMs": 500, "typingMs": 550 }
+    ], "next": "send-remix" },
+    "remix-better-reply": { "messages": [
+      { "speaker": "contact", "text": "...", "delayMs": 650, "typingMs": 250 },
+      { "speaker": "contact", "text": "nan", "delayMs": 1200, "typingMs": 240 },
+      { "speaker": "contact", "text": "MAIS IL VA L'ÊTRE", "delayMs": 650, "typingMs": 650 }
+    ], "next": "send-remix" },
+    "send-remix": { "messages": [
+      { "speaker": "contact", "text": "attends", "delayMs": 750, "typingMs": 300 },
+      { "speaker": "contact", "text": "jvais te l'envoyer", "delayMs": 650, "typingMs": 500 },
+      { "speaker": "contact", "text": "mais juge pas trop vite hein", "delayMs": 550, "typingMs": 600 }
+    ], "next": "remix-transfer" },
+    "remix-transfer": {
+      "messages": [
+        {
+          "speaker": "contact",
+          "type": "file",
+          "text": "SON_FINAL_8.mp3",
+          "file": {
+            "id": "k7-son-final-8",
+            "name": "SON_FINAL_8.mp3",
+            "sizeLabel": "1,8 Mo",
+            "size": 1838184,
+            "description": "Fichier MP3 partagé par K7",
+            "title": "SON_FINAL_8",
+            "artist": "K7",
+            "audioRef": "k7-son-final-8"
+          },
+          "delayMs": 650,
+          "typingMs": 400
+        }
+      ],
+      "transfer": { "fileId": "k7-son-final-8", "accept": "after-transfer", "refuse": "after-transfer" }
+    },
+    "after-transfer": { "messages": [
+      { "speaker": "contact", "text": "tiens écoute ça", "delayMs": 450, "typingMs": 400 },
+      { "speaker": "contact", "text": "par contre", "delayMs": 500, "typingMs": 300 },
+      { "speaker": "contact", "text": "le début est pas fini", "delayMs": 450, "typingMs": 450 },
+      { "speaker": "contact", "text": "et la fin non plus", "delayMs": 450, "typingMs": 420 },
+      { "speaker": "contact", "text": "MAIS LE MILIEU EST INCROYABLE", "delayMs": 650, "typingMs": 700 }
+    ], "choices": [
+      { "id": "remix-praise", "text": "franchement c'est grave bien", "next": "remix-praise-reply" },
+      { "id": "remix-bass", "text": "ça manque un peu de basses", "next": "remix-bass-reply" },
+      { "id": "remix-flash-menu", "text": "on dirait une musique de menu de jeu Flash", "next": "remix-flash-reply" }
+    ] },
+    "remix-praise-reply": { "messages": [
+      { "speaker": "contact", "text": "ah ouais tu trouves ??", "delayMs": 350, "typingMs": 500 },
+      { "speaker": "contact", "text": "merci !!", "delayMs": 450, "typingMs": 300 },
+      { "speaker": "contact", "text": "bon après ya encore plein de trucs à changer", "delayMs": 500, "typingMs": 700 },
+      { "speaker": "contact", "text": "mais ça fait plaisir", "delayMs": 500, "typingMs": 450 }
+    ], "next": "turbo-story" },
+    "remix-bass-reply": { "messages": [
+      { "speaker": "contact", "text": "PARDON ???", "delayMs": 350, "typingMs": 450 },
+      { "speaker": "contact", "text": "ya déjà des basses partout mdrrrr", "delayMs": 550, "typingMs": 700 },
+      { "speaker": "contact", "text": "...", "delayMs": 850, "typingMs": 240 },
+      { "speaker": "contact", "text": "attends", "delayMs": 1150, "typingMs": 280 },
+      { "speaker": "contact", "text": "ptet que je peux en rajouter un peu", "delayMs": 550, "typingMs": 650 }
+    ], "next": "turbo-story" },
+    "remix-flash-reply": { "messages": [
+      { "speaker": "contact", "text": "...", "delayMs": 650, "typingMs": 250 },
+      { "speaker": "contact", "text": "je sais pas comment je dois le prendre mdr", "delayMs": 1150, "typingMs": 700 },
+      { "speaker": "contact", "text": "en vrai", "delayMs": 500, "typingMs": 300 },
+      { "speaker": "contact", "text": "c'est plutôt cool comme compliment", "delayMs": 500, "typingMs": 650 },
+      { "speaker": "contact", "text": "je crois", "delayMs": 750, "typingMs": 350 }
+    ], "next": "turbo-story" },
+    "turbo-story": { "messages": [
+      { "speaker": "contact", "text": "faut que je fasse écouter ça à turbo", "delayMs": 700, "typingMs": 650 },
+      { "speaker": "contact", "text": "quoique nan", "delayMs": 550, "typingMs": 350 },
+      { "speaker": "contact", "text": "il va encore me demander de mettre la même musique en boucle", "delayMs": 600, "typingMs": 800 },
+      { "speaker": "contact", "text": "ce mec croit que j'ai une seule chanson sur mon pc", "delayMs": 550, "typingMs": 700 }
+    ], "choices": [
+      { "id": "which-song", "text": "quelle musique ?", "next": "which-song-reply" },
+      { "id": "turbo-always", "text": "mdr il est toujours comme ça ?", "next": "turbo-always-reply" },
+      { "id": "remix-to-annoy", "text": "fais lui un remix juste pour le faire chier", "next": "remix-to-annoy-reply" }
+    ] },
+    "which-song-reply": { "messages": [
+      { "speaker": "contact", "text": "celle qu'il demande tjrs sur hopla", "delayMs": 450, "typingMs": 650 }
+    ], "next": "turbo-common" },
+    "turbo-always-reply": { "messages": [
+      { "speaker": "contact", "text": "il s'arrete jamais...", "delayMs": 500, "typingMs": 550 }
+    ], "next": "turbo-common" },
+    "remix-to-annoy-reply": { "messages": [
+      { "speaker": "contact", "text": "ptdrrr j'avoue !", "delayMs": 450, "typingMs": 500 }
+    ], "next": "turbo-common" },
+    "turbo-common": { "messages": [
+      { "speaker": "contact", "text": "en vrai il est sympa", "delayMs": 650, "typingMs": 500 },
+      { "speaker": "contact", "text": "mais quand il a une chanson en tête c'est terminé", "delayMs": 500, "typingMs": 700 },
+      { "speaker": "contact", "text": "impossible de lui faire écouter autre chose mdr", "delayMs": 500, "typingMs": 700 }
+    ], "next": "goodbye" },
+    "goodbye": {
+      "messages": [
+        { "speaker": "contact", "text": "bon en tout cas merci d'avoir écouté", "delayMs": 800, "typingMs": 650 },
+        { "speaker": "contact", "text": "jvais essayer de finir ce remix une bonne fois pour toutes", "delayMs": 650, "typingMs": 750 },
+        { "speaker": "contact", "text": "...", "delayMs": 800, "typingMs": 250 },
+        { "speaker": "contact", "text": "AH MERDE", "delayMs": 1300, "typingMs": 450 },
+        { "speaker": "contact", "text": "j'avais lancé un export", "delayMs": 500, "typingMs": 600 },
+        { "speaker": "contact", "text": "ça fait 20 minutes qu'il est fini", "delayMs": 550, "typingMs": 650 },
+        { "speaker": "contact", "text": "bon jvais voir si j'ai pas encore saturé mon disque mdr", "delayMs": 550, "typingMs": 800 },
+        { "speaker": "contact", "text": "a+", "delayMs": 450, "typingMs": 250 }
+      ],
+      "choices": [
+        { "id": "good-luck", "text": "mdr bonne chance", "next": "good-luck-reply" },
+        { "id": "save-reminder", "text": "oublie pas de sauvegarder xD", "next": "save-reminder-reply" },
+        { "id": "see-you", "text": "à plus !", "next": "see-you-reply" }
+      ]
+    },
+    "good-luck-reply": { "messages": [
+      { "speaker": "contact", "text": "merci jvais en avoir besoin", "delayMs": 450, "typingMs": 550 }
+    ], "end": true },
+    "save-reminder-reply": { "messages": [
+      { "speaker": "contact", "text": "PTDR OUI", "delayMs": 350, "typingMs": 400 },
+      { "speaker": "contact", "text": "attends", "delayMs": 600, "typingMs": 280 },
+      { "speaker": "contact", "text": "bonne idée", "delayMs": 500, "typingMs": 400 }
+    ], "end": true },
+    "see-you-reply": { "messages": [
+      { "speaker": "contact", "text": "a+ !!", "delayMs": 400, "typingMs": 300 }
+    ], "end": true }
+  }
+}

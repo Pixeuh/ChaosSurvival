@@ -1,7 +1,9 @@
 import { DialogueSession, pendingChoices } from './dialogue.js';
 import { bombArenaRedownloadDialogue } from './bomb-arena.js';
+import { OptionalConversations } from './optional-conversations.js';
 
-const SUPER_PLOMBIER_GROUP_REST_MS = 20_000;
+const K7_CONNECTION_DELAY_MS = 10_000;
+const SUPER_PLOMBIER_GROUP_REST_MS = 40_000;
 const PIXELGIRL_REPLY_REMINDER_DELAYS_MS = [20_000, 15_000, 10_000];
 const PIXELGIRL_HUMOR_WIZZ_DELAYS_MS = [20_000, 10_000, 8_000];
 export const DEFERRED_CONNECTION_DIALOGUES = Object.freeze(['pixelgirl-smiley-victory']);
@@ -20,11 +22,14 @@ export class NarrativeOrchestrator {
     sendWizz = () => false,
     getGroupThread = () => null,
     getTurboThread = () => null,
+    getK7Thread = () => null,
     onTurboMessage = () => {},
+    onK7Message = () => {},
     showGroupNotification = () => false,
     onGroupMessage = () => {},
     virtualFilesystem = null,
     connectionMessages = null,
+    optionalConversations = null,
     now = () => Date.now(),
   }) {
     Object.assign(this, {
@@ -38,11 +43,14 @@ export class NarrativeOrchestrator {
       sendWizz,
       getGroupThread,
       getTurboThread,
+      getK7Thread,
       onTurboMessage,
+      onK7Message,
       showGroupNotification,
       onGroupMessage,
       virtualFilesystem,
       connectionMessages,
+      optionalConversations: optionalConversations ?? new OptionalConversations(progression, definitions),
       now,
     });
     if (Number.isFinite(this.flags.turboSmileyScene3MessageNotificationDueAt)) {
@@ -54,6 +62,7 @@ export class NarrativeOrchestrator {
     this.migrateTurboSmileyDialogue();
     this.migrateSuperPlombierGroupDialogue();
     this.restoreSuperPlombierFlashUnlock();
+    this.restoreLegacyK7Introduction();
     if (
       this.flags.superPlombierPixelCase === 'A' &&
       this.flags.superPlombierWizzCount === 3 &&
@@ -293,6 +302,15 @@ export class NarrativeOrchestrator {
       flags.turboSmileyScene3ArrivalTriggered = true;
       this.progression.save();
     }
+  }
+
+  restoreLegacyK7Introduction() {
+    if (this.flags.k7IntroductionStarted) return;
+    const state = this.progression.data.dialogues['k7-intro'];
+    if (!state?.transcript?.length && !state?.finished && !Number.isFinite(state?.receiveDueAt)) return;
+    this.flags.k7IntroductionStarted = true;
+    this.flags.k7IntroductionStartedAt = state.transcript?.find((message) => Number.isFinite(message.receivedAt))?.receivedAt ?? this.now();
+    this.progression.save();
   }
 
   onContactOpened(contact) {
@@ -575,40 +593,9 @@ export class NarrativeOrchestrator {
     const turboFinished = this.isDialogueFinished('turbo-super-plombier', 'allez a+');
     const pixelFinished = this.pixelGirlPostDialogueFinished();
     if (!this.flags.superPlombierGroupCreated) {
-      if (
-        (!turboFinished || !pixelFinished) &&
-        Number.isFinite(this.flags.superPlombierGroupRestDueAt)
-      ) {
-        delete this.flags.superPlombierGroupRestDueAt;
-        this.progression.save();
-      }
-      if (turboFinished && pixelFinished) {
-        let changed = false;
-        let turboEndedAt = this.progression.data.dialogues['turbo-super-plombier']?.transcript?.at(-1)?.receivedAt;
-        if (!Number.isFinite(turboEndedAt)) {
-          turboEndedAt = this.flags.superPlombierTurboFinishedAt ?? now;
-          this.flags.superPlombierTurboFinishedAt = turboEndedAt;
-          changed = true;
-        }
-        const pixelId = 'pixelgirl-super-plombier-wizz';
-        let pixelEndedAt = this.progression.data.dialogues[pixelId]?.transcript?.at(-1)?.receivedAt;
-        if (!Number.isFinite(pixelEndedAt)) {
-          pixelEndedAt = this.flags.superPlombierPixelGirlFinishedAt ?? now;
-          this.flags.superPlombierPixelGirlFinishedAt = pixelEndedAt;
-          changed = true;
-        }
-        const expectedDueAt =
-          Math.max(turboEndedAt, pixelEndedAt) + SUPER_PLOMBIER_GROUP_REST_MS;
-        if (this.flags.superPlombierGroupRestDueAt !== expectedDueAt) {
-          this.flags.superPlombierGroupRestDueAt = expectedDueAt;
-          changed = true;
-        }
-        if (changed) this.progression.save();
-      }
+      if (turboFinished && pixelFinished) this.ensurePostSuperPlombierTimers(now);
       if (
         Number.isFinite(this.flags.superPlombierGroupRestDueAt) &&
-        turboFinished &&
-        pixelFinished &&
         now >= this.flags.superPlombierGroupRestDueAt
       ) {
         this.flags.superPlombierGroupCreated = true;
@@ -639,6 +626,85 @@ export class NarrativeOrchestrator {
     }
   }
 
+  startK7Introduction(privateFinishedAt) {
+    if (this.flags.superPlombierGroupCreated) return false;
+    const saved = this.progression.data.dialogues['k7-intro'];
+    const hasSavedK7Progress = Boolean(
+      saved?.transcript?.length ||
+      saved?.finished ||
+      Number.isFinite(saved?.receiveDueAt) ||
+      this.progression.data.choices.some((choice) => choice.dialogue === 'k7-intro'),
+    );
+    if (this.flags.k7IntroductionStarted) {
+      if (!Number.isFinite(this.flags.k7IntroductionStartedAt)) {
+        this.flags.k7IntroductionStartedAt =
+          saved?.transcript?.find((message) => Number.isFinite(message.receivedAt))?.receivedAt ?? privateFinishedAt ?? this.now();
+        this.progression.save();
+      }
+      return false;
+    }
+    if (hasSavedK7Progress) {
+      this.flags.k7IntroductionStarted = true;
+      this.flags.k7IntroductionStartedAt =
+        saved?.transcript?.find((message) => Number.isFinite(message.receivedAt))?.receivedAt ?? privateFinishedAt ?? this.now();
+      this.progression.save();
+      return false;
+    }
+    this.flags.k7IntroductionStarted = true;
+    this.flags.k7IntroductionStartedAt = privateFinishedAt;
+    this.progression.save();
+    return true;
+  }
+
+  ensurePostSuperPlombierTimers(now) {
+    let changed = false;
+    // Older saves may have started K7 after only one private chat. Keep that
+    // progress, but anchor the new independent deadlines when both are done.
+    const newAnchor = !Number.isFinite(this.flags.superPlombierPrivateChatsFinishedAt);
+    if (newAnchor) {
+      this.flags.superPlombierPrivateChatsFinishedAt = now;
+      changed = true;
+    }
+    const anchor = this.flags.superPlombierPrivateChatsFinishedAt;
+    if (!this.flags.k7IntroductionStarted) {
+      this.startK7Introduction(anchor);
+      changed = true;
+    }
+    const connection = this.progression.data.contactConnections?.k7;
+    const k7State = this.progression.data.dialogues['k7-intro'];
+    if (
+      !k7State?.transcript?.some((message) => message.speaker === 'contact') &&
+      connection?.status !== 'online' &&
+      (newAnchor || connection?.status !== 'pending' || !Number.isFinite(connection.dueAt))
+    ) {
+      this.progression.data.contactConnections ??= {};
+      this.progression.data.contactConnections.k7 = {
+        status: 'pending',
+        dueAt: anchor + K7_CONNECTION_DELAY_MS,
+      };
+      changed = true;
+    }
+    const groupDueAt = anchor + SUPER_PLOMBIER_GROUP_REST_MS;
+    if (newAnchor || !Number.isFinite(this.flags.superPlombierGroupRestDueAt)) {
+      this.flags.superPlombierGroupRestDueAt = groupDueAt;
+      changed = true;
+    }
+    if (changed) this.progression.save();
+  }
+
+  updateK7(now) {
+    if (!this.flags.k7IntroductionStarted) return;
+    const definition = this.definitions['k7-intro'];
+    const state = definition && this.progression.data.dialogues[definition.id];
+    const thread = state && this.getK7Thread();
+    if (!thread || !Number.isFinite(state.receiveDueAt) || state.finished) return;
+    const previousKeys = new Set(thread.state.history.map((message) => message.key));
+    if (!thread.receiveScheduled(definition, now)) return;
+    const history = thread.sync();
+    const messages = history.filter((message) => !previousKeys.has(message.key));
+    this.onK7Message(this.getContact('k7'), [definition], messages);
+  }
+
   onContactConnected(contactId, connectedAt, { notify = true, notificationOptions } = {}) {
     const contact = this.getContact(contactId);
     if (!contact) return;
@@ -660,7 +726,7 @@ export class NarrativeOrchestrator {
     );
     for (const threadId of threadIds) {
       const threadContact = this.getContact(threadId);
-      if (threadContact) this.ensureBackground(threadContact);
+      if (threadContact && contactId !== 'k7') this.ensureBackground(threadContact);
     }
   }
 
@@ -731,7 +797,8 @@ export class NarrativeOrchestrator {
         ['A', 'B'].includes(this.flags.superPlombierPixelCase) &&
         this.flags.superPlombierHumorWizzesComplete === true) ||
       (dialogueId === 'pixelgirl-super-plombier-group' &&
-        this.flags.superPlombierGroupCreated === true)
+        this.flags.superPlombierGroupCreated === true) ||
+      (dialogueId === 'k7-intro' && this.flags.k7IntroductionStarted === true)
     );
   }
 
@@ -780,6 +847,7 @@ export class NarrativeOrchestrator {
   }
 
   update(now = this.now(), notify = true) {
+    this.optionalConversations?.sync(now);
     this.prepareSuperPlombierInvitation();
     this.connectionMessages?.restorePending();
     this.dialogueEvents.update(now, notify);
@@ -800,6 +868,7 @@ export class NarrativeOrchestrator {
     this.updateSuperPlombierWizzes(now);
     this.updatePixelGirlReplyReminders(now);
     this.updatePixelGirlWizzBrawl(now);
+    this.updateK7(now);
     this.updateGroup(now);
   }
 

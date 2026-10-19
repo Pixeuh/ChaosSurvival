@@ -145,6 +145,7 @@ export function validateDialogue(dialogue) {
 }
 
 export function pendingChoices(dialogue, state, progression) {
+  if (state?.expired) return [];
   const node = state && dialogue.nodes[state.node];
   if (!node || state.finished || state.cursor < node.messages.length) return [];
   return (node.choices ?? []).filter((choice) =>
@@ -154,7 +155,7 @@ export function pendingChoices(dialogue, state, progression) {
 
 // Empty nodes and automatic joins do not end a contact's message sequence.
 export function hasPendingMessages(dialogue, state, progression) {
-  if (!state || state.finished) return false;
+  if (!state || state.finished || state.expired) return false;
   const visited = new Set();
   let id = state.node;
   let cursor = state.cursor;

@@ -1,6 +1,7 @@
 import { icon } from './icons.js';
 import { applicationName, trackIdentity } from './identity.js';
 import { arcadeLauncher } from './arcade-launcher.js';
+import { getDisplayFileName } from './file-names.js';
 
 export function mountDesktop(root, best) {
   root.innerHTML = /* HTML */ ` <main class="desktop" id="desktop">
@@ -45,7 +46,7 @@ export function mountDesktop(root, best) {
         ${icon('media')}<span>${applicationName('media')}</span>
       </button>
       <button data-shortcut="arcade">
-        ${icon(arcadeLauncher.icon)}<span>${arcadeLauncher.name}</span>
+        ${icon(arcadeLauncher.icon)}<span>${getDisplayFileName(arcadeLauncher)}</span>
       </button>
       <button data-shortcut="bin">${icon('bin')}<span>Corbeille</span></button>
     </nav>

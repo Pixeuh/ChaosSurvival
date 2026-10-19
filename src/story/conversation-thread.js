@@ -2,8 +2,8 @@ import { DialogueSession, pendingChoices, hasPendingMessages } from './dialogue.
 
 // JSON dialogues are event scripts. A contact owns one durable discussion.
 export class ConversationThread {
-  constructor(contactId, progression, getEvents) {
-    Object.assign(this, { contactId, progression, getEvents });
+  constructor(contactId, progression, getEvents, isEventAvailable = () => true) {
+    Object.assign(this, { contactId, progression, getEvents, isEventAvailable });
     this.repaired = false;
     this.sync();
   }
@@ -59,8 +59,13 @@ export class ConversationThread {
         entry.type === 'file' && this.progression.data.files[entry.fileKey]?.status === 'pending',
     );
   }
+  eligibleEvents() {
+    return this.getEvents().filter((event) =>
+      this.isEventAvailable(event) && !this.progression.data.dialogues[event.id]?.expired,
+    );
+  }
   get activeDefinition() {
-    const events = this.getEvents();
+    const events = this.eligibleEvents();
     const pending = events.filter(
       (event) =>
         !this.progression.data.dialogues[event.id]?.finished || this.hasPendingFile(event.id),
@@ -76,7 +81,7 @@ export class ConversationThread {
     );
   }
   get pendingResponses() {
-    return this.getEvents()
+    return this.eligibleEvents()
       .map((definition) => ({
         definition,
         choices: pendingChoices(
@@ -90,7 +95,7 @@ export class ConversationThread {
       .sort((a, b) => a.position - b.position);
   }
   get hasPendingMessages() {
-    return this.getEvents().some((definition) =>
+    return this.eligibleEvents().some((definition) =>
       hasPendingMessages(
         definition,
         this.progression.data.dialogues[definition.id],
@@ -120,7 +125,7 @@ export class ConversationThread {
       ...added.filter((entry) => entry.speaker === 'contact').map((entry) => entry.key),
     );
     const active = this.activeDefinition?.id ?? null;
-    const pending = this.getEvents()
+    const pending = this.eligibleEvents()
       .filter(
         (event) => event.id !== active && !this.progression.data.dialogues[event.id]?.finished,
       )
@@ -182,7 +187,7 @@ export class ConversationThread {
   }
   typingContacts(now = Date.now()) {
     const active = new Map();
-    for (const event of this.getEvents()) {
+    for (const event of this.eligibleEvents()) {
       const state = this.progression.data.dialogues[event.id];
       const message = state && !state.finished && event.nodes[state.node]?.messages[state.cursor];
       if (!message || message.speaker !== 'contact' || !Number.isFinite(state.receiveDueAt))
@@ -272,11 +277,12 @@ export class ConversationThread {
   isReceiving(id) {
     const scheduled = this.progression.data.dialogues[id];
     if (Number.isFinite(scheduled?.receiveDueAt) && !scheduled.finished) return true;
-    const first = this.getEvents()[0];
+    const events = this.eligibleEvents();
+    const first = events[0];
     if (first?.id === id)
       return Boolean(Number.isFinite(scheduled?.receiveDueAt) && !scheduled.finished);
 
-    const event = this.getEvents()
+    const event = events
       .slice(1)
       .find((event) => event.id === id);
     const state = this.progression.data.dialogues[id];
@@ -291,7 +297,7 @@ export class ConversationThread {
   receive(now = Date.now()) {
     const previousKeys = new Set(this.state.history.map((entry) => entry.key));
     const incoming = [];
-    for (const event of this.getEvents()) {
+    for (const event of this.eligibleEvents()) {
       if (this.progression.data.dialogues[event.id]?.finished && !this.hasPendingFile(event.id))
         continue;
       // Receive independently of other pending choices; only replies need the UI.

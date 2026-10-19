@@ -1,4 +1,8 @@
 const audioResources = Object.freeze({
+  'k7-son-final-8': new URL(
+    '../../assets/dragon-studio-uplifting-trance-584759.mp3',
+    import.meta.url,
+  ).href,
   'sport-dubstep-kulakovka': new URL(
     '../../assets/kulakovka-sport-dubstep-283969.mp3',
     import.meta.url,

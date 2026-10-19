@@ -14,7 +14,8 @@ test('the desktop exposes the game EXE and keeps MP3 metadata separate from its 
   assert.equal(arcadeLauncher.name, 'ChaosSurvival.exe');
   assert.match(root.innerHTML, /data-shortcut="arcade"/);
   assert.doesNotMatch(root.innerHTML, /data-shortcut="music"/);
-  assert.ok(root.innerHTML.includes(arcadeLauncher.name));
+  assert.match(root.innerHTML, /<span>ChaosSurvival<\/span>/);
+  assert.doesNotMatch(root.innerHTML, /<span>ChaosSurvival\.exe<\/span>/);
   assert.ok(isArcadeExecutable({ name: arcadeLauncher.name }));
   for (const name of ['DJARTMUSIC__Best_Game_Console.mp3', 'another.exe', 'ChaosSurvival.exe.txt'])
     assert.equal(isArcadeExecutable({ name }), false);

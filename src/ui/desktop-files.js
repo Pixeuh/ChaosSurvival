@@ -1,6 +1,7 @@
 import { bindFileActivation } from '../utils/activation.js';
 import { fileIcon, icon } from './icons.js';
 import { virtualFileId } from '../story/virtual-filesystem.js';
+import { getDisplayFileName } from './file-names.js';
 
 export class DesktopFiles {
   constructor(desktop, progression, onOpen, onLayout, virtualFilesystem = null) {
@@ -44,7 +45,7 @@ export class DesktopFiles {
       button.setAttribute('aria-pressed', 'false');
       button.innerHTML = icon(fileIcon(file, 'download'));
       const name = document.createElement('span');
-      name.textContent = file.name;
+      name.textContent = getDisplayFileName(file);
       button.append(name);
       bindFileActivation(button, () => {
         if (
@@ -65,7 +66,7 @@ export class DesktopFiles {
       shortcut.title = 'Raccourci vers BombArena.exe';
       shortcut.innerHTML = icon('arcade-game');
       const name = document.createElement('span');
-      name.textContent = executable.name;
+      name.textContent = getDisplayFileName(executable);
       shortcut.append(name);
       bindFileActivation(shortcut, () => {
         if (this.virtualFilesystem?.exists(bombArenaId))
@@ -86,7 +87,7 @@ export class DesktopFiles {
       button.setAttribute('aria-pressed', 'false');
       button.innerHTML = icon(target ? fileIcon(target, record.icon) : record.icon);
       const name = document.createElement('span');
-      name.textContent = target?.name ?? record.name;
+      name.textContent = getDisplayFileName(record.name);
       button.append(name);
       bindFileActivation(button, () => {
         const current = this.virtualFilesystem?.getFile(record.targetFileId);

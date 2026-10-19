@@ -180,7 +180,7 @@ test('received mini-game launches only after transfer, closes and restarts from 
   context.renderDesktopFiles();
   assert.equal(desktopFiles.children.length, 1);
   const shortcut = desktopFiles.children[0];
-  assert.equal(shortcut.children[0].textContent, 'SUPER_MEGA_GAME.exe');
+  assert.equal(shortcut.children[0].textContent, 'SUPER_MEGA_GAME');
   assert.equal(manager.windows.size, 0);
   shortcut.handlers.dblclick();
   const first = context.game();

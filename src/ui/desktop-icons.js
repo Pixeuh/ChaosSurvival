@@ -1,4 +1,5 @@
 import { fileIcon, icon } from './icons.js';
+import { getDisplayFileName } from './file-names.js';
 
 const WIDTH = 120;
 const HEIGHT = 104;
@@ -314,7 +315,7 @@ export class DesktopIcons {
     preview.setAttribute('aria-hidden', 'true');
     preview.innerHTML = icon(fileIcon(file));
     const label = document.createElement('span');
-    label.textContent = file.name;
+    label.textContent = getDisplayFileName(file);
     preview.append(label);
     preview.style.left = `${iconCellLeft(target.cell, this.grid, rect.width, 100)}px`;
     preview.style.top = `${iconCellTop(target.cell)}px`;

@@ -1,4 +1,5 @@
 import { brandIcons, applicationLogo } from './identity.js';
+import { fileTypeForName } from './file-names.js';
 const desktopIcons = {
   'arcade-game': './icons/chaos-survival.svg',
   'menu-computer': './icons/menu-computer.svg',
@@ -47,7 +48,7 @@ export function icon(name, className = '') {
 }
 
 export function fileIcon(file, fallback = file?.icon ?? 'document') {
-  if (!/\.exe$/i.test(file?.name ?? '')) return fallback;
+  if (fileTypeForName(file?.name) !== 'application') return fallback;
   const fileId = String(file.fileId ?? '')
     .toLowerCase()
     .replace(/^\//, '');

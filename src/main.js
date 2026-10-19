@@ -67,6 +67,7 @@ import connectionMessageConfig from './config/connection-messages.json';
 import { ReplayReactions } from './story/replays.js';
 import { ConnectionMessages } from './story/connection-messages.js';
 import { DialogueEvents } from './story/dialogue-events.js';
+import { OptionalConversations } from './story/optional-conversations.js';
 import {
   NarrativeOrchestrator,
   DEFERRED_CONNECTION_DIALOGUES,
@@ -118,6 +119,7 @@ const notifications = new NotificationCenter({
   getTime: (clock) => (clock === 'game' ? audio.time * 1000 : Date.now()),
 });
 const progression = new Progression(story, storyStorage);
+const optionalConversations = new OptionalConversations(progression, dialogues);
 const virtualFilesystem = new VirtualFilesystem(progression);
 const buddy = new Buddy(ui.desktop, progression);
 const replayReactions = new ReplayReactions(progression, dialogues, replayConfig);
@@ -171,6 +173,7 @@ let activeDialogue = pixelgirlDialogue;
 let conversation = createConversation(activeDialogue);
 let plumberGroupThread;
 let mediaPlayer;
+let k7ConversationThread;
 const launchExecutable = createExecutableLauncher({
   'windows-love-messenger': () => openMessenger(),
   'internet-adventurer': () => openBrowser(),
@@ -203,6 +206,16 @@ const turboEvents = () =>
     .sort((a, b) => narrativeOrchestrator?.compareEvents(a, b) ?? 0);
 const getTurboThread = () =>
   (turboConversationThread ??= new ConversationThread('turbo', progression, turboEvents));
+const getK7Thread = () =>
+  (k7ConversationThread ??= new ConversationThread(
+    'k7',
+    progression,
+    () => optionalConversations.entries
+      .filter((entry) => entry.contactId === 'k7')
+      .map((entry) => dialogues[entry.id])
+      .filter(Boolean),
+    (event) => optionalConversations.isAvailable(event.id),
+  ));
 const connectionMessages = new ConnectionMessages(
   progression,
   dialogues,
@@ -211,6 +224,8 @@ const connectionMessages = new ConnectionMessages(
     ? replayReactions.thread
     : threadId === 'turbo'
       ? getTurboThread()
+      : threadId === 'k7'
+        ? getK7Thread()
       : null,
 );
 const plumberGroupEvents = () => [
@@ -364,6 +379,7 @@ narrativeOrchestrator = new NarrativeOrchestrator({
   prepareContact: (contact) => messenger.prepareContact(contact),
   ensureBackground: (contact) => messenger.ensureBackground(contact),
   connectionMessages,
+  optionalConversations,
   showConnectionNotification: (contactId, options) => {
     const contact = messenger.contacts().find((entry) => entry.id === contactId);
     if (!contact) return;
@@ -377,7 +393,12 @@ narrativeOrchestrator = new NarrativeOrchestrator({
     return plumberGroupThread;
   },
   getTurboThread,
+  getK7Thread,
   onTurboMessage: (contact, incoming, messages) => {
+    if (!contact) return;
+    messenger.receiveIncoming(contact, incoming, messages ?? []);
+  },
+  onK7Message: (contact, incoming, messages) => {
     if (!contact) return;
     messenger.receiveIncoming(contact, incoming, messages ?? []);
   },
@@ -427,7 +448,10 @@ function createConversation(dialogue, contactId = 'pixelgirl', thread = replayRe
         if (progression.current) progression.enterCurrent().catch(showStoryError);
       }
     },
-    renderDesktopFiles,
+    () => {
+      renderDesktopFiles();
+      mediaPlayer?.syncTracks();
+    },
     (id) => {
       if (progression.current?.type === 'conversation' && progression.current.dialogue === id) {
         progression.complete(progression.current.id, { dialogue: id });

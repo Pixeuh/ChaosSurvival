@@ -8,6 +8,7 @@ import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js
 import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
+import { fileTypeForName, getDisplayFileName } from './file-names.js';
 
 export const desktopApps = definitions;
 
@@ -40,7 +41,7 @@ export function explorerItem(location, item) {
 
 export function fileViewer(item) {
   if (item.location) return null;
-  if (/\.txt$/i.test(item.name)) return 'notepad';
+  if (fileTypeForName(item.name) === 'text') return 'notepad';
   if (/\.jpg$/i.test(item.name)) return 'image';
   return 'generic';
 }
@@ -380,7 +381,7 @@ export class DesktopApplications {
       button.className = 'explorer-item';
       button.innerHTML = icon(fileIcon(item));
       const label = document.createElement('strong');
-      label.textContent = item.name;
+      label.textContent = getDisplayFileName(item);
       const detail = document.createElement('small');
       detail.textContent = item.detail;
       button.append(label, detail);

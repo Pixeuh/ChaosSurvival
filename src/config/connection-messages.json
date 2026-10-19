@@ -18,6 +18,12 @@
       "dialogueId": "turbo-flashzone-invitation",
       "threadId": "turbo",
       "requiresFinishedDialogue": "turbo-smiley-catcher"
+    },
+    "k7-first-contact": {
+      "contactId": "k7",
+      "dialogueId": "k7-intro",
+      "threadId": "k7",
+      "requiresFlag": "k7IntroductionStarted"
     }
   }
 }

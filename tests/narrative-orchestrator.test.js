@@ -6,6 +6,7 @@ import { DialogueEvents } from '../src/story/dialogue-events.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
 import { NarrativeOrchestrator } from '../src/story/narrative-orchestrator.js';
 import { ConnectionMessages } from '../src/story/connection-messages.js';
+import { validateDialogue, DialogueSession } from '../src/story/dialogue.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -19,6 +20,39 @@ const definitions = Object.fromEntries(
     }),
 );
 
+function finishedDialogue(progression, id, nodeId, receivedAt = 50_000) {
+  const node = definitions[id].nodes[nodeId];
+  progression.data.dialogues[id] = {
+    node: nodeId,
+    cursor: node.messages.length,
+    finished: true,
+    revision: definitions[id].revision ?? 1,
+    transcript: [{ speaker: 'contact', text: node.messages.at(-1).text, receivedAt }],
+  };
+}
+
+function playDialogueToEnd(progression, id) {
+  const session = new DialogueSession(definitions[id], progression);
+  let steps = 0;
+  while (!session.state.finished && steps++ < 300) {
+    if (session.nextMessage()) {
+      session.deliver(Date.now());
+      continue;
+    }
+    if (session.node.transfer && session.activeTransfer?.status === 'pending') {
+      progression.finishTransfer(session.activeTransfer.key);
+      continue;
+    }
+    if (session.choices.length) {
+      session.choose(session.choices[0].id);
+      continue;
+    }
+    if (!session.advance()) break;
+  }
+  assert.equal(session.state.finished, true, `${id} can complete through its dialogue flow`);
+  return session;
+}
+
 function fixture(values = new Map()) {
   const progression = new Progression(story, {
     getItem: (key) => values.get(key) ?? null,
@@ -29,9 +63,12 @@ function fixture(values = new Map()) {
     pixelgirl: { id: 'pixelgirl', available: true, online: true },
     turbo: { id: 'turbo', available: true, online: true },
     luna: { id: 'luna', available: true, online: true },
+    k7: { id: 'k7', available: true, online: false },
   };
   const connectionNotifications = [];
   const turboMessages = [];
+  const k7Messages = [];
+  const backgroundContacts = [];
   const preparedContacts = [];
   const turboThread = new ConversationThread('turbo', progression, () => [
     definitions['turbo-smiley-catcher'],
@@ -42,12 +79,13 @@ function fixture(values = new Map()) {
       ? [definitions['pixelgirl-intro']]
       : [],
   );
+  const k7Thread = new ConversationThread('k7', progression, () => [definitions['k7-intro']]);
   let orchestrator;
   const connectionMessages = new ConnectionMessages(
     progression,
     definitions,
     connectionMessageConfig,
-    (id) => id === 'pixelgirl' ? pixelGirlThread : id === 'turbo' ? turboThread : null,
+    (id) => id === 'pixelgirl' ? pixelGirlThread : id === 'turbo' ? turboThread : id === 'k7' ? k7Thread : null,
   );
   const events = new DialogueEvents(
     progression,
@@ -65,8 +103,11 @@ function fixture(values = new Map()) {
       return { thread: turboThread };
     },
     getTurboThread: () => turboThread,
+    getK7Thread: () => k7Thread,
+    ensureBackground: (contact) => backgroundContacts.push(contact?.id),
     connectionMessages,
     onTurboMessage: (contact, incoming, messages) => turboMessages.push({ contact, incoming, messages }),
+    onK7Message: (contact, incoming, messages) => k7Messages.push({ contact, incoming, messages }),
     showConnectionNotification: (id, options) => connectionNotifications.push({ id, options }),
     now: () => now,
   });
@@ -75,9 +116,12 @@ function fixture(values = new Map()) {
     orchestrator,
     turboThread,
     pixelGirlThread,
+    k7Thread,
     values,
     connectionNotifications,
     turboMessages,
+    k7Messages,
+    backgroundContacts,
     preparedContacts,
     get now() {
       return now;
@@ -123,6 +167,285 @@ test('validating PixelGirl first reply saves Turb0 connection for exactly two se
   restored.orchestrator.update(20_000);
   assert.equal(restored.turboMessages.length, 1);
   assert.equal(restored.connectionNotifications.length, 1);
+});
+
+test('K7 joins ten seconds after both private chats finish and the group arrives at T+40 independently', () => {
+  const context = fixture();
+  const { progression, orchestrator } = context;
+  progression.data.flags.superPlombierPostStarted = true;
+  finishedDialogue(progression, 'turbo-super-plombier', 'last-goodbye');
+  finishedDialogue(progression, 'pixelgirl-smiley-victory', 's8-common-1');
+  finishedDialogue(progression, 'pixelgirl-super-plombier-wizz', 'ending');
+
+  orchestrator.update(50_000);
+  assert.equal(progression.data.flags.k7IntroductionStarted, true);
+  assert.equal(orchestrator.isConversationUnlocked('k7-intro'), true);
+  assert.equal(progression.data.flags.k7IntroductionStartedAt, 50_000);
+  assert.deepEqual(progression.data.contactConnections.k7, { status: 'pending', dueAt: 60_000 });
+  assert.equal(progression.data.flags.superPlombierGroupCreated, undefined);
+  assert.equal(progression.data.flags.superPlombierPrivateChatsFinishedAt, 50_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 90_000);
+
+  const resumed = fixture(context.values);
+  resumed.orchestrator.update(59_999);
+  assert.equal(resumed.progression.data.contactConnections.k7.status, 'pending');
+  resumed.orchestrator.update(60_000);
+  assert.equal(resumed.progression.data.contactConnections.k7.status, 'online');
+  assert.equal(resumed.connectionNotifications.filter(({ id }) => id === 'k7').length, 1);
+  assert.equal(resumed.backgroundContacts.includes('k7'), false, 'connecting K7 does not open or prepare his conversation');
+  assert.equal(resumed.progression.data.dialogues['k7-intro'].receiveDueAt, 63_000);
+  assert.equal(resumed.k7Messages.length, 0);
+  resumed.orchestrator.onContactOpened({ id: 'k7' });
+  assert.equal(resumed.progression.data.flags.k7FirstPlayerReplyAt, undefined);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupRestDueAt, 90_000);
+  resumed.orchestrator.update(62_999);
+  assert.equal(resumed.k7Messages.length, 0);
+  resumed.orchestrator.update(63_000);
+  assert.equal(resumed.k7Messages.length, 1);
+  assert.equal(resumed.k7Messages[0].messages[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+  const reopened = fixture(resumed.values);
+  assert.equal(reopened.k7Thread.state.history[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+
+  resumed.orchestrator.update(89_999);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, undefined);
+  resumed.orchestrator.update(90_000);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, true, 'the group starts even if K7 is ignored');
+  assert.equal(resumed.progression.data.dialogues['k7-intro'].finished, false);
+  resumed.orchestrator.update(120_000);
+  assert.equal(
+    resumed.k7Thread.state.history.filter((message) => message.text === definitions['k7-intro'].nodes['first-contact'].messages[0].text).length,
+    1,
+    'the first spontaneous message is delivered only once',
+  );
+});
+
+test('both completion orders start the K7 and group clocks only when the second private chat finishes', () => {
+  for (const first of ['pixelgirl', 'turbo']) {
+    const context = fixture();
+    const { progression, orchestrator, k7Thread, connectionNotifications } = context;
+    progression.data.flags.superPlombierPostStarted = true;
+    progression.data.flags.superPlombierPixelCase = 'A';
+    progression.data.flags.superPlombierWizzCount = 3;
+    progression.data.flags.superPlombierHumorWizzesComplete = true;
+    progression.data.contactConnections.k7 = { status: 'pending', dueAt: 99_000 };
+    const pixelDone = first === 'pixelgirl';
+    const turboDone = first === 'turbo';
+    progression.data.dialogues['pixelgirl-smiley-victory'] = {
+      node: 's8-common-1', cursor: 1, finished: pixelDone,
+      transcript: [{ speaker: 'contact', text: pixelDone ? 'bon jreviens :3' : 'encore en cours', receivedAt: 8_000 }],
+    };
+    progression.data.dialogues['pixelgirl-super-plombier-wizz'] = {
+      node: 'ending', cursor: 2, finished: pixelDone,
+      transcript: [{ speaker: 'contact', text: pixelDone ? 'allez bisousss :3' : 'encore en cours', receivedAt: 9_000 }],
+    };
+    progression.data.dialogues['turbo-super-plombier'] = {
+      node: 'last-goodbye', cursor: definitions['turbo-super-plombier'].nodes['last-goodbye'].messages.length,
+      finished: turboDone,
+      transcript: [{ speaker: 'contact', text: turboDone ? 'allez a+' : 'encore en cours', receivedAt: 10_000 }],
+    };
+
+    orchestrator.update(15_000);
+    assert.equal(progression.data.flags.k7IntroductionStarted, undefined, `${first} finishing alone must not start K7`);
+    assert.equal(progression.data.contactConnections.k7.dueAt, 99_000, 'an unrelated legacy pending connection is untouched');
+    assert.equal(progression.data.flags.superPlombierGroupCreated, undefined);
+    if (first === 'pixelgirl') {
+      progression.data.dialogues['turbo-super-plombier'].finished = true;
+      progression.data.dialogues['turbo-super-plombier'].transcript.at(-1).text = 'allez a+';
+    } else {
+      progression.data.dialogues['pixelgirl-smiley-victory'].finished = true;
+      progression.data.dialogues['pixelgirl-smiley-victory'].transcript.at(-1).text = 'bon jreviens :3';
+      progression.data.dialogues['pixelgirl-super-plombier-wizz'].finished = true;
+      progression.data.dialogues['pixelgirl-super-plombier-wizz'].transcript.at(-1).text = 'allez bisousss :3';
+    }
+    const t0 = 15_000;
+    orchestrator.update(t0);
+    assert.equal(progression.data.flags.superPlombierPrivateChatsFinishedAt, t0);
+    assert.equal(progression.data.contactConnections.k7.dueAt, t0 + 10_000);
+    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, t0 + 40_000);
+    orchestrator.update(t0 + 10_000 - 1);
+    assert.equal(progression.data.contactConnections.k7.status, 'pending');
+    orchestrator.update(t0 + 10_000);
+    assert.equal(progression.data.contactConnections.k7.status, 'online');
+    assert.equal(connectionNotifications.filter(({ id }) => id === 'k7').length, 1);
+    assert.equal(progression.data.dialogues['k7-intro'].receiveDueAt, t0 + 13_000);
+    orchestrator.update(t0 + 13_000);
+    assert.equal(
+      k7Thread.state.history.filter((entry) => entry.text === definitions['k7-intro'].nodes['first-contact'].messages[0].text).length,
+      1,
+    );
+    orchestrator.update(t0 + 40_000);
+    assert.equal(progression.data.flags.superPlombierGroupCreated, true);
+  }
+});
+
+test('real private dialogue completion order anchors K7 deadlines to the second completion', () => {
+  const originalDateNow = Date.now;
+  let clockNow = 100_000;
+  Date.now = () => clockNow;
+  try {
+    for (const first of ['pixelgirl', 'turbo']) {
+      const { progression, orchestrator, connectionNotifications, k7Thread } = fixture();
+      progression.data.flags.superPlombierPostStarted = true;
+      progression.data.flags.superPlombierPixelCase = 'A';
+      progression.data.flags.superPlombierWizzCount = 3;
+      progression.data.flags.superPlombierHumorWizzesComplete = true;
+      const finishPixel = () => {
+        playDialogueToEnd(progression, 'pixelgirl-smiley-victory');
+        playDialogueToEnd(progression, 'pixelgirl-super-plombier-wizz');
+      };
+      const finishTurbo = () => playDialogueToEnd(progression, 'turbo-super-plombier');
+
+      if (first === 'pixelgirl') finishPixel();
+      else finishTurbo();
+      orchestrator.update(clockNow);
+      assert.equal(progression.data.flags.k7IntroductionStarted, undefined);
+      const firstFinishAt = first === 'pixelgirl'
+        ? progression.data.dialogues['pixelgirl-super-plombier-wizz'].transcript.at(-1).receivedAt
+        : progression.data.dialogues['turbo-super-plombier'].transcript.at(-1).receivedAt;
+      clockNow = firstFinishAt + 5_000;
+      if (first === 'pixelgirl') finishTurbo();
+      else finishPixel();
+      orchestrator.update(clockNow);
+      const connectionDueAt = clockNow + 10_000;
+      assert.equal(progression.data.flags.k7IntroductionStarted, true);
+      assert.equal(progression.data.contactConnections.k7.dueAt, connectionDueAt);
+      assert.equal(progression.data.flags.superPlombierGroupRestDueAt, clockNow + 40_000);
+      assert.equal(progression.data.flags.superPlombierGroupCreated, undefined);
+      clockNow = connectionDueAt;
+      orchestrator.update(clockNow);
+      assert.equal(progression.data.contactConnections.k7.status, 'online');
+      assert.equal(connectionNotifications.filter(({ id }) => id === 'k7').length, 1);
+      assert.equal(progression.data.dialogues['k7-intro'].receiveDueAt, connectionDueAt + 3_000);
+      clockNow = connectionDueAt + 3_000;
+      orchestrator.update(clockNow);
+      assert.equal(k7Thread.state.history[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+    }
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test('K7 replies do not reset the persisted group deadline', () => {
+  const context = fixture();
+  const { progression, orchestrator, values } = context;
+  progression.data.flags.superPlombierPostStarted = true;
+  finishedDialogue(progression, 'pixelgirl-smiley-victory', 's8-common-1', 50_000);
+  finishedDialogue(progression, 'pixelgirl-super-plombier-wizz', 'ending', 50_000);
+  finishedDialogue(progression, 'turbo-super-plombier', 'last-goodbye', 50_000);
+  orchestrator.update(10_000);
+  orchestrator.update(10_000);
+  orchestrator.update(20_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 50_000, 'the group deadline is 40 seconds after both private chats finish');
+
+  const originalDateNow = Date.now;
+  let clockNow = 69_000;
+  Date.now = () => clockNow++;
+  let dueAt;
+  try {
+    orchestrator.update(69_000);
+    orchestrator.update(72_000);
+    const session = new DialogueSession(definitions['k7-intro'], progression);
+    let operations = 0;
+    while (!session.state.finished && operations++ < 200) {
+      if (session.nextMessage()) {
+        session.deliver(clockNow++);
+        continue;
+      }
+      if (session.node.transfer && session.activeTransfer?.status === 'pending') {
+        progression.finishTransfer(session.activeTransfer.key);
+        continue;
+      }
+      if (session.choices.length) {
+        const nodeId = session.state.node;
+        const choice = session.choices[0];
+        context.now = clockNow;
+        session.choose(choice.id);
+        orchestrator.onChoiceValidated(definitions['k7-intro'], { nodeId, choice });
+        if (!Number.isFinite(dueAt)) dueAt = progression.data.flags.superPlombierGroupRestDueAt;
+        assert.equal(progression.data.flags.superPlombierGroupRestDueAt, dueAt);
+        continue;
+      }
+      if (!session.advance()) break;
+    }
+    assert.equal(session.state.finished, true, `the complete K7 dialogue path remains playable: ${JSON.stringify(session.state)}`);
+    orchestrator.update(clockNow++);
+    assert.equal(dueAt, 50_000);
+    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, dueAt);
+    assert.equal(progression.data.flags.superPlombierGroupCreated, true, 'K7 replies do not delay the group past T+40');
+  } finally {
+    Date.now = originalDateNow;
+  }
+
+  const resumed = fixture(values);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, true);
+  resumed.orchestrator.update(dueAt - 1);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, true);
+  resumed.orchestrator.update(dueAt);
+  assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, true);
+});
+
+test('K7 dialogue validates, stores its music choice and does not retrigger for saves past the group', () => {
+  validateDialogue(definitions['k7-intro']);
+  const context = fixture();
+  const { progression, orchestrator, connectionNotifications } = context;
+  assert.deepEqual(definitions['k7-intro'].nodes['first-contact'].choices.map(({ text }) => text), [
+    'quel son ? xD', 'ah ouais fais écouter', 'on se connaît ? mdr',
+  ]);
+  assert.deepEqual(definitions['k7-intro'].nodes['player-activity'].choices.map(({ id }) => id), [
+    'discovering', 'talking-to-people', 'nothing-special',
+  ]);
+
+  const musicSession = new DialogueSession(definitions['k7-intro'], progression);
+  musicSession.state.node = 'music-question';
+  musicSession.state.cursor = definitions['k7-intro'].nodes['music-question'].messages.length;
+  musicSession.persist();
+  musicSession.choose('music-electro');
+  assert.equal(progression.data.flags.k7MusicPreference, 'electro');
+  assert.ok(progression.data.choices.some((choice) => choice.dialogue === 'k7-intro' && choice.choice === 'music-electro'));
+  assert.equal(musicSession.state.transcript.at(-1).text, "surtout de l'électro");
+  const reloaded = fixture(context.values);
+  assert.equal(reloaded.progression.data.flags.k7MusicPreference, 'electro');
+  assert.equal(new DialogueSession(definitions['k7-intro'], reloaded.progression).state.transcript.at(-1).text, "surtout de l'électro");
+
+  progression.data.flags.superPlombierPostStarted = true;
+  progression.data.flags.superPlombierGroupCreated = true;
+  finishedDialogue(progression, 'turbo-super-plombier', 'last-goodbye');
+  finishedDialogue(progression, 'pixelgirl-smiley-victory', 's8-common-1');
+  finishedDialogue(progression, 'pixelgirl-super-plombier-wizz', 'ending');
+  orchestrator.update(90_000);
+  assert.equal(progression.data.flags.k7IntroductionStarted, undefined);
+  assert.equal(progression.data.contactConnections.k7, undefined);
+  assert.equal(connectionNotifications.some(({ id }) => id === 'k7'), false);
+});
+
+test('an in-progress K7 save without the introduction flag is unlocked in place without replaying messages', () => {
+  const context = fixture();
+  const { progression, orchestrator, connectionNotifications } = context;
+  progression.data.flags.superPlombierPostStarted = true;
+  finishedDialogue(progression, 'turbo-super-plombier', 'last-goodbye');
+  finishedDialogue(progression, 'pixelgirl-smiley-victory', 's8-common-1');
+  finishedDialogue(progression, 'pixelgirl-super-plombier-wizz', 'ending');
+  progression.data.dialogues['k7-intro'] = {
+    node: 'people-reply',
+    cursor: 1,
+    finished: false,
+    revision: 1,
+    transcript: [
+      { speaker: 'contact', text: 'et sinon tu fais quoi toi ?', receivedAt: 40_000 },
+      { speaker: 'player', text: 'je parle avec des gens', receivedAt: 40_500 },
+    ],
+  };
+  progression.data.contactConnections.k7 = { status: 'online', connectedAt: 37_000 };
+  progression.save();
+
+  assert.equal(orchestrator.isConversationUnlocked('k7-intro'), false);
+  orchestrator.update(50_000);
+  assert.equal(progression.data.flags.k7IntroductionStarted, true);
+  assert.equal(progression.data.flags.k7IntroductionStartedAt, 40_000);
+  assert.equal(orchestrator.isConversationUnlocked('k7-intro'), true);
+  assert.equal(progression.data.dialogues['k7-intro'].transcript.length, 2);
+  assert.equal(progression.data.dialogues['k7-intro'].node, 'people-reply');
+  assert.equal(connectionNotifications.some(({ id }) => id === 'k7'), false);
 });
 
 test('PixelGirl connection notification and first intro message use one three-second connection deadline', () => {

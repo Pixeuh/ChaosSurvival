@@ -433,7 +433,7 @@ test('Wizz dialogue migration preserves an in-progress save and leaves completed
   assert.equal(finishedContext.progression.data.dialogues[definition.id].finished, true);
 });
 
-test('the group invite waits for both branches and migrates an old rest deadline to 20 seconds', () => {
+test('K7 waits for both private chats while the group clock is independent of K7 replies', () => {
   const context = fixture();
   const { progression, orchestrator, notifications } = context;
   let scheduled = 0;
@@ -474,15 +474,26 @@ test('the group invite waits for both branches and migrates an old rest deadline
     transcript: [{ receivedAt: 5_000 }],
   };
   orchestrator.updateGroup(10_000);
-  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, undefined);
+  assert.equal(progression.data.flags.k7IntroductionStarted, undefined);
+  assert.equal(progression.data.contactConnections.k7, undefined);
   progression.data.dialogues['pixelgirl-super-plombier-wizz'].finished = true;
   progression.data.dialogues['pixelgirl-super-plombier-wizz'].transcript.push({ text: 'allez bisousss :3', receivedAt: 8_000 });
   orchestrator.updateGroup(10_000);
-  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 28_000);
-  orchestrator.updateGroup(27_999);
+  assert.equal(progression.data.flags.k7IntroductionStarted, true);
+  assert.equal(progression.data.contactConnections.k7.dueAt, 20_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 50_000);
+  progression.data.dialogues['k7-intro'] = {
+    node: 'good-luck-reply',
+    cursor: definitions['k7-intro'].nodes['good-luck-reply'].messages.length,
+    finished: true,
+    transcript: [{ speaker: 'contact', text: 'merci jvais en avoir besoin', receivedAt: 10_000 }],
+  };
+  orchestrator.updateGroup(10_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 50_000);
+  orchestrator.updateGroup(49_999);
   assert.equal(progression.data.flags.superPlombierGroupCreated, undefined);
-  orchestrator.updateGroup(28_000);
-  orchestrator.updateGroup(28_001);
+  orchestrator.updateGroup(50_000);
+  orchestrator.updateGroup(50_001);
   assert.equal(progression.data.flags.superPlombierGroupCreated, true);
   assert.equal(scheduled, 1);
   assert.equal(received, 2);
@@ -514,7 +525,7 @@ test('group message callbacks fire only when a new group event is received', () 
   assert.equal(groupMessages.length, 1);
 });
 
-test('group rest begins from Turb0\u2019s final transcript message, never the obsolete migration marker', () => {
+test('legacy transcript timestamps do not cause K7 or group deadlines to fire immediately', () => {
   const { progression, orchestrator } = fixture();
   progression.data.flags.superPlombierPostStarted = true;
   progression.data.flags.superPlombierPixelCase = 'B';
@@ -541,19 +552,28 @@ test('group rest begins from Turb0\u2019s final transcript message, never the ob
     transcript: [{ text: 'allez bisousss :3', receivedAt: 210_000 }],
   };
   orchestrator.updateGroup(210_000);
-  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 230_000);
-  orchestrator.updateGroup(229_999);
+  assert.equal(progression.data.contactConnections.k7.dueAt, 220_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 250_000);
+  progression.data.dialogues['k7-intro'] = {
+    node: 'good-luck-reply',
+    cursor: definitions['k7-intro'].nodes['good-luck-reply'].messages.length,
+    finished: true,
+    transcript: [{ speaker: 'contact', text: 'merci jvais en avoir besoin', receivedAt: 220_000 }],
+  };
+  orchestrator.updateGroup(220_000);
+  assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 250_000);
+  orchestrator.updateGroup(249_999);
   assert.equal(progression.data.flags.superPlombierGroupCreated, undefined);
-  orchestrator.updateGroup(230_000);
+  orchestrator.updateGroup(250_000);
   assert.equal(progression.data.flags.superPlombierGroupCreated, true);
   progression.data.flags.superPlombierGroupRestDueAt = 999_000;
-  progression.data.flags.superPlombierGroupCreatedAt = 230_000;
+  progression.data.flags.superPlombierGroupCreatedAt = 270_000;
   orchestrator.updateGroup(500_000);
   assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 999_000);
-  assert.equal(progression.data.flags.superPlombierGroupCreatedAt, 230_000);
+  assert.equal(progression.data.flags.superPlombierGroupCreatedAt, 270_000);
 });
 
-test('the second finished conversation starts one rest deadline that survives a reload in either order', () => {
+test('both private completions start K7 once and the T+40 group deadline survives reload', () => {
   for (const order of ['turbo-first', 'pixelgirl-first']) {
     const context = fixture();
     const { progression, orchestrator, storage } = context;
@@ -581,19 +601,31 @@ test('the second finished conversation starts one rest deadline that survives a 
       transcript: [{ speaker: 'contact', text: order === 'turbo-first' ? 'allez a+' : 'en cours', receivedAt: 20_000 }],
     };
     orchestrator.updateGroup(20_000);
-    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, undefined);
-
+    assert.equal(progression.data.flags.k7IntroductionStarted, undefined, 'one completed private chat is insufficient');
+    assert.equal(progression.data.contactConnections.k7, undefined);
     progression.data.dialogues['pixelgirl-smiley-victory'].finished = true;
     progression.data.dialogues['pixelgirl-smiley-victory'].transcript.at(-1).text = 'bon jreviens :3';
-    progression.data.dialogues['pixelgirl-smiley-victory'].transcript.push({ speaker: 'contact', text: 'bon jreviens :3', receivedAt: 30_000 });
     progression.data.dialogues['pixelgirl-super-plombier-wizz'].finished = true;
     progression.data.dialogues['pixelgirl-super-plombier-wizz'].transcript.at(-1).text = 'allez bisousss :3';
-    progression.data.dialogues['pixelgirl-super-plombier-wizz'].transcript.push({ speaker: 'contact', text: 'allez bisousss :3', receivedAt: 30_000 });
     progression.data.dialogues['turbo-super-plombier'].finished = true;
     progression.data.dialogues['turbo-super-plombier'].transcript.at(-1).text = 'allez a+';
-    progression.data.dialogues['turbo-super-plombier'].transcript.push({ speaker: 'contact', text: 'allez a+', receivedAt: 40_000 });
     orchestrator.updateGroup(40_000);
-    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, 60_000);
+    const t0 = 40_000;
+    const groupDueAt = t0 + 40_000;
+    assert.equal(progression.data.flags.k7IntroductionStarted, true);
+    assert.equal(progression.data.contactConnections.k7.dueAt, t0 + 10_000);
+    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, groupDueAt);
+
+    orchestrator.updateGroup(45_000);
+    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, groupDueAt);
+    progression.data.dialogues['k7-intro'] = {
+      node: 'good-luck-reply',
+      cursor: definitions['k7-intro'].nodes['good-luck-reply'].messages.length,
+      finished: true,
+      transcript: [{ speaker: 'contact', text: 'merci jvais en avoir besoin', receivedAt: 50_000 }],
+    };
+    orchestrator.updateGroup(50_000);
+    assert.equal(progression.data.flags.superPlombierGroupRestDueAt, groupDueAt);
     progression.save();
 
     const restored = new Progression(story, {
@@ -618,14 +650,14 @@ test('the second finished conversation starts one rest deadline that survives a 
         receive() {},
       }),
       showGroupNotification: () => true,
-      now: () => 45_000,
+      now: () => 55_000,
     });
-    resumed.updateGroup(45_000);
-    assert.equal(restored.data.flags.superPlombierGroupRestDueAt, 60_000);
-    resumed.updateGroup(59_999);
+    resumed.updateGroup(55_000);
+    assert.equal(restored.data.flags.superPlombierGroupRestDueAt, groupDueAt);
+    resumed.updateGroup(groupDueAt - 1);
     assert.equal(restored.data.flags.superPlombierGroupCreated, undefined);
-    resumed.updateGroup(60_000);
-    resumed.updateGroup(60_001);
+    resumed.updateGroup(groupDueAt);
+    resumed.updateGroup(groupDueAt + 1);
     assert.equal(restored.data.flags.superPlombierGroupCreated, true);
     assert.equal(scheduled, 1);
   }
@@ -686,7 +718,7 @@ test('group dialogue keeps its original opening, persists each choice path, and 
       'on fait de notre mieux :D', 'TRAHISON', 'PTDRRRRRRRRRRR',
     ][path]));
     assert.equal(session.state.transcript.at(-1).text, 'laisse-lui le temps');
-    const downloadInstructions = 'voilààà cliquez pour télécharger :3 il faut aller dans "mes documents", click droit, "extraire" !!! ça devrait être dans le dossier "mes fichiers reçus" !!';
+    const downloadInstructions = 'voilààà cliquez pour télécharger :3 !! oubliez pas de l\'extraire';
     const fileIndex = session.state.transcript.findIndex((entry) => entry.type === 'file');
     const instructionsIndex = session.state.transcript.findIndex((entry) => entry.text === downloadInstructions);
     assert.equal(session.state.transcript[fileIndex].text, 'BombArena.zip');

@@ -17,6 +17,7 @@ function freshData(story) {
     choices: [],
     dialogues: {},
     conversations: {},
+    optionalConversations: {},
     results: {},
     choiceOffers: {},
     files: {},
@@ -52,6 +53,16 @@ function normalizeSaved(saved, story) {
   if (!Array.isArray(saved.choices)) saved.choices = [];
   if (!record(saved.flags)) saved.flags = {};
   if (!record(saved.dialogues)) saved.dialogues = {};
+  if (!record(saved.optionalConversations)) saved.optionalConversations = {};
+  for (const [id, state] of Object.entries(saved.optionalConversations)) {
+    if (!/^[a-z0-9-]{1,100}$/i.test(id) || !record(state) ||
+      !['locked', 'available', 'started', 'completed', 'expired'].includes(state.status)) {
+      delete saved.optionalConversations[id];
+      continue;
+    }
+    for (const key of ['expirationDueAt', 'expiredAt'])
+      if (!Number.isFinite(state[key])) delete state[key];
+  }
   if (!record(saved.results)) saved.results = {};
   saved.completed = [...new Set(saved.completed.filter((id) => ids.has(id)))];
   if (saved.current !== null && !ids.has(saved.current)) {

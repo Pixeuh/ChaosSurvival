@@ -642,7 +642,7 @@ test('text and picture viewers have independent windows and task controls withou
     const executable = executableLocation.items.find((item) => item.name === executableName);
     app.render(explorer, executableLocation);
     const row = explorer.element.querySelector('.explorer-items').children.find(
-      (item) => item.children[0].textContent === executableName,
+      (item) => item.children[0].textContent === executableName.slice(0, executableName.lastIndexOf('.')),
     );
     const callsBefore = manager.calls.length;
     row.handlers.dblclick();
@@ -869,10 +869,15 @@ test('main contacts are visible offline initially and become available in place 
   });
   assert.equal(connected.find((contact) => contact.id === 'turbo').online, true);
   assert.equal(new Set(connected.map((contact) => contact.id)).size, 9);
-  for (const [id, nickname, personalMessage] of [
-    ['k7', 'K7', '♫ ON AIR !!!'],
-    ['m0rbid', 'x_M0RBID_x', ''],
-  ]) {
+  const k7 = locked.find((entry) => entry.id === 'k7');
+  assert.equal(k7.kind, 'narrative');
+  assert.equal(k7.nickname, 'K7');
+  assert.equal(k7.status, 'Hors ligne');
+  assert.equal(k7.online, false);
+  assert.equal(k7.available, false);
+  assert.equal(k7.dialogue, 'k7-intro');
+  assert.equal(k7.connection, true);
+  for (const [id, nickname, personalMessage] of [['m0rbid', 'x_M0RBID_x', '']]) {
     const contact = locked.find((entry) => entry.id === id);
     assert.equal(contact.kind, 'decorative');
     assert.equal(contact.nickname, nickname);
