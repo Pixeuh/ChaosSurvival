@@ -75,6 +75,15 @@ function freshData(story) {
     virtualFilesystem: { deleted: [], added: {} },
     desktopShortcuts: [],
     desktopIconsRemoved: [],
+    explorerPreferences: {
+      hideKnownExtensions: true,
+      viewMode: 'icons',
+      sortBy: 'default',
+      toolbarVisible: true,
+      addressVisible: true,
+      statusVisible: true,
+      favorites: [],
+    },
     anomalies: {},
     dialogueArchives: {},
     unlockedConversations: [],
@@ -119,6 +128,21 @@ function normalizeSaved(saved, story) {
       if (!Number.isFinite(state[key])) delete state[key];
   }
   if (!record(saved.results)) saved.results = {};
+  const explorerPreferences = record(saved.explorerPreferences) ? saved.explorerPreferences : {};
+  saved.explorerPreferences = {
+    hideKnownExtensions: explorerPreferences.hideKnownExtensions !== false,
+    viewMode: ['icons', 'list', 'details'].includes(explorerPreferences.viewMode)
+      ? explorerPreferences.viewMode : 'icons',
+    sortBy: ['default', 'name', 'type', 'size'].includes(explorerPreferences.sortBy)
+      ? explorerPreferences.sortBy : 'default',
+    toolbarVisible: explorerPreferences.toolbarVisible !== false,
+    addressVisible: explorerPreferences.addressVisible !== false,
+    statusVisible: explorerPreferences.statusVisible !== false,
+    favorites: Array.isArray(explorerPreferences.favorites)
+      ? [...new Set(explorerPreferences.favorites.filter((id) =>
+          typeof id === 'string' && /^[a-z0-9-]{1,50}$/i.test(id)))].slice(0, 40)
+      : [],
+  };
   saved.completed = [...new Set(saved.completed.filter((id) => ids.has(id)))];
   if (saved.current !== null && !ids.has(saved.current)) {
     const last = [...saved.completed]

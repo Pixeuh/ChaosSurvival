@@ -149,6 +149,25 @@ test('BombArena milestones and match results persist once while old saves gain s
   assert.deepEqual({ current: saved.data.current, completed: saved.data.completed }, narrativeBefore);
 });
 
+test('explorer preferences default safely for old saves and persist without changing file names', () => {
+  const storage = memory();
+  const progression = new Progression(story, storage);
+  assert.equal(progression.data.explorerPreferences.hideKnownExtensions, true);
+  progression.data.explorerPreferences.hideKnownExtensions = false;
+  progression.data.explorerPreferences.favorites = ['computer', 'music'];
+  assert.equal(progression.save(), true);
+
+  const restored = new Progression(story, storage);
+  assert.equal(restored.data.explorerPreferences.hideKnownExtensions, false);
+  assert.deepEqual(restored.data.explorerPreferences.favorites, ['computer', 'music']);
+  assert.equal(restored.data.explorerPreferences.viewMode, 'icons');
+
+  const saved = JSON.parse(storage.getItem('chaos-survival-story-v1'));
+  delete saved.explorerPreferences;
+  storage.setItem('chaos-survival-story-v1', JSON.stringify(saved));
+  assert.equal(new Progression(story, storage).data.explorerPreferences.hideKnownExtensions, true);
+});
+
 test('BombArena checkpoints completed rounds atomically and the next session resumes with saved scores', () => {
   const storage = memory();
   const progression = new Progression(story, storage);

@@ -787,8 +787,13 @@ test('explorer double-click, back, up and home preserve path and content', (t) =
   assert.equal(instance.current.address, 'C:\\Program Files');
   app.back(instance);
   assert.equal(instance.current.address, 'C:\\');
+  app.forward(instance);
+  assert.equal(instance.current.address, 'C:\\Program Files');
+  app.back(instance);
+  assert.equal(instance.current.address, 'C:\\');
   app.up(instance);
   assert.equal(instance.current.id, 'computer');
+  assert.equal(instance.forwardHistory.length, 0, 'a new route discards the obsolete forward branch');
   assert.equal(fields.get('.explorer-up').disabled, true);
   fields.get('.explorer-items').children[2].handlers.dblclick();
   assert.equal(instance.current.address, 'E:\\');

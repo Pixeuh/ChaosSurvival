@@ -395,6 +395,11 @@ export class DesktopIcons {
     this.saved = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
     const removed = new Set(this.removedIds());
     const allButtons = this.buttons();
+    for (const button of allButtons) {
+      const file = this.virtualFilesystem?.getFile(this.targetFileId(button));
+      const label = button.querySelector?.('span');
+      if (file && label) label.textContent = getDisplayFileName(file);
+    }
     for (const button of allButtons) button.hidden = removed.has(this.id(button));
     const buttons = allButtons.filter((button) => !button.hidden);
     const rect = this.desktop.getBoundingClientRect();

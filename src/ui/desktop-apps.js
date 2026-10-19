@@ -9,7 +9,7 @@ import { completeBombArenaHandoff } from '../story/bomb-arena-handoff.js';
 import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
-import { fileTypeForName, getDisplayFileName } from './file-names.js';
+import { fileTypeForName, getDisplayFileName, setHideKnownExtensions } from './file-names.js';
 import { mountBombArena } from '../minigames/bomb-arena/view.js';
 
 export const desktopApps = definitions;
@@ -51,12 +51,31 @@ export function localPicture(path) {
   return typeof path === 'string' && /^\.\/(?:wallpaper\.svg|covers\/[a-z0-9-]+\.svg)$/.test(path);
 }
 
+const explorerToolbarIcons = {
+  back: '<path d="M22 9H43v23H22z" fill="url(#xp-folder)" stroke="#94700f"/><path d="M5 18 18 6v8h14v9H18v8z" fill="url(#xp-arrow)" stroke="#285d9c" stroke-linejoin="round"/><path d="m8 18 7-7" stroke="#dff5ff" stroke-width="2"/>',
+  forward: '<path d="M5 9h21v23H5z" fill="url(#xp-folder)" stroke="#94700f"/><path d="m43 18-13-12v8H16v9h14v9z" fill="url(#xp-arrow)" stroke="#285d9c" stroke-linejoin="round"/><path d="m40 18-7-7" stroke="#dff5ff" stroke-width="2"/>',
+  up: '<path d="M5 15h15l4 4h19v18H5z" fill="url(#xp-folder)" stroke="#94700f"/><path d="M23 35V21m0 0-7 7m7-7 7 7" fill="none" stroke="#2778b8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23 23v10" stroke="#e8f7ff" stroke-width="1.5"/>',
+  search: '<circle cx="20" cy="19" r="12" fill="url(#xp-lens)" stroke="#36729a" stroke-width="2"/><circle cx="20" cy="19" r="8" fill="#e8f8ff" fill-opacity=".72"/><path d="m29 28 12 12" stroke="#4d5964" stroke-width="7" stroke-linecap="round"/><path d="m29 28 12 12" stroke="url(#xp-handle)" stroke-width="4.5" stroke-linecap="round"/><path d="M13 15a8 8 0 0 1 7-4" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+};
+function explorerToolbarIcon(name) {
+  return `<svg class="explorer-toolbar-icon" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><defs><linearGradient id="xp-folder" x2="0" y2="1"><stop stop-color="#fff18a"/><stop offset="1" stop-color="#e99f16"/></linearGradient><linearGradient id="xp-arrow" x2="0" y2="1"><stop stop-color="#8ed9ff"/><stop offset="1" stop-color="#1671c5"/></linearGradient><linearGradient id="xp-lens" x2="0" y2="1"><stop stop-color="#a8ecff"/><stop offset="1" stop-color="#2786c6"/></linearGradient><linearGradient id="xp-handle" x2="0" y2="1"><stop stop-color="#747e88"/><stop offset="1" stop-color="#273642"/></linearGradient></defs>${explorerToolbarIcons[name]}</svg>`;
+}
+
 function isTextEntry(target) {
   return Boolean(
     target &&
       (target.isContentEditable ||
         /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName ?? '')),
   );
+}
+
+function normalizeExplorerAddress(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/\//g, '\\')
+    .replace(/\\+/g, '\\')
+    .replace(/\\+$/, '')
+    .toLocaleLowerCase('fr');
 }
 
 export class DesktopApplications {
@@ -110,10 +129,11 @@ export class DesktopApplications {
         title: definition.title,
         iconName: definition.icon,
         body: `
-        <div class="explorer-menu">Fichier <span>Édition</span><span>Affichage</span><span>Favoris</span><span>Outils</span><span>Aide</span></div>
-        <div class="explorer-toolbar"><button class="xp-button explorer-back" disabled>◀ Précédente</button><button class="xp-button explorer-up" disabled>↑ Remonter</button><button class="xp-button explorer-home">${icon('computer')} Poste de travail</button></div>
-        <div class="explorer-address">Adresse <strong></strong></div>
-        <div class="explorer-content"><aside><h3>Gestion du système</h3><p>Afficher les informations</p><h3>Autres emplacements</h3><button data-location="computer">Poste de travail</button><button data-location="folder">Mes documents</button><button data-location="bin">Corbeille</button><h3>Détails</h3><p class="explorer-description"></p></aside><section class="explorer-items" aria-label="Contenu du dossier"></section></div>
+        <div class="explorer-menu" role="menubar"><button type="button" data-explorer-menu="file" aria-haspopup="true" aria-expanded="false">Fichier</button><button type="button" data-explorer-menu="edit" aria-haspopup="true" aria-expanded="false">Édition</button><button type="button" data-explorer-menu="view" aria-haspopup="true" aria-expanded="false">Affichage</button><button type="button" data-explorer-menu="tools" aria-haspopup="true" aria-expanded="false">Outils</button><button type="button" data-explorer-menu="help" aria-haspopup="true" aria-expanded="false">Aide</button></div>
+        <div class="explorer-toolbar" role="toolbar" aria-label="Boutons standard"><button type="button" class="explorer-toolbar-button explorer-back" disabled>${explorerToolbarIcon('back')}<span>Précédente</span></button><button type="button" class="explorer-toolbar-button explorer-forward" disabled>${explorerToolbarIcon('forward')}<span>Suivante</span></button><span class="explorer-toolbar-separator" aria-hidden="true"></span><button type="button" class="explorer-toolbar-button explorer-up" disabled>${explorerToolbarIcon('up')}<span>Remonter</span></button><span class="explorer-toolbar-separator" aria-hidden="true"></span><button type="button" class="explorer-toolbar-button explorer-search-toggle">${explorerToolbarIcon('search')}<span>Rechercher</span></button></div>
+        <div class="explorer-address">Adresse <strong tabindex="0" role="button" aria-label="Modifier l’adresse"></strong><input class="explorer-address-input" aria-label="Adresse du dossier virtuel" hidden /><button type="button" class="xp-button explorer-address-go" hidden>Atteindre</button></div>
+        <div class="explorer-search-panel" hidden><label>Rechercher des fichiers ou dossiers <input class="explorer-search-input" type="search" /></label><button type="button" class="xp-button explorer-search-submit">Rechercher</button><button type="button" class="xp-button explorer-search-clear">Effacer</button></div>
+        <div class="explorer-content"><aside class="explorer-side-panel" aria-label="Tâches et emplacements"></aside><section class="explorer-items" aria-label="Contenu du dossier"></section></div>
         <div class="window-status explorer-status"></div>`,
       },
       onDismiss: () => {
@@ -126,9 +146,30 @@ export class DesktopApplications {
     const instance = this.attachWindow(kind, id, definition.title, definition.icon);
     const { element } = instance;
     if (this.virtualFilesystem) this.setupExplorer(instance);
-    element.querySelector('.explorer-home').addEventListener('click', () => this.home(instance));
     element.querySelector('.explorer-up').addEventListener('click', () => this.up(instance));
     element.querySelector('.explorer-back').addEventListener('click', () => this.back(instance));
+    element.querySelector('.explorer-forward').addEventListener('click', () => this.forward(instance));
+    element.querySelector('.explorer-search-toggle').addEventListener('click', () => this.toggleSearch(instance));
+    element.querySelector('.explorer-address strong').addEventListener('click', () => this.editAddress(instance));
+    element.querySelector('.explorer-address strong').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); this.editAddress(instance); }
+    });
+    element.querySelector('.explorer-address-go').addEventListener('click', () => this.goAddress(instance));
+    element.querySelector('.explorer-address-input').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') this.goAddress(instance);
+      if (event.key === 'Escape') this.cancelAddress(instance);
+    });
+    element.querySelector('.explorer-search-submit').addEventListener('click', () => this.search(instance));
+    element.querySelector('.explorer-search-clear').addEventListener('click', () => {
+      element.querySelector('.explorer-search-input').value = '';
+      this.cancelSearch(instance);
+    });
+    element.querySelector('.explorer-search-input').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') this.search(instance);
+      if (event.key === 'Escape') this.cancelSearch(instance);
+    });
+    element.querySelectorAll('[data-explorer-menu]').forEach((button) =>
+      button.addEventListener('click', () => this.openExplorerMenu(instance, button.dataset.explorerMenu, button)));
     element
       .querySelectorAll('[data-location]')
       .forEach((button) =>
@@ -152,7 +193,7 @@ export class DesktopApplications {
     task.append(label);
     task.title = title;
     this.taskbar.insertBefore(task, this.taskbar.querySelector('.tray'));
-    const instance = { id, kind, element, task, history: [] };
+    const instance = { id, kind, element, task, history: [], forwardHistory: [], sortBy: 'default', searchResults: null };
     this.instances.set(kind, instance);
     const minimize = document.createElement('button');
     minimize.className = 'msn-minimize';
@@ -360,40 +401,149 @@ export class DesktopApplications {
     this.onWindowState();
   }
   home(instance) {
-    this.render(instance, explorerLocation('computer'));
+    this.navigate(instance, explorerLocation('computer'));
   }
   up(instance) {
-    if (instance.current.parent) this.render(instance, explorerLocation(instance.current.parent));
+    if (instance.current.parent) this.navigate(instance, explorerLocation(instance.current.parent));
   }
   back(instance) {
     const previous = instance.history.pop();
-    if (previous) this.render(instance, previous, false);
+    if (!previous) return;
+    if (instance.current) instance.forwardHistory.push(instance.current);
+    this.navigate(instance, previous, false);
+  }
+  forward(instance) {
+    const next = instance.forwardHistory.pop();
+    if (!next) return;
+    if (instance.current) instance.history.push(instance.current);
+    this.navigate(instance, next, false);
+  }
+  navigate(instance, definition, remember = true) {
+    if (remember && instance.current && instance.current.id !== definition.id) {
+      instance.history.push(instance.current);
+      instance.forwardHistory = [];
+    }
+    instance.searchResults = null;
+    return this.render(instance, definition, false);
+  }
+  editAddress(instance) {
+    const input = instance.element.querySelector('.explorer-address-input');
+    input.value = instance.current.address;
+    input.hidden = false;
+    instance.element.querySelector('.explorer-address-go').hidden = false;
+    instance.element.querySelector('.explorer-address strong').hidden = true;
+    input.focus();
+    input.select?.();
+  }
+  cancelAddress(instance) {
+    instance.element.querySelector('.explorer-address-input').hidden = true;
+    instance.element.querySelector('.explorer-address-go').hidden = true;
+    instance.element.querySelector('.explorer-address strong').hidden = false;
+  }
+  goAddress(instance) {
+    const input = instance.element.querySelector('.explorer-address-input');
+    const requested = normalizeExplorerAddress(input.value);
+    const locations = this.allExplorerLocations();
+    const target = locations.find((location) => [location.address, location.title, location.id]
+      .some((candidate) => normalizeExplorerAddress(candidate) === requested));
+    if (target) {
+      this.cancelAddress(instance);
+      this.navigate(instance, target);
+      return true;
+    }
+    for (const location of locations) {
+      const file = location.items.find((item) => !item.location &&
+        normalizeExplorerAddress(`${location.address.replace(/[\\/]+$/, '')}\\${item.name}`) === requested);
+      if (file) {
+        this.cancelAddress(instance);
+        this.openFile(location, file);
+        return true;
+      }
+    }
+    instance.element.querySelector('.explorer-status').textContent = 'Windows XD : emplacement virtuel introuvable.';
+    return false;
+  }
+  toggleSearch(instance) {
+    const panel = instance.element.querySelector('.explorer-search-panel');
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) instance.element.querySelector('.explorer-search-input').focus();
+  }
+  cancelSearch(instance) {
+    instance.searchResults = null;
+    this.render(instance, instance.current, false);
+  }
+  search(instance) {
+    const query = instance.element.querySelector('.explorer-search-input').value.trim().toLocaleLowerCase('fr');
+    if (!query) return this.cancelSearch(instance);
+    const results = [];
+    const seen = new Set();
+    const visit = (location) => {
+      if (!location || seen.has(location.id)) return;
+      seen.add(location.id);
+      for (const item of location.items) {
+        if (item.name.toLocaleLowerCase('fr').includes(query)) results.push({ ...item, _sourceLocationId: location.id });
+        if (item.location) visit(this.virtualFilesystem.getLocation(item.location), seen);
+      }
+    };
+    for (const root of ['computer', 'folder', 'bin']) visit(this.virtualFilesystem.getLocation(root));
+    instance.searchResults = results;
+    this.render(instance, instance.current, false);
+    instance.element.querySelector('.explorer-status').textContent = `${results.length} résultat(s) pour « ${query} »`;
+    return results.length;
   }
   render(instance, definition, remember = true) {
+    instance.history ??= [];
+    instance.forwardHistory ??= [];
     this.closeExplorerOverlays(instance);
+    if (instance.searchResults && definition.id !== instance.current.id) instance.searchResults = null;
+    const selectedId = instance.selectedItem?.fileId ??
+      (instance.selectedItem?.location ? `location:${instance.selectedItem.location}` : instance.selectedItem?.name);
     instance.selectedItem = null;
     instance.selectedButton = null;
-    if (remember && instance.current && instance.current.id !== definition.id)
+    if (remember && instance.current && instance.current.id !== definition.id) {
       instance.history.push(instance.current);
-    if (this.virtualFilesystem) definition = this.virtualFilesystem.getLocation(definition.id);
-    instance.current = definition;
+      instance.forwardHistory = [];
+    }
+    if (this.virtualFilesystem && !instance.searchResults) definition = this.virtualFilesystem.getLocation(definition.id);
+    if (!instance.searchResults) instance.current = definition;
     const { element } = instance;
-    element.querySelector('.explorer-address strong').textContent = definition.address;
-    element.querySelector('.explorer-description').textContent = definition.description;
+    const preferences = this.explorerPreferences();
+    instance.sortBy = preferences.sortBy;
+    element.querySelector('.explorer-address strong').textContent = instance.current.address;
+    element.querySelector('.explorer-address-input').value = instance.current.address;
     element.querySelector('.explorer-back').disabled = !instance.history.length;
-    element.querySelector('.explorer-up').disabled = !definition.parent;
+    element.querySelector('.explorer-forward').disabled = !instance.forwardHistory.length;
+    element.querySelector('.explorer-up').disabled = !instance.current.parent;
+    // Keep the navigation bar available when an older save has toolbarVisible=false.
+    element.querySelector('.explorer-toolbar').hidden = false;
+    element.querySelector('.explorer-address').hidden = !preferences.addressVisible;
+    element.querySelector('.explorer-status').hidden = !preferences.statusVisible;
     const content = element.querySelector('.explorer-items');
+    content.dataset ??= {};
+    content.dataset.view = 'icons';
     content.replaceChildren();
-    for (const item of definition.items) {
+    const items = [...(instance.searchResults ?? definition.items)];
+    const compare = (a, b) => {
+      if (instance.sortBy === 'type') return String(a.detail ?? '').localeCompare(String(b.detail ?? ''), 'fr') || a.name.localeCompare(b.name, 'fr');
+      if (instance.sortBy === 'size') {
+        const aSize = a.fileId ? this.virtualFilesystem?.metadata(a.fileId)?.size : null;
+        const bSize = b.fileId ? this.virtualFilesystem?.metadata(b.fileId)?.size : null;
+        if (Number.isFinite(aSize) || Number.isFinite(bSize)) return (aSize ?? Infinity) - (bSize ?? Infinity) || a.name.localeCompare(b.name, 'fr');
+      }
+      return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+    };
+    if (instance.sortBy !== 'default') items.sort(compare);
+    for (const item of items) {
       const button = document.createElement('button');
       button.className = 'explorer-item';
       button.innerHTML = icon(fileIcon(item));
       const label = document.createElement('strong');
       label.textContent = getDisplayFileName(item);
       const detail = document.createElement('small');
-      detail.textContent = item.detail;
+      detail.textContent = item.location ? 'Dossier' : item.detail ?? 'Type de fichier inconnu';
       button.append(label, detail);
       if (item.fileId) button.dataset.fileId = item.fileId;
+      if (item._sourceLocationId) button.dataset.sourceLocation = item._sourceLocationId;
       button.setAttribute?.('aria-selected', 'false');
       button.addEventListener('click', () => {
         instance.selectedItem = item;
@@ -404,11 +554,14 @@ export class DesktopApplications {
         }
         button.classList?.add('is-selected');
         button.setAttribute?.('aria-selected', 'true');
+        this.renderExplorerSidePanel(instance);
       });
       const activate = () =>
         item.location
-          ? this.render(instance, explorerItem(definition, item))
-          : this.openFile(definition, item);
+          ? this.navigate(instance, explorerLocation(item.location))
+          : this.openFile(item._sourceLocationId
+            ? explorerLocation(item._sourceLocationId)
+            : this.virtualFilesystem ? explorerLocation(instance.current.id) : instance.current, item);
       bindFileActivation(button, activate);
       if (this.virtualFilesystem) {
         button.addEventListener('contextmenu', (event) => {
@@ -421,12 +574,20 @@ export class DesktopApplications {
           }
           button.classList?.add('is-selected');
           button.setAttribute?.('aria-selected', 'true');
+          this.renderExplorerSidePanel(instance);
           this.showExplorerContext(instance, item, event);
         });
       }
       content.append(button);
+      const itemSelectionKey = item.fileId ?? (item.location ? `location:${item.location}` : item.name);
+      if (itemSelectionKey === selectedId) {
+        instance.selectedItem = item;
+        instance.selectedButton = button;
+        button.classList?.add('is-selected');
+        button.setAttribute?.('aria-selected', 'true');
+      }
     }
-    if (!definition.items.length) {
+    if (!items.length) {
       if (localPicture(definition.image)) {
         const image = document.createElement('img');
         image.className = 'explorer-image';
@@ -436,8 +597,9 @@ export class DesktopApplications {
       }
       const empty = document.createElement('p');
       empty.className = 'explorer-empty';
-      empty.textContent =
-        definition.text ??
+      empty.textContent = instance.searchResults
+        ? 'Aucun fichier ou dossier ne correspond à cette recherche.'
+        : definition.text ??
         definition.emptyText ??
         (definition.image ? 'Aperçu de l’image' : undefined) ??
         (instance.kind === 'bin'
@@ -445,12 +607,309 @@ export class DesktopApplications {
           : 'Ce dossier ne contient aucun fichier.');
       content.append(empty);
     }
-    element.querySelector('.explorer-status').textContent =
-      `${definition.items.length} objet(s) · Windows XD`;
+    if (!instance.searchResults) element.querySelector('.explorer-status').textContent =
+      `${items.length} objet(s) · Windows XD`;
+    this.renderExplorerSidePanel(instance, definition, items);
+  }
+  renderExplorerSidePanel(instance, definition = instance.current, visibleItems = null) {
+    const panel = instance.element.querySelector('.explorer-side-panel');
+    if (!panel || !definition) return;
+    panel.replaceChildren();
+    const documentRef = panel.ownerDocument ?? globalThis.document;
+    const makeSection = (name, heading, contentNodes) => {
+      const section = documentRef.createElement('section');
+      section.className = 'explorer-side-section';
+      section.dataset.section = name;
+      const toggle = documentRef.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'explorer-side-heading';
+      toggle.setAttribute('aria-expanded', 'true');
+      toggle.innerHTML = `<span class="explorer-side-chevron" aria-hidden="true">⌄</span><strong>${heading}</strong>`;
+      const body = documentRef.createElement('div');
+      body.className = 'explorer-side-section-body';
+      body.append(...contentNodes);
+      toggle.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        toggle.setAttribute('aria-expanded', String(!body.hidden));
+        toggle.querySelector('.explorer-side-chevron').textContent = body.hidden ? '›' : '⌄';
+      });
+      section.append(toggle, body);
+      panel.append(section);
+    };
+    const makeLink = (label, iconName, locationId, disabled = false) => {
+      const link = documentRef.createElement('button');
+      link.type = 'button';
+      link.className = 'explorer-side-link';
+      link.disabled = disabled;
+      if (locationId) link.dataset.explorerSideLocation = locationId;
+      link.innerHTML = `${icon(iconName)}<span>${label}</span>`;
+      return link;
+    };
+    const destinations = [
+      ['Mes documents', 'folder', 'folder'],
+      ['Documents partagés', 'folder', 'shared-profile'],
+      ['Panneau de configuration', 'computer', null],
+      ['Poste de travail', 'computer', 'computer'],
+      ['Mes fichiers reçus', 'download', 'downloads'],
+      ['Corbeille', 'bin', 'bin'],
+    ].filter(([, , id]) => id !== definition.id);
+    makeSection('locations', 'Autres emplacements', destinations.map(([label, iconName, id]) =>
+      makeLink(label, iconName, id, !id)));
+
+    const selected = instance.selectedItem;
+    const details = [];
+    if (selected) {
+      const metadata = selected.fileId ? this.virtualFilesystem?.metadata(selected.fileId) : null;
+      const name = metadata?.name ?? selected.name ?? selected.title ?? 'Élément sélectionné';
+      const type = metadata?.type ?? (selected.location ? 'Dossier' : selected.detail ?? 'Type inconnu');
+      const path = metadata?.path ?? (selected.location
+        ? this.virtualFilesystem?.getLocation(selected.location)?.address
+        : `${definition.address.replace(/\\$/, '')}\\${name}`);
+      for (const [label, value] of [
+        ['Nom', name], ['Type', type],
+        ...(metadata?.size !== undefined ? [['Taille', metadata.size === null ? 'Inconnue' : `${metadata.size} octets`]] : []),
+        ['Emplacement', path ?? definition.address],
+      ]) {
+        const row = documentRef.createElement('div');
+        row.className = 'explorer-side-detail-row';
+        const key = documentRef.createElement('strong');
+        key.textContent = `${label} : `;
+        const valueNode = documentRef.createElement('span');
+        valueNode.textContent = String(value);
+        row.append(key, valueNode);
+        details.push(row);
+      }
+    } else {
+      const summary = documentRef.createElement('p');
+      summary.className = 'explorer-side-summary';
+      const items = visibleItems ?? definition.items ?? [];
+      summary.textContent = `${definition.title ?? definition.address} · ${items.length} objet(s)`;
+      details.push(summary);
+    }
+    makeSection('details', 'Détails', details);
+  }
+  explorerPreferences() {
+    return this.virtualFilesystem?.progression?.data?.explorerPreferences ?? {
+      hideKnownExtensions: true, sortBy: 'default',
+      toolbarVisible: true, addressVisible: true, statusVisible: true,
+    };
+  }
+  allExplorerLocations() {
+    const found = new Map();
+    const visit = (id) => {
+      if (found.has(id)) return;
+      let location;
+      try { location = this.virtualFilesystem.getLocation(id); } catch { return; }
+      found.set(id, location);
+      for (const item of location.items) if (item.location) visit(item.location);
+    };
+    for (const id of ['computer', 'folder', 'bin']) visit(id);
+    return [...found.values()];
+  }
+  openExplorerMenu(instance, name, anchor = null) {
+    const body = instance.element.querySelector('.window-body');
+    let menu = instance.commandMenu;
+    if (!menu) {
+      menu = document.createElement('div');
+      menu.className = 'explorer-command-menu';
+      menu.setAttribute('role', 'menu');
+      menu.hidden = true;
+      body.append(menu);
+      menu.addEventListener('keydown', (event) => {
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+        if (!buttons.length) return;
+        event.preventDefault();
+        const index = buttons.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length;
+        buttons[next].focus();
+      });
+      instance.commandMenu = menu;
+    }
+    if (!menu.hidden && menu.dataset.menu === name) {
+      menu.hidden = true;
+      anchor?.setAttribute?.('aria-expanded', 'false');
+      return;
+    }
+    const current = this.explorerPreferences();
+    const commands = {
+      file: [
+        ['open', 'Ouvrir', !instance.selectedItem],
+        ['delete', 'Supprimer', !instance.selectedItem?.fileId || !this.virtualFilesystem?.canDelete(instance.selectedItem.fileId)],
+        ['properties', 'Propriétés', !instance.selectedItem],
+        ['close', 'Fermer'],
+      ],
+      edit: [['select-all', 'Sélectionner tout'], ['clear-selection', 'Annuler la sélection']],
+      view: [
+        ['sort-name', 'Trier par nom' + (current.sortBy === 'name' ? ' ✓' : '')],
+        ['sort-type', 'Trier par type' + (current.sortBy === 'type' ? ' ✓' : '')],
+        ['sort-size', 'Trier par taille' + (current.sortBy === 'size' ? ' ✓' : '')],
+        ['toggle-address', `${current.addressVisible ? '✓' : '□'} Barre d’adresse`],
+        ['toggle-status', `${current.statusVisible ? '✓' : '□'} Barre d’état`],
+      ],
+      tools: [['folder-options', 'Options des dossiers…']],
+      help: [['help', 'Aide de Poste de travail']],
+    }[name] ?? [];
+    menu.replaceChildren();
+    menu.dataset.menu = name;
+    for (const [command, label, disabled] of commands) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('role', 'menuitem');
+      button.dataset.command = command;
+      button.disabled = Boolean(disabled);
+      button.textContent = label;
+      button.addEventListener('click', () => this.runExplorerCommand(instance, command));
+      menu.append(button);
+    }
+    menu.hidden = false;
+    for (const button of instance.element.querySelectorAll('[data-explorer-menu]'))
+      button.setAttribute('aria-expanded', String(button.dataset.explorerMenu === name));
+    const bodyRect = body.getBoundingClientRect();
+    const anchorRect = anchor?.getBoundingClientRect?.();
+    menu.style.left = `${Math.max(0, (anchorRect?.left ?? bodyRect.left) - bodyRect.left)}px`;
+    menu.style.top = `${Math.max(0, (anchorRect?.bottom ?? bodyRect.top + 24) - bodyRect.top)}px`;
+    menu.querySelector('button:not(:disabled)')?.focus();
+  }
+  runExplorerCommand(instance, command) {
+    const menu = instance.commandMenu;
+    if (menu) menu.hidden = true;
+    const item = instance.selectedItem;
+    if (command === 'open' && item) {
+      if (item.location) this.navigate(instance, explorerLocation(item.location));
+      else this.openFile(item._sourceLocationId
+        ? explorerLocation(item._sourceLocationId)
+        : this.virtualFilesystem ? explorerLocation(instance.current.id) : instance.current, item);
+    } else if (command === 'delete' && item) this.askDelete(instance, item);
+    else if (command === 'properties' && item) this.showProperties(instance, item);
+    else if (command === 'close') this.manager.close(instance.id);
+    else if (command === 'select-all' || command === 'clear-selection') {
+      const rows = [...instance.element.querySelector('.explorer-items').querySelectorAll('.explorer-item')];
+      const select = command === 'select-all';
+      for (const row of rows) {
+        row.classList?.toggle?.('is-selected', select);
+        row.setAttribute('aria-selected', String(select));
+      }
+      instance.selectedItem = select ? instance.current.items[0] ?? null : null;
+      instance.selectedButton = select ? rows[0] ?? null : null;
+    } else if (command.startsWith('sort-')) {
+      this.updateExplorerPreferences(instance, { sortBy: command.slice('sort-'.length) });
+    } else if (command === 'toggle-address' || command === 'toggle-status') {
+      const key = { 'toggle-address': 'addressVisible', 'toggle-status': 'statusVisible' }[command];
+      this.updateExplorerPreferences(instance, { [key]: !this.explorerPreferences()[key] });
+    } else if (command === 'folder-options') this.showFolderOptions(instance);
+    else if (command === 'help') this.showExplorerHelp(instance);
+    return true;
+  }
+  updateExplorerPreferences(instance, patch) {
+    const progression = this.virtualFilesystem?.progression;
+    if (!progression) return false;
+    const previous = this.explorerPreferences();
+    const next = { ...previous, ...patch };
+    progression.data.explorerPreferences = next;
+    if (!progression.save()) {
+      progression.data.explorerPreferences = previous;
+      instance.element.querySelector('.explorer-status').textContent = 'Windows XD : impossible d’enregistrer cette préférence.';
+      return false;
+    }
+    setHideKnownExtensions(next.hideKnownExtensions);
+    const optionsDialog = instance.folderOptionsDialog;
+    const keepOptionsOpen = optionsDialog && !optionsDialog.hidden;
+    this.refreshExplorers();
+    if (keepOptionsOpen) {
+      optionsDialog.hidden = false;
+      optionsDialog.querySelector('[data-hide-extensions]').checked = next.hideKnownExtensions;
+    }
+    this.onExplorerPreferencesChanged?.(next);
+    return true;
+  }
+  showFolderOptions(instance) {
+    let dialog = instance.folderOptionsDialog;
+    if (!dialog) {
+      dialog = document.createElement('section');
+      dialog.className = 'explorer-dialog explorer-options-dialog';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-label', 'Options des dossiers');
+      const title = document.createElement('strong'); title.textContent = 'Options des dossiers';
+      const tabs = document.createElement('div'); tabs.className = 'explorer-options-tabs';
+      for (const [id, label] of [['general', 'Général'], ['view', 'Affichage']]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'xp-button';
+        button.dataset.optionsTab = id; button.textContent = label; tabs.append(button);
+      }
+      const pane = document.createElement('div'); pane.className = 'explorer-options-pane';
+      const checkLabel = document.createElement('label'); checkLabel.className = 'explorer-extension-option';
+      const check = document.createElement('input'); check.type = 'checkbox'; check.dataset.hideExtensions = 'true';
+      const checkText = document.createElement('span'); checkText.textContent = 'Masquer les extensions des fichiers dont le type est connu';
+      checkLabel.append(check, checkText);
+      pane.append(checkLabel);
+      const general = document.createElement('p'); general.className = 'explorer-general-note';
+      general.textContent = 'Les dossiers s’ouvrent dans cette fenêtre. Les options d’affichage sont partagées avec Windows XD.';
+      const buttons = document.createElement('div'); buttons.className = 'explorer-options-actions';
+      for (const [action, label] of [['defaults', 'Paramètres par défaut'], ['apply', 'Appliquer'], ['cancel', 'Annuler'], ['ok', 'OK']]) {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'xp-button'; button.dataset.optionsAction = action; button.textContent = label; buttons.append(button);
+      }
+      dialog.append(title, tabs, pane, general, buttons); dialog.hidden = true;
+      instance.element.querySelector('.window-body').append(dialog);
+      instance.folderOptionsDialog = dialog;
+      tabs.addEventListener('click', (event) => {
+        const tab = event.target.closest?.('[data-options-tab]')?.dataset.optionsTab;
+        if (!tab) return;
+        dialog.dataset.activeTab = tab;
+        pane.hidden = tab !== 'view'; general.hidden = tab !== 'general';
+        for (const button of tabs.children) button.setAttribute('aria-selected', String(button.dataset.optionsTab === tab));
+      });
+      buttons.addEventListener('click', (event) => {
+        const action = event.target.closest?.('[data-options-action]')?.dataset.optionsAction;
+        if (action === 'defaults') check.checked = true;
+        if (action === 'apply' || action === 'ok') {
+          const success = this.updateExplorerPreferences(instance, { hideKnownExtensions: check.checked });
+          if (success && action === 'ok') dialog.hidden = true;
+        }
+        if (action === 'cancel') dialog.hidden = true;
+      });
+    }
+    dialog.querySelector('[data-hide-extensions]').checked = this.explorerPreferences().hideKnownExtensions;
+    dialog.dataset.activeTab = 'view';
+    dialog.querySelector('.explorer-options-pane').hidden = false;
+    dialog.querySelector('.explorer-general-note').hidden = true;
+    dialog.hidden = false;
+    dialog.querySelector('[data-options-tab="view"]')?.setAttribute('aria-selected', 'true');
+    dialog.querySelector('[data-hide-extensions]').focus();
+  }
+  showExplorerHelp(instance) {
+    let dialog = instance.helpDialog;
+    if (!dialog) {
+      dialog = document.createElement('section');
+      dialog.className = 'explorer-dialog explorer-help-dialog';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-label', 'Aide de Poste de travail');
+      const title = document.createElement('strong'); title.textContent = 'Aide de Poste de travail';
+      const help = document.createElement('ul');
+      for (const text of ['Double-cliquez sur un dossier ou un fichier pour l’ouvrir.', 'Utilisez Précédente, Suivante et Remonter pour naviguer.', 'Le menu Affichage permet de changer la présentation et le tri.', 'Outils → Options des dossiers permet d’afficher les extensions.', 'Sélectionnez un fichier puis Fichier → Propriétés pour consulter ses informations.']) {
+        const item = document.createElement('li'); item.textContent = text; help.append(item);
+      }
+      const close = document.createElement('button'); close.type = 'button'; close.className = 'xp-button'; close.textContent = 'Fermer';
+      dialog.append(title, help, close); dialog.hidden = true;
+      instance.element.querySelector('.window-body').append(dialog);
+      close.addEventListener('click', () => { dialog.hidden = true; });
+      instance.helpDialog = dialog;
+    }
+    dialog.hidden = false;
+    dialog.querySelector('button').focus();
   }
   setupExplorer(instance) {
     const body = instance.element.querySelector('.window-body');
     const content = instance.element.querySelector('.explorer-items');
+    instance.element.querySelector('.explorer-side-panel').addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-explorer-side-location]');
+      const locationId = button?.dataset?.explorerSideLocation;
+      if (!locationId || button.disabled) return;
+      const location = this.virtualFilesystem?.getLocation(locationId);
+      if (location) this.navigate(instance, location);
+    });
     const menu = document.createElement('div');
     menu.className = 'explorer-context-menu';
     menu.setAttribute('role', 'menu');
@@ -505,8 +964,22 @@ export class DesktopApplications {
     instance.explorerProperties = properties;
     const closeOutside = (event) => {
       if (!menu.contains?.(event.target)) menu.hidden = true;
+      if (instance.commandMenu && !instance.commandMenu.contains?.(event.target) &&
+        !event.target?.closest?.('[data-explorer-menu]')) {
+        instance.commandMenu.hidden = true;
+        for (const button of instance.element.querySelectorAll?.('[data-explorer-menu]') ?? [])
+          button.setAttribute?.('aria-expanded', 'false');
+      }
     };
     document.addEventListener('click', closeOutside);
+    const closeMenusOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      this.closeExplorerOverlays(instance);
+      instance.element.querySelector('.explorer-address-input').hidden = true;
+      instance.element.querySelector('.explorer-address-go').hidden = true;
+      instance.element.querySelector('.explorer-address strong').hidden = false;
+    };
+    document.addEventListener('keydown', closeMenusOnEscape);
     const deleteShortcut = (event) => {
       const active = this.manager.isActive
         ? this.manager.isActive(instance.element)
@@ -594,6 +1067,7 @@ export class DesktopApplications {
       document.removeEventListener('pointercancel', onFileDragCancel);
       document.removeEventListener('click', closeOutside);
       document.removeEventListener('keydown', deleteShortcut);
+      document.removeEventListener('keydown', closeMenusOnEscape);
     };
     menu.addEventListener('click', (event) => {
       event.stopPropagation();
@@ -644,6 +1118,11 @@ export class DesktopApplications {
     if (instance.explorerMenu) instance.explorerMenu.hidden = true;
     if (instance.explorerConfirmation) instance.explorerConfirmation.hidden = true;
     if (instance.explorerProperties) instance.explorerProperties.hidden = true;
+    if (instance.commandMenu) instance.commandMenu.hidden = true;
+    if (instance.folderOptionsDialog) instance.folderOptionsDialog.hidden = true;
+    if (instance.helpDialog) instance.helpDialog.hidden = true;
+    for (const button of instance.element.querySelectorAll?.('[data-explorer-menu]') ?? [])
+      button.setAttribute?.('aria-expanded', 'false');
   }
   showExplorerContext(instance, item, event) {
     const menu = instance.explorerMenu;
@@ -672,19 +1151,25 @@ export class DesktopApplications {
   showProperties(instance, item) {
     const properties = instance.explorerProperties;
     const metadata = item.fileId ? this.virtualFilesystem.metadata(item.fileId) : null;
+    const sourceLocation = item._sourceLocationId
+      ? this.virtualFilesystem.getLocation(item._sourceLocationId)
+      : instance.current;
     const values = metadata ?? {
       name: item.name,
       type: item.location ? 'Dossier' : item.detail ?? 'Type de fichier inconnu',
       location: item.location
         ? this.virtualFilesystem.getLocation(item.location).address
-        : instance.current.address,
+        : sourceLocation.address,
       size: null,
+      path: `${(item.location ? this.virtualFilesystem.getLocation(item.location).address : sourceLocation.address).replace(/\\$/, '')}\\${item.name}`,
     };
     properties.querySelector('strong').textContent = values.name;
     const rows = [
+      ['Nom', values.name],
       ['Type', values.type],
       ['Emplacement', values.location],
       ['Taille', values.size === null ? '—' : this.formatSize(values.size)],
+      ['Chemin', values.path ?? values.location],
     ];
     const list = properties.querySelector('dl');
     list.replaceChildren();

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fileTypeForName, getDisplayFileName } from '../src/ui/file-names.js';
+import { fileTypeForName, getDisplayFileName, setHideKnownExtensions } from '../src/ui/file-names.js';
+import { fileIcon } from '../src/ui/icons.js';
 import { mountDesktop } from '../src/ui/desktop.js';
 
 test('known filename extensions are hidden case-insensitively without changing source names', () => {
@@ -25,6 +26,25 @@ test('known filename extensions are hidden case-insensitively without changing s
   assert.equal(getDisplayFileName({ name: 'archive.xyz' }), 'archive.xyz');
   assert.equal(getDisplayFileName({ name: 'night.mp3.xyz' }), 'night.mp3.xyz');
   assert.equal(getDisplayFileName({ name: 'README', detail: 'Document' }), 'README');
+});
+
+test('showing known extensions is visual only and always keeps shortcut extensions hidden', () => {
+  setHideKnownExtensions(false);
+  try {
+    assert.equal(getDisplayFileName({ name: 'BombArena.zip' }), 'BombArena.zip');
+    assert.equal(getDisplayFileName({ name: 'BombArena.exe' }), 'BombArena.exe');
+    assert.equal(getDisplayFileName({ name: 'archive.xyz' }), 'archive.xyz');
+    assert.equal(getDisplayFileName({ name: 'ChaosSurvival.lnk' }), 'ChaosSurvival');
+    assert.equal(getDisplayFileName({ name: 'Backup.zip', location: 'backup' }), 'Backup.zip');
+  } finally {
+    setHideKnownExtensions(true);
+  }
+});
+
+test('file icons distinguish ZIP archives, applications and text documents', () => {
+  assert.equal(fileIcon({ name: 'BombArena.zip', icon: 'document' }), 'archive');
+  assert.equal(fileIcon({ name: 'BombArena.exe', fileId: 'bomb-arena-folder/bombarena.exe' }), 'arcade-game');
+  assert.equal(fileIcon({ name: 'notes.txt', icon: 'document' }), 'document');
 });
 
 test('folders and shortcut labels use their own names; display formatting never mutates file data', () => {

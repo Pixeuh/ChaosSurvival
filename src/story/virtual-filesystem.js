@@ -136,12 +136,6 @@ export function normalizeVirtualFilesystemState(state, files = {}) {
   return { deleted: [...new Set(deleted.filter((key) => knownDeletable.has(key)))], added };
 }
 
-function defaultSize(item) {
-  if (Number.isFinite(item.size)) return Math.floor(item.size);
-  const extension = item.name.split('.').at(-1).toLowerCase();
-  return ({ txt: 2048, jpg: 262144, zip: 1048576, exe: 393216 }[extension] ?? 8192);
-}
-
 export class VirtualFilesystem {
   constructor(progression) {
     this.progression = progression;
@@ -196,7 +190,7 @@ export class VirtualFilesystem {
       name: file.name,
       type: file.detail,
       location: location?.address ?? '',
-      size: file.directory ? null : defaultSize(file),
+      size: file.directory || !Number.isFinite(file.size) ? null : Math.floor(file.size),
       path: `${location?.address?.replace(/\\$/, '') ?? ''}\\${file.name}`,
     };
   }

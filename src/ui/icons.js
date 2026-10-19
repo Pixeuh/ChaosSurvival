@@ -48,7 +48,10 @@ export function icon(name, className = '') {
 }
 
 export function fileIcon(file, fallback = file?.icon ?? 'document') {
-  if (fileTypeForName(file?.name) !== 'application') return fallback;
+  const type = fileTypeForName(file?.name);
+  if (type === 'archive') return 'archive';
+  if (type === 'image') return 'picture';
+  if (type !== 'application') return fallback;
   const fileId = String(file.fileId ?? '')
     .toLowerCase()
     .replace(/^\//, '');

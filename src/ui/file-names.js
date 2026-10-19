@@ -13,6 +13,16 @@ const FILE_TYPES = Object.freeze({
   zip: 'archive',
   lnk: 'shortcut',
 });
+let hideKnownExtensions = true;
+
+export function setHideKnownExtensions(value) {
+  hideKnownExtensions = value !== false;
+  return hideKnownExtensions;
+}
+
+export function getHideKnownExtensions() {
+  return hideKnownExtensions;
+}
 
 export function fileTypeForName(name) {
   if (typeof name !== 'string') return null;
@@ -21,7 +31,7 @@ export function fileTypeForName(name) {
   return FILE_TYPES[name.slice(dot + 1).toLowerCase()] ?? null;
 }
 
-export function getDisplayFileName(file) {
+export function getDisplayFileName(file, { hideKnown = hideKnownExtensions } = {}) {
   const name = typeof file === 'string' ? file : file?.name;
   if (typeof name !== 'string') return '';
   if (typeof file === 'object' && file !== null &&
@@ -29,5 +39,6 @@ export function getDisplayFileName(file) {
       (typeof file.detail === 'string' && file.detail.toLowerCase() === 'dossier'))) return name;
   const dot = name.lastIndexOf('.');
   if (dot <= 0 || fileTypeForName(name) === null) return name;
+  if (!hideKnown && fileTypeForName(name) !== 'shortcut') return name;
   return name.slice(0, dot);
 }

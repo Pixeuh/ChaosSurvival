@@ -227,9 +227,26 @@ button.messenger-contact-row:hover {
   margin-left: 4px;
 }
 .explorer-menu {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   padding: 5px 8px;
   background: #f0ede0;
   font-size: 11px;
+}
+.explorer-menu button {
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #111;
+  font: 11px Tahoma, sans-serif;
+}
+.explorer-menu button:hover,
+.explorer-menu button:focus-visible,
+.explorer-menu button[aria-expanded="true"] {
+  border-color: #7f9db9;
+  background: #dce9f8;
 }
 .notepad-content {
   flex: 1;
@@ -285,26 +302,71 @@ button.messenger-contact-row:hover {
   padding: 16px;
   color: #5e6b7a;
 }
-.explorer-menu span {
-  margin-left: 12px;
-}
 .explorer-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 7px;
-  border-block: 1px solid #d2cfc3;
-  background: #f5f3e9;
-  font-size: 10px;
+  gap: 2px;
+  overflow-x: auto;
+  min-height: 36px;
+  padding: 2px 5px;
+  border-top: 1px solid #fff;
+  border-bottom: 1px solid #aaa99f;
+  background: linear-gradient(#f8f7f2, #e9e7dd);
+  font: 11px Tahoma, sans-serif;
 }
-.explorer-toolbar button {
+.explorer-toolbar[hidden],
+.explorer-address[hidden],
+.explorer-status[hidden] {
+  display: none;
+}
+.explorer-toolbar-button {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 4px;
+  min-width: 84px;
+  height: 29px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: #253a54;
+  font: 11px Tahoma, sans-serif;
+  white-space: nowrap;
 }
-.explorer-toolbar .icon {
+.explorer-toolbar-button:hover:not(:disabled),
+.explorer-toolbar-button:focus-visible:not(:disabled) {
+  border-color: #8baaca;
+  background: linear-gradient(#fff, #e1edf9);
+  box-shadow: inset 0 1px #fff, 0 1px 1px #8a9caf55;
+}
+.explorer-toolbar-button:active:not(:disabled) {
+  border-color: #7892ad;
+  background: linear-gradient(#dce5ed, #f8f9fa);
+  box-shadow: inset 1px 1px 2px #74879a88;
+  padding: 3px 5px 1px 7px;
+}
+.explorer-toolbar-button:disabled {
+  color: #888;
+  cursor: default;
+}
+.explorer-toolbar-button:disabled .explorer-toolbar-icon {
+  filter: grayscale(1);
+  opacity: .48;
+}
+.explorer-toolbar-icon {
+  flex: 0 0 20px;
   width: 20px;
   height: 20px;
+  overflow: visible;
+}
+.explorer-toolbar-separator {
+  width: 1px;
+  height: 23px;
+  margin: 0 3px;
+  background: #aaa99f;
+  box-shadow: 1px 0 #fff;
 }
 .explorer-address {
   display: flex;
@@ -321,39 +383,100 @@ button.messenger-contact-row:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
 }
+.explorer-address input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #316ac5;
+  font: 11px Tahoma, sans-serif;
+}
+.explorer-search-panel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid #b9c4d0;
+  background: #fffbe6;
+  font-size: 11px;
+}
+.explorer-search-panel[hidden] { display: none; }
+.explorer-search-panel label { display: flex; align-items: center; gap: 6px; flex: 1; }
+.explorer-search-panel input { min-width: 80px; flex: 1; }
 .explorer-content {
   display: flex;
   flex: 1;
   min-height: 0;
+  background: #fff;
 }
-.explorer-content aside {
-  width: 155px;
-  flex-shrink: 0;
-  padding: 12px;
-  background: linear-gradient(#799ee1, #ccdef9);
-  color: #23436d;
+.explorer-side-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex: 0 0 188px;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px 8px;
   overflow: auto;
-  font-size: 10px;
+  border-right: 1px solid #7e9db9;
+  background: linear-gradient(110deg, #dceaf7 0%, #b8d2eb 48%, #94b9dc 100%);
+  color: #173b5f;
+  font: 11px Tahoma, sans-serif;
 }
-.explorer-content aside h3 {
-  margin: 6px 0;
-  padding: 5px;
-  background: #ecf4ff;
+.explorer-side-section {
+  overflow: hidden;
+  border: 1px solid #91b4d5;
   border-radius: 4px;
-  font-size: 11px;
+  background: linear-gradient(#fff 0, #f6faff 100%);
+  box-shadow: 0 1px 2px #6383a344;
 }
-.explorer-content aside p {
-  line-height: 1.5;
+.explorer-side-heading {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-bottom: 1px solid #c2d7eb;
+  background: linear-gradient(#fff 0%, #dcecff 100%);
+  color: #174d80;
+  font: bold 11px Tahoma, sans-serif;
+  text-align: left;
+  cursor: pointer;
 }
-.explorer-content aside button {
-  display: block;
+.explorer-side-heading:hover { background: linear-gradient(#fff 0%, #cce4fb 100%); }
+.explorer-side-chevron { width: 9px; color: #3476ad; font: bold 13px Tahoma, sans-serif; }
+.explorer-side-section-body { padding: 4px 5px 5px; }
+.explorer-side-section-body[hidden] { display: none; }
+.explorer-side-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 23px;
+  padding: 3px 2px;
   border: 0;
   background: transparent;
-  color: #234c8a;
-  padding: 5px 0;
+  color: #164d81;
+  font: 11px Tahoma, sans-serif;
   text-align: left;
+  cursor: pointer;
+}
+.explorer-side-link:not(:disabled):hover,
+.explorer-side-link:not(:disabled):focus-visible {
+  color: #0d3c71;
   text-decoration: underline;
+  background: #e5f2ff;
+}
+.explorer-side-link:disabled { color: #7d8994; cursor: default; }
+.explorer-side-link .icon { flex: 0 0 17px; width: 17px; height: 17px; }
+.explorer-side-detail-row { padding: 2px 1px; overflow-wrap: anywhere; line-height: 1.3; }
+.explorer-side-detail-row strong { color: #315a7e; }
+.explorer-side-summary { margin: 2px 1px; color: #375d7c; line-height: 1.35; }
+.explorer-side-detail-row span { color: #344f68; }
+.explorer-side-link:disabled .icon { opacity: .58; }
+.explorer-side-panel:empty { display: none; }
+.explorer-side-panel + .explorer-items {
+  flex: 1 1 0;
 }
 .explorer-items {
   display: flex;
@@ -375,6 +498,9 @@ button.messenger-contact-row:hover {
   background: transparent;
   text-align: left;
   padding: 6px;
+}
+.explorer-items .explorer-item {
+  max-width: 230px;
 }
 .explorer-item .icon {
   width: 40px;
@@ -407,6 +533,31 @@ button.messenger-contact-row:hover {
   background: #fff;
   box-shadow: 2px 3px 7px #0005;
 }
+.explorer-command-menu {
+  position: absolute;
+  z-index: 10;
+  min-width: 205px;
+  max-height: min(70vh, 480px);
+  overflow: auto;
+  padding: 3px;
+  border: 1px solid #7f7f7f;
+  background: #fff;
+  box-shadow: 2px 3px 7px #0005;
+}
+.explorer-command-menu[hidden] { display: none; }
+.explorer-command-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 12px;
+  border: 0;
+  background: transparent;
+  color: #111;
+  text-align: left;
+  font: 11px Tahoma, sans-serif;
+}
+.explorer-command-menu button:hover:not(:disabled),
+.explorer-command-menu button:focus-visible:not(:disabled) { background: #316ac5; color: white; }
+.explorer-command-menu button:disabled { color: #888; }
 .explorer-context-menu[hidden],
 .explorer-dialog[hidden] {
   display: none;
@@ -528,6 +679,14 @@ button.messenger-contact-row:hover {
   display: block;
   margin-left: auto;
 }
+.explorer-options-dialog { width: min(450px, calc(100% - 24px)); }
+.explorer-options-tabs { display: flex; gap: 4px; margin-top: 12px; }
+.explorer-options-pane,
+.explorer-general-note { min-height: 82px; margin: 0; padding: 14px 8px; border: 1px solid #a7a394; background: #fff; }
+.explorer-extension-option { display: flex; align-items: flex-start; gap: 7px; line-height: 1.4; }
+.explorer-options-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 12px; }
+.explorer-help-dialog { width: min(430px, calc(100% - 24px)); }
+.explorer-help-dialog ul { padding-left: 20px; line-height: 1.5; }
 .explorer-image {
   width: 100%;
   max-height: 280px;
@@ -550,9 +709,6 @@ button.messenger-contact-row:hover {
 @media (max-width: 850px) {
   .popup-desktopapp {
     width: min(560px, 100%);
-  }
-  .explorer-content aside {
-    width: 125px;
   }
   .desktop-app-task {
     max-width: 100px;

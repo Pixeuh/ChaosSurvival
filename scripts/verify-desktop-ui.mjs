@@ -30,6 +30,7 @@ const flashZoneOnly = process.argv.includes('--flashzone-only');
 const videoTubeOnly = process.argv.includes('--videotube-only');
 const wikiOnly = process.argv.includes('--wiki-only');
 const hoplaHotelOnly = process.argv.includes('--hopla-hotel-only');
+const explorerOnly = process.argv.includes('--explorer-only');
 const minigameOnly =
   process.argv.includes('--minigame-only') ||
   typingOnly ||
@@ -48,6 +49,7 @@ const minigameOnly =
   videoTubeOnly ||
   wikiOnly ||
   hoplaHotelOnly ||
+  explorerOnly ||
   stabilityOnly;
 let browserServer;
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -533,6 +535,62 @@ async function capture(name) {
   const shot = await command('Page.captureScreenshot');
   await writeFile(path.join(output, name), Buffer.from(shot.data, 'base64'));
 }
+async function verifyExplorer() {
+  await click('#menu-play');
+  await until(() => evaluate("window.chaosDebug.snapshot().phase==='desktop'"), 'desktop');
+  await doubleClick('#desktop > .desktop-icons [data-shortcut=computer]');
+  const windowSelector = '.popup-desktopapp:has(.explorer-menu)';
+  await until(() => evaluate(`!!document.querySelector(${JSON.stringify(windowSelector)})`), 'Poste de travail');
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('${windowSelector} .explorer-toolbar-button')).map(button=>({label:button.querySelector('span')?.textContent,icon:!!button.querySelector('svg')}))`), [
+    { label: 'Précédente', icon: true }, { label: 'Suivante', icon: true },
+    { label: 'Remonter', icon: true }, { label: 'Rechercher', icon: true },
+  ]);
+  assert.equal(await evaluate(`document.querySelectorAll('${windowSelector} .explorer-folders-toggle,.explorer-view-toggle,.explorer-home,[data-explorer-menu=favorites]').length`), 0);
+  assert.equal(await evaluate(`document.querySelectorAll('${windowSelector} .explorer-side-panel').length`), 1,
+    'the permanent left task pane is present without an activation button');
+  assert.equal(await evaluate(`document.querySelector('${windowSelector} .explorer-side-panel').textContent.includes('Tâches sur cet emplacement')`), false);
+  assert.equal(await evaluate(`document.querySelector('${windowSelector} .explorer-toolbar').hidden`), false,
+    'the toolbar remains visible for its Search button');
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('${windowSelector} .explorer-side-section')).map(section=>section.dataset.section)`),
+    ['locations', 'details']);
+  await click(`${windowSelector} .explorer-side-link[data-explorer-side-location=shared-profile]`);
+  await until(() => evaluate(`document.querySelector('${windowSelector} .explorer-address strong').textContent.includes('All Users')`), 'shared documents link');
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('${windowSelector} .explorer-side-section')).map(section=>section.dataset.section)`),
+    ['locations', 'details'], 'the side pane keeps only locations and details in folders');
+  await click(`${windowSelector} .explorer-side-link[data-explorer-side-location=computer]`);
+  await until(() => evaluate(`document.querySelector('${windowSelector} .explorer-address strong').textContent==='Poste de travail'`), 'My Computer link');
+  const firstItem = `${windowSelector} .explorer-item`;
+  await click(firstItem);
+  assert.ok(await evaluate(`document.querySelector('${windowSelector} .explorer-side-section[data-section=details]').textContent.includes('Nom :')`),
+    'the details section reacts to an item selection');
+  await capture('explorer-toolbar-xp.png');
+  await click(`${windowSelector} [data-explorer-menu=tools]`);
+  await click('.explorer-command-menu [data-command=folder-options]');
+  await until(() => evaluate(`!!document.querySelector('${windowSelector} .explorer-options-dialog:not([hidden])')`), 'Options des dossiers');
+  assert.equal(await evaluate(`document.querySelector('${windowSelector} [data-hide-extensions]').checked`), true);
+  await capture('explorer-folder-options.png');
+  await click(`${windowSelector} [data-hide-extensions]`);
+  await click(`${windowSelector} [data-options-action=apply]`);
+  assert.equal(await evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).explorerPreferences.hideKnownExtensions"), false);
+  await click(`${windowSelector} [data-options-action=ok]`);
+  await click(`${windowSelector} [data-explorer-menu=view]`);
+  assert.equal(await evaluate("Array.from(document.querySelectorAll('.explorer-command-menu button')).some(button=>/^view-(icons|list|details|thumbnails)$/.test(button.dataset.command))"), false);
+  await click('.explorer-command-menu [data-command=sort-name]');
+  assert.equal(await evaluate(`document.querySelector('${windowSelector} .explorer-items').dataset.view`), 'icons');
+  await click(`${windowSelector} .explorer-address strong`);
+  await evaluate(`(()=>{const i=document.querySelector('${windowSelector} .explorer-address-input');i.value='C:\\\\Documents and Settings\\\\Joueur\\\\Mes documents\\\\My Games';i.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));})()`);
+  await until(() => evaluate(`document.querySelectorAll('${windowSelector} .explorer-item strong').length>0`), 'address navigation');
+  assert.ok(await evaluate(`Array.from(document.querySelectorAll('${windowSelector} .explorer-item strong')).some(n=>n.textContent==='ChaosSurvival.exe')`));
+  await click(`${windowSelector} .explorer-search-toggle`);
+  assert.ok(await evaluate(`!!document.querySelector('${windowSelector} .explorer-search-panel:not([hidden])')`));
+  await evaluate(`(()=>{const i=document.querySelector('${windowSelector} .explorer-search-input');i.value='ChaosSurvival';document.querySelector('${windowSelector} .explorer-search-submit').click();})()`);
+  await until(() => evaluate(`document.querySelectorAll('${windowSelector} .explorer-item').length===1`), 'virtual file search');
+  await capture('explorer-icons-search.png');
+  await evaluate(`(()=>{const i=document.querySelector('${windowSelector} .explorer-search-input');i.value='no-such-virtual-file';document.querySelector('${windowSelector} .explorer-search-submit').click();})()`);
+  assert.ok(await evaluate(`document.querySelector('${windowSelector} .explorer-empty').textContent.includes('Aucun fichier')`));
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+  console.log('OK: Chromium Explorer toolbar/menu, permanent XP task pane, real sidebar navigation, selection details, folder options, saved extension preference, icon-only view, virtual address and search. Screenshots saved in .qa.');
+}
 try {
   let target;
   await until(async () => {
@@ -571,7 +629,8 @@ try {
   if (browserSecurityElectron) {
     await verifyBrowser();
   } else if (minigameOnly) {
-    if (hoplaHotelOnly) await verifyHoplaHotel();
+    if (explorerOnly) await verifyExplorer();
+    else if (hoplaHotelOnly) await verifyHoplaHotel();
     else if (wikiOnly) await verifyWiki();
     else if (videoTubeOnly) await verifyVideoTube();
     else if (flashZoneOnly) await verifyFlashZone();

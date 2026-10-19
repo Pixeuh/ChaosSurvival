@@ -50,6 +50,10 @@ class FakeElement {
       if (selector === 'p' && node.tagName === 'P') return node;
       if (selector === 'strong' && node.tagName === 'STRONG') return node;
       if (selector === 'dl' && node.tagName === 'DL') return node;
+      if (selector.startsWith('.') && node.className === selector.slice(1)) return node;
+      if (selector === '[data-hide-extensions]' && node.dataset.hideExtensions === 'true') return node;
+      const optionsTab = selector.match(/^\[data-options-tab="(.+)"\]$/)?.[1];
+      if (optionsTab && node.dataset.optionsTab === optionsTab) return node;
       const action = selector.match(/^\[data-explorer-action="(.+)"\]$/)?.[1];
       if (action && node.dataset.explorerAction === action) return node;
       const answer = selector.match(/^\[data-delete-answer="(.+)"\]$/)?.[1];
@@ -108,6 +112,8 @@ test('virtual files have stable path IDs, protect system files, delete permanent
 
 test('XP personal folders are rooted in Mes documents without legacy Games or Downloads paths', () => {
   const files = new VirtualFilesystem(new Progression(story, memory()));
+  assert.equal(files.metadata(virtualFileId('messenger-files', 'readme.txt')).size, null,
+    'properties leave file size unknown when no virtual metadata is stored');
   const root = files.getLocation('c-root');
   assert.deepEqual(root.items.map((item) => item.location), ['programs', 'windows', 'profiles']);
   assert.throws(() => files.getLocation('games'), /inconnu/);
@@ -904,9 +910,140 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   };
   const first = makeExplorer();
   const second = makeExplorer();
+  const sidePanel = first.element.querySelector('.explorer-side-panel');
+  assert.equal(sidePanel.children.length, 2, 'the permanent XP task pane keeps only locations and details');
+  assert.equal(sidePanel.children[0].dataset.section, 'locations');
+  const sharedDocumentsLink = sidePanel.children[0].children[1].children.find(
+    (button) => button.dataset.explorerSideLocation === 'shared-profile',
+  );
+  assert.ok(sharedDocumentsLink, 'Documents partagés points to the real shared-profile location');
+  const unsupportedControlPanel = sidePanel.children[0].children[1].children.find(
+    (button) => button.innerHTML.includes('Panneau de configuration'),
+  );
+  assert.equal(unsupportedControlPanel?.disabled, true, 'unsupported control-panel destination is disabled');
+  sidePanel.handlers.click({ target: sidePanel.children[0].children[1].children.find(
+    (button) => button.dataset.explorerSideLocation === 'computer',
+  ) });
+  assert.equal(first.current.id, 'computer');
+  assert.equal(sidePanel.children[0].dataset.section, 'locations', 'Other Locations remains in My Computer');
+  const sectionToggle = sidePanel.children[0].children[0];
+  sectionToggle.handlers.click();
+  assert.equal(sidePanel.children[0].children[1].hidden, true, 'task sections can be collapsed');
+  sectionToggle.handlers.click();
+  assert.equal(sidePanel.children[0].children[1].hidden, false, 'task sections can be expanded again');
+  const sharedLink = sidePanel.children[0].children[1].children.find(
+    (button) => button.dataset.explorerSideLocation === 'shared-profile',
+  );
+  assert.ok(sharedLink);
+  sidePanel.handlers.click({ target: sharedLink });
+  assert.equal(first.current.id, 'shared-profile', 'sidebar links navigate to an existing virtual location');
+  assert.equal(sidePanel.children.length, 2, 'no location task section is left behind on folder views');
+  app.navigate(first, filesystem.getLocation('downloads'));
   activeWindow = first.element;
   app.instances.set('downloads:first', first);
   app.instances.set('downloads:second', second);
+  app.onExplorerPreferencesChanged = () => desktopFiles.render();
+  app.showFolderOptions(first);
+  const options = first.folderOptionsDialog;
+  const extensionOption = options.querySelector('[data-hide-extensions]');
+  extensionOption.checked = false;
+  const optionsButtons = options.children.at(-1);
+  optionsButtons.handlers.click({ target: optionsButtons.children.find((button) => button.dataset.optionsAction === 'apply') });
+  assert.equal(progression.data.explorerPreferences.hideKnownExtensions, false);
+  assert.equal(extensionOption.checked, false, 'Apply keeps the settings dialog open with its applied value');
+  assert.ok(first.element.querySelector('.explorer-items').children.some((item) => item.children[0].textContent.endsWith('.exe')));
+  assert.ok(second.element.querySelector('.explorer-items').children.some((item) => item.children[0].textContent.endsWith('.exe')));
+  assert.ok(desktopItems.children.some((item) => item.children.at(-1).textContent.endsWith('.exe')),
+    'the same preference immediately updates desktop files');
+  extensionOption.checked = true;
+  optionsButtons.handlers.click({ target: optionsButtons.children.find((button) => button.dataset.optionsAction === 'defaults') });
+  assert.equal(extensionOption.checked, true, 'defaults update the form without saving immediately');
+  optionsButtons.handlers.click({ target: optionsButtons.children.find((button) => button.dataset.optionsAction === 'cancel') });
+  assert.equal(progression.data.explorerPreferences.hideKnownExtensions, false, 'Cancel discards unapplied edits');
+  app.showFolderOptions(first);
+  options.querySelector('[data-hide-extensions]').checked = true;
+  optionsButtons.handlers.click({ target: optionsButtons.children.find((button) => button.dataset.optionsAction === 'ok') });
+  assert.equal(progression.data.explorerPreferences.hideKnownExtensions, true);
+  assert.equal(options.hidden, true, 'OK saves and closes the options dialog');
+  app.openExplorerMenu(first, 'view');
+  const commands = first.commandMenu.children.map((button) => button.dataset.command);
+  assert.ok(!commands.some((command) => ['view-icons', 'view-list', 'view-details', 'view-thumbnails'].includes(command)));
+  assert.ok(!commands.includes('toggle-toolbar'), 'the toolbar cannot be hidden and take Search with it');
+  progression.data.explorerPreferences.viewMode = 'details';
+  progression.data.explorerPreferences.toolbarVisible = false;
+  first.element.querySelector('.explorer-toolbar').hidden = true;
+  app.render(first, first.current, false);
+  assert.equal(first.element.querySelector('.explorer-items').dataset.view, 'icons', 'legacy saved view choices do not override the icon-only layout');
+  assert.equal(first.element.querySelector('.explorer-toolbar').hidden, false,
+    'a legacy hidden-toolbar preference cannot hide the navigation and Search buttons');
+  const searchButton = first.element.querySelector('.explorer-search-toggle');
+  searchButton.addEventListener('click', () => app.toggleSearch(first));
+  first.element.querySelector('.explorer-search-panel').hidden = true;
+  searchButton.handlers.click();
+  assert.equal(first.element.querySelector('.explorer-search-panel').hidden, false,
+    'the Search toolbar button opens the search interface');
+  app.toggleSearch(first);
+  app.openExplorerMenu(first, 'view');
+  dispatch('keydown', { key: 'Escape' });
+  assert.equal(first.commandMenu.hidden, true, 'Escape closes the menu');
+  assert.equal(first.commandMenu.children.some((button) => button.dataset.command.startsWith('favorite-')), false);
+  app.navigate(first, filesystem.getLocation('computer'));
+  app.back(first);
+  assert.equal(first.current.id, 'downloads');
+  app.forward(first);
+  assert.equal(first.current.id, 'computer');
+  const addressInput = first.element.querySelector('.explorer-address-input');
+  addressInput.value = 'C:\\Documents and Settings\\Joueur\\Mes documents';
+  assert.equal(app.goAddress(first), true);
+  assert.equal(first.current.id, 'folder');
+  assert.equal(first.element.querySelector('.explorer-address strong').textContent, filesystem.getLocation('folder').address,
+    'the address display updates after virtual path navigation');
+  addressInput.value = 'C:/';
+  assert.equal(app.goAddress(first), true, 'C:/ and C:\\ resolve to the virtual C drive');
+  assert.equal(first.current.id, 'c-root');
+  addressInput.value = 'Mes documents';
+  assert.equal(app.goAddress(first), true, 'special virtual locations resolve by their displayed title');
+  assert.equal(first.current.id, 'folder');
+  const unchangedLocation = first.current.id;
+  addressInput.value = 'C:\\Windows XD\\does not exist';
+  assert.equal(app.goAddress(first), false);
+  assert.equal(first.current.id, unchangedLocation, 'an invalid virtual path leaves the current folder unchanged');
+  assert.match(first.element.querySelector('.explorer-status').textContent, /introuvable/);
+  app.back(first);
+  assert.equal(first.current.id, 'c-root', 'Back works after navigation through the address bar');
+  app.forward(first);
+  assert.equal(first.current.id, 'folder', 'Forward works after navigation through the address bar');
+  const openedByAddress = [];
+  const openFile = app.openFile;
+  app.openFile = (...args) => openedByAddress.push(args);
+  addressInput.value = `${filesystem.getLocation('folder').address}\\a_faire.txt`;
+  assert.equal(app.goAddress(first), true, 'a full virtual file path uses the normal file handler');
+  assert.equal(openedByAddress.length, 1);
+  assert.equal(openedByAddress[0][1].name, 'a_faire.txt');
+  app.openFile = openFile;
+  assert.equal(first.current.id, 'folder', 'opening a file address keeps the current folder');
+  const searchInput = first.element.querySelector('.explorer-search-input');
+  searchInput.value = 'SUPER_MEGA';
+  assert.equal(app.search(first), 1, 'partial, case-insensitive search returns an existing virtual file');
+  assert.equal(first.element.querySelector('.explorer-items').children.some(
+    (item) => item.dataset.fileId === virtualFileId('downloads', 'SUPER_MEGA_GAME.exe')),
+  true);
+  const searchResult = first.element.querySelector('.explorer-items').children.find((item) => item.dataset.fileId);
+  const openedSearchResults = [];
+  const searchOpenFile = app.openFile;
+  app.openFile = (...args) => openedSearchResults.push(args);
+  searchResult.handlers.dblclick();
+  assert.equal(openedSearchResults[0][0].id, 'downloads', 'a search result opens from its actual source location');
+  assert.equal(openedSearchResults[0][1].name, 'SUPER_MEGA_GAME.exe');
+  app.openFile = searchOpenFile;
+  searchInput.value = 'does-not-exist';
+  assert.equal(app.search(first), 0, 'search handles a missing result');
+  assert.match(first.element.querySelector('.explorer-items').children.at(-1).textContent,
+    /Aucun fichier ou dossier/);
+  searchInput.value = 'smileys_pack_2009.zip';
+  assert.ok(app.search(first) > 0, 'search matches the real filename including a hidden extension');
+  app.cancelSearch(first);
+  app.navigate(first, filesystem.getLocation('downloads'));
   const dragCalls = [];
   app.onDesktopShortcutDrag = (...args) => dragCalls.push(args);
   const explorerItems = first.element.querySelector('.explorer-items');
@@ -965,6 +1102,11 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   );
   row.handlers.click();
   assert.equal(row.attrs['aria-selected'], 'true');
+  const detailRows = first.element.querySelector('.explorer-side-panel').children[1].children[1].children;
+  assert.equal(detailRows.find((detail) => detail.children[0]?.textContent === 'Nom : ')?.children[1]?.textContent,
+    'smileys_pack_2009.zip', 'the details pane uses the virtual file name');
+  assert.equal(detailRows.find((detail) => detail.children[0]?.textContent === 'Type : ')?.children[1]?.textContent,
+    filesystem.metadata(fileId).type, 'the details pane uses the virtual file type');
   row.handlers.contextmenu({
     clientX: 45,
     clientY: 60,

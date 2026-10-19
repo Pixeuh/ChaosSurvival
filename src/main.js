@@ -36,6 +36,7 @@ import { StartMenuOrder } from './ui/start-menu-order.js';
 import { quitFromStartMenu, returnFromStartMenu } from './ui/start-menu-actions.js';
 import { TaskbarOrder } from './ui/taskbar-order.js';
 import { DesktopApplications } from './ui/desktop-apps.js';
+import { setHideKnownExtensions } from './ui/file-names.js';
 import { createExecutableLauncher } from './ui/executable-launcher.js';
 import { WindowsMediaPlay } from './ui/media-player.js';
 import { ToolbarInstaller } from './ui/toolbar-installer.js';
@@ -120,6 +121,7 @@ const notifications = new NotificationCenter({
   getTime: (clock) => (clock === 'game' ? audio.time * 1000 : Date.now()),
 });
 const progression = new Progression(story, storyStorage);
+setHideKnownExtensions(progression.data.explorerPreferences?.hideKnownExtensions !== false);
 const optionalConversations = new OptionalConversations(progression, dialogues);
 const virtualFilesystem = new VirtualFilesystem(progression);
 const buddy = new Buddy(ui.desktop, progression);
@@ -653,6 +655,10 @@ const desktopFiles = new DesktopFiles(ui.desktop, progression, openDesktopFile, 
   desktopIcons.refresh(),
   virtualFilesystem,
 );
+desktopApplications.onExplorerPreferencesChanged = () => {
+  desktopIcons.refresh();
+  desktopFiles.render();
+};
 desktopIcons.onShortcutsChanged = renderDesktopFiles;
 desktopApplications.onOpenDesktopShortcut = (file, location) =>
   openDesktopFile({ ...file, shortcutTarget: true }, location);

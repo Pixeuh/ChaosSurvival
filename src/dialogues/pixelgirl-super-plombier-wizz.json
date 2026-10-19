@@ -90,15 +90,9 @@
       "messages": [
         {
           "speaker": "contact",
-          "text": "AHAHAHAHA",
-          "delayMs": 300,
-          "typingMs": 400
-        },
-        {
-          "speaker": "contact",
-          "text": "BATAILLE DE WIZZ !!!",
-          "delayMs": 250,
-          "typingMs": 450
+          "text": "quoi, tu veux encore des wizz :p ??",
+          "delayMs": 350,
+          "typingMs": 650
         }
       ],
       "next": "closing"
@@ -126,7 +120,7 @@
         {
           "id": "more-wizz",
           "text": "dommage je commençais à aimer",
-          "next": "more-wizz-reply"
+          "next": "ending"
         }
       ]
     },
@@ -148,23 +142,6 @@
           "text": "t'as raison de pas me croire xD",
           "delayMs": 250,
           "typingMs": 400
-        }
-      ],
-      "next": "ending"
-    },
-    "more-wizz-reply": {
-      "messages": [
-        {
-          "speaker": "contact",
-          "text": "OOOOH",
-          "delayMs": 250,
-          "typingMs": 350
-        },
-        {
-          "speaker": "contact",
-          "text": "tu veux encore des wizz ??? :D",
-          "delayMs": 300,
-          "typingMs": 420
         }
       ],
       "next": "ending"
