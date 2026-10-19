@@ -5,6 +5,7 @@ import { fileIcon, icon } from './icons.js';
 import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
+import { completeBombArenaHandoff } from '../story/bomb-arena-handoff.js';
 import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
@@ -752,14 +753,29 @@ export class DesktopApplications {
     instance.onBombArenaFinish = ({ alreadyClosing = false } = {}) => {
       if (instance.returningToMessenger) return false;
       const progress = this.virtualFilesystem?.progression?.data?.bombArena;
-      if (progress?.expectedAt !== null && progress?.expectedAt !== undefined && progress.status !== 'COMPLETED') {
-        if (progress.status !== 'RESULTS_READY') return false;
-        const completed = this.onBombArenaEvent?.({ type: 'returned-to-messenger' });
-        if (!completed && progress.status !== 'COMPLETED') return false;
-      }
+      const needsHandoff = progress?.expectedAt !== null && progress?.expectedAt !== undefined;
+      if (needsHandoff && progress.status !== 'RESULTS_READY' && progress.status !== 'COMPLETED') return false;
+
+      // Keep RESULTS_READY persisted until the existing group conversation is
+      // actually available. That state is also the recovery intent on reload.
       instance.returningToMessenger = true;
-      if (alreadyClosing) this.onBombArenaInterrupted?.(instance);
-      else this.onBombArenaContinue?.(instance);
+      const activateGroup = () => {
+        const result = alreadyClosing
+          ? this.onBombArenaInterrupted?.(instance)
+          : this.onBombArenaContinue?.(instance);
+        return needsHandoff ? result === true : result !== false;
+      };
+      const activated = needsHandoff
+        ? completeBombArenaHandoff({
+            progression: this.virtualFilesystem?.progression,
+            onBombArenaEvent: (event) => this.onBombArenaEvent?.(event),
+            activateGroup,
+          })
+        : activateGroup();
+      if (!activated) {
+        instance.returningToMessenger = false;
+        return false;
+      }
       return true;
     };
     instance.onBombArenaContinue = () => instance.onBombArenaFinish();

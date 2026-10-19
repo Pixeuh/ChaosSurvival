@@ -8,6 +8,7 @@ import { NarrativeOrchestrator } from '../src/story/narrative-orchestrator.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
 import { createContactAvatar } from '../src/ui/contact-avatar.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
+import { bombArenaHandoffPending, completeBombArenaHandoff } from '../src/story/bomb-arena-handoff.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -245,8 +246,25 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
     type: 'match-completed', matchId: 'postmatch-test', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8, scores,
   }), true);
   assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
+  assert.equal(bombArenaHandoffPending(progression), true);
   assert.equal(getEvents().some((event) => event.id === postMatch.id), false, 'viewing results alone does not start the dialogue');
-  assert.equal(orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' }), true);
+  assert.equal(completeBombArenaHandoff({
+    progression,
+    onBombArenaEvent: (event) => orchestrator.onBombArenaEvent(event),
+    activateGroup: () => false,
+  }), false, 'a missing group window leaves the handoff pending');
+  assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
+  const activationOrder = [];
+  assert.equal(completeBombArenaHandoff({
+    progression,
+    onBombArenaEvent: (event) => {
+      activationOrder.push('completed');
+      return orchestrator.onBombArenaEvent(event);
+    },
+    activateGroup: () => { activationOrder.push('group-opened'); return true; },
+  }), true);
+  assert.deepEqual(activationOrder, ['group-opened', 'completed']);
+  assert.equal(bombArenaHandoffPending(progression), true, 'completion remains recoverable until the post-match dialogue finishes');
   assert.equal(getEvents().some((event) => event.id === postMatch.id), true);
   assert.deepEqual(orchestrator.bombArenaRedownloadEvents(), [], 'scheduled reminders and reoffers are suppressed after results');
   assert.equal(progression.data.flags.bombArenaWinner, 'luna');
@@ -255,6 +273,8 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
   thread.receive(100_001_000);
   const partial = thread.state.history.filter((entry) => entry.eventId === postMatch.id);
   assert.ok(partial.length > 0 && partial.length < 23, 'the group receives the dialogue progressively');
+  assert.deepEqual([partial[0].author, partial[0].text], ['°•.LuNa.°•', "j'ai gagné"],
+    'the first visible group message follows the saved winner branch');
   assert.equal(thread.state.history.some((entry) => entry.key === 'previous-group-message'), true);
   assert.equal(orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' }), false, 'the return event is single-use');
 
@@ -278,6 +298,7 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
     'reloading mid-dialogue resumes the saved sequence without duplicating messages');
   assert.equal(reloaded.data.dialogues[postMatch.id].finished, true);
   assert.equal(reloaded.data.bombArena.sessionWinner, 'luna', 'the saved final result is retained');
+  assert.equal(bombArenaHandoffPending(reloaded), false, 'the startup replay is suppressed after the dialogue finishes');
 });
 
 test('a completed legacy BombArena save can select its recorded first-game winner for the new dialogue', () => {
@@ -301,6 +322,7 @@ test('a completed legacy BombArena save can select its recorded first-game winne
   });
   assert.equal(orchestrator.bombArenaPostMatchAvailable(), true);
   assert.equal(reloaded.data.flags.bombArenaWinner, 'turbo');
+  assert.equal(bombArenaHandoffPending(reloaded), true, 'a legacy completed save without the group dialogue can recover on startup');
 });
 
 test('Super Plombier fixes PixelGirl case at victory and schedules three Wizzes only for case A', () => {

@@ -72,6 +72,7 @@ import {
   NarrativeOrchestrator,
   DEFERRED_CONNECTION_DIALOGUES,
 } from './story/narrative-orchestrator.js';
+import { bombArenaHandoffPending, completeBombArenaHandoff } from './story/bomb-arena-handoff.js';
 import { resetGameToInitialState as resetSession, recoverGameReset } from './story/reset-game.js';
 import { applicationName, trackIdentity } from './ui/identity.js';
 import {
@@ -194,13 +195,9 @@ const desktopApplications = new DesktopApplications(
   (event) => narrativeOrchestrator?.onBombArenaEvent(event),
   (instance) => {
     manager.close(instance.id);
-    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
-    if (group) messenger.openContact(group);
+    return openBombArenaGroupConversation();
   },
-  () => {
-    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
-    if (group) messenger.openContact(group);
-  },
+  () => openBombArenaGroupConversation(),
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
@@ -491,6 +488,14 @@ function createConversation(dialogue, contactId = 'pixelgirl', thread = replayRe
     },
   );
 }
+
+function openBombArenaGroupConversation() {
+  const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+  if (!group) return false;
+  const view = messenger.openContact(group);
+  return Boolean(view?.element?.isConnected);
+}
+
 function messageNotificationId(contact) {
   const unread = progression.data.conversations?.[contact.id]?.unread;
   const key = Array.isArray(unread) ? unread.filter((item) => typeof item === 'string').join('|') : '';
@@ -747,11 +752,13 @@ async function continueFromMenu() {
   menu.hide();
   menuMusic.stop();
   progression.begin();
-  if (progression.data.bombArena.status === 'RESULTS_READY') {
-    if (!narrativeOrchestrator.onBombArenaEvent({ type: 'returned-to-messenger' })) return;
+  if (bombArenaHandoffPending(progression)) {
     showStoryDesktop(false, { connectPixelGirl: false });
-    const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
-    if (group) messenger.openContact(group);
+    completeBombArenaHandoff({
+      progression,
+      onBombArenaEvent: (event) => narrativeOrchestrator.onBombArenaEvent(event),
+      activateGroup: openBombArenaGroupConversation,
+    });
     return;
   }
   const pendingVictory = pendingArcadeVictory(progression);
@@ -1473,7 +1480,7 @@ receiveReplayReactions();
 setInterval(updateClock, 10000);
 ui.trackTime.textContent = `00:00 / ${formatTime(chart.durationSeconds)}`;
 returnToMenu();
-if (progression.data.bombArena.status === 'RESULTS_READY')
+if (bombArenaHandoffPending(progression))
   queueMicrotask(() => continueFromMenu());
 if (window.chaosWindow) {
   window.chaosWindow.getFullscreen().then((fullscreen) => {

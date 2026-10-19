@@ -8,6 +8,7 @@ import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesyste
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { DesktopFiles } from '../src/ui/desktop-files.js';
 import { DesktopIcons } from '../src/ui/desktop-icons.js';
+import { createResultsAutoReturn } from '../src/minigames/bomb-arena/view.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const groupDialogue = JSON.parse(readFileSync(new URL('../src/dialogues/pixelgirl-super-plombier-group.json', import.meta.url)));
 
@@ -433,9 +434,16 @@ test('closing BombArena results completes the narrative handoff exactly once', (
       this.windows.set(1, { element: { isConnected: true } });
       return 1;
     },
+    close(id) {
+      const item = this.windows.get(id);
+      if (!item) return;
+      this.windows.delete(id);
+      item.element.isConnected = false;
+      this.options.onDismiss({ reason: 'close' });
+    },
   };
   const progress = { expectedAt: 123, status: 'RESULTS_READY' };
-  const handoffs = [], events = [];
+  const handoffs = [], events = [], order = [];
   const app = Object.assign(Object.create(DesktopApplications.prototype), {
     manager,
     instances: new Map(),
@@ -449,18 +457,116 @@ test('closing BombArena results completes the narrative handoff exactly once', (
     onWindowState() {},
     onBombArenaEvent(event) {
       events.push(event);
-      if (event.type === 'returned-to-messenger') progress.status = 'COMPLETED';
+      if (event.type === 'returned-to-messenger') {
+        order.push('completed');
+        progress.status = 'COMPLETED';
+      }
       return true;
     },
-    onBombArenaInterrupted(instance) { handoffs.push(instance); },
+    onBombArenaInterrupted(instance) { order.push('group-opened'); handoffs.push(instance); return true; },
   });
 
   const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
   manager.options.onDismiss({ reason: 'close' });
   manager.options.onDismiss({ reason: 'close' });
   assert.deepEqual(events, [{ type: 'launched' }, { type: 'returned-to-messenger' }]);
+  assert.deepEqual(order, ['group-opened', 'completed'], 'the saved narrative transition follows successful group activation');
   assert.deepEqual(handoffs, [instance], 'closing results hands off to the group once');
   assert.equal(progress.status, 'COMPLETED');
+  assert.equal(instance.returningToMessenger, true);
+});
+
+test('a failed BombArena Messenger activation leaves the saved result recoverable', () => {
+  const manager = {
+    windows: new Map(),
+    spawn(type, options) {
+      this.options = options;
+      this.windows.set(1, { element: { isConnected: true } });
+      return 1;
+    },
+  };
+  const progress = { expectedAt: 123, status: 'RESULTS_READY' };
+  const events = [];
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    instances: new Map(),
+    virtualFilesystem: { exists: () => true, progression: { data: { bombArena: progress } } },
+    attachWindow(key, id) {
+      const instance = { id, element: manager.windows.get(id).element, task: { remove() {} } };
+      this.instances.set(key, instance);
+      return instance;
+    },
+    restore() {},
+    onWindowState() {},
+    onBombArenaEvent(event) { events.push(event); return true; },
+    onBombArenaContinue() { return false; },
+  });
+
+  const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  assert.equal(instance.onBombArenaFinish(), false);
+  assert.equal(progress.status, 'RESULTS_READY');
+  assert.deepEqual(events, [{ type: 'launched' }], 'the result is not marked complete before Messenger opens');
+  assert.equal(instance.returningToMessenger, false);
+});
+
+test('the automatic results timer closes through the same activated-group handoff', () => {
+  const manager = {
+    windows: new Map(),
+    spawn(type, options) {
+      this.options = options;
+      this.windows.set(1, { element: { isConnected: true } });
+      return 1;
+    },
+    close(id) {
+      const item = this.windows.get(id);
+      if (!item) return;
+      this.windows.delete(id);
+      item.element.isConnected = false;
+      this.options.onDismiss({ reason: 'close' });
+    },
+  };
+  const progress = { expectedAt: 123, status: 'RESULTS_READY' };
+  const events = [], order = [];
+  const app = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    instances: new Map(),
+    virtualFilesystem: { exists: () => true, progression: { data: { bombArena: progress } } },
+    attachWindow(key, id) {
+      const instance = { id, element: manager.windows.get(id).element, task: { remove() {} } };
+      this.instances.set(key, instance);
+      return instance;
+    },
+    restore() {},
+    onWindowState() {},
+    onBombArenaEvent(event) {
+      events.push(event);
+      if (event.type === 'returned-to-messenger') {
+        order.push('completed');
+        progress.status = 'COMPLETED';
+      }
+      return true;
+    },
+    onBombArenaContinue(instance) {
+      manager.close(instance.id);
+      order.push('group-opened');
+      return true;
+    },
+  });
+  const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  let timerCallback;
+  let delay;
+  const timer = createResultsAutoReturn(() => instance.onBombArenaFinish(), {
+    setTimeoutFn(callback, duration) { timerCallback = callback; delay = duration; return 1; },
+    clearTimeoutFn() {},
+  });
+
+  assert.equal(timer.start(), true);
+  assert.equal(delay, 5000);
+  assert.equal(progress.status, 'RESULTS_READY', 'the result stays pending during the displayed results');
+  timerCallback();
+  assert.deepEqual(order, ['group-opened', 'completed']);
+  assert.equal(progress.status, 'COMPLETED');
+  assert.equal(manager.windows.has(instance.id), false, 'BombArena is closed before the handoff completes');
   assert.equal(instance.returningToMessenger, true);
 });
 
@@ -477,7 +583,8 @@ test('BombArena reserves a responsive playfield and sidebar inside its managed w
   assert.match(view, /class="ba-chat-log"\s+role="log"/);
   assert.match(view, /ba-chat-toggle/);
   assert.doesNotMatch(view, /name="ba-difficulty"|ba-again|Nouvelle partie/);
-  assert.match(view, /affrontez vous en 8 manches !/);
+  assert.match(view, /<p>Affrontez-vous en 8 manches<\/p>/);
+  assert.doesNotMatch(view, /affrontez vous en 8 manches !|huit manches\s*:\s*quatre en pro/i);
   assert.doesNotMatch(view, /PGM MODE|PRO MODE|class="ba-continue"|Retour à MSN/);
   assert.match(view, /BOMB_ARENA_RESULTS_DISPLAY_MS = 5000/);
   assert.match(view, /resultsAutoReturn\.start\(\)/);

@@ -51,7 +51,7 @@ export function mountBombArena(instance, manager) {
   host.innerHTML = `<section class="bomb-arena-app" aria-label="BombArena">
     <header class="ba-topbar"><div><b>BombArena</b><span class="ba-subtitle">ARCADE BATTLE · 2009</span></div></header>
     <main class="ba-layout"><div class="ba-stage">
-      <div class="ba-menu" data-screen="menu"><div class="ba-logo">BOMBARENA</div><canvas class="ba-roster" width="520" height="105" aria-label="JustMe, PixelGirl, Turbo et Luna"></canvas><p>affrontez vous en 8 manches !</p>
+      <div class="ba-menu" data-screen="menu"><div class="ba-logo">BOMBARENA</div><canvas class="ba-roster" width="520" height="105" aria-label="JustMe, PixelGirl, Turbo et Luna"></canvas><p>Affrontez-vous en 8 manches</p>
         <button type="button" class="ba-start">COMMENCER</button><p class="ba-controls-hint">Flèches : bouger　 Espace : bombe　 Échap : pause</p></div>
       <canvas class="ba-canvas" width="780" height="660" tabindex="0" aria-label="Arène BombArena"></canvas>
       <div class="ba-overlay" hidden></div>
