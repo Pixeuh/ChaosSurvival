@@ -5,7 +5,7 @@ export const popupContent = {
       status: 'En ligne · ne m’oublie pas ♡',
       messages: [
         't’es là ??',
-        'j’ai un truc TROP important à te dire 👀',
+        'j’ai un truc TROP important à te dire o_O',
         'bon bah WIZZ alors !!!',
       ],
     },
@@ -19,7 +19,7 @@ export const popupContent = {
       ],
     },
     {
-      name: '♥ just-me ♥',
+      name: '♥ que-moi ♥',
       status: 'Absente · dans ma bulle',
       messages: [
         'tu fais quoi ? :3',
@@ -109,7 +109,7 @@ export const popupContent = {
       ],
     },
     {
-      name: 'Clippy_officiel',
+      name: 'Trombone_de_service',
       status: 'En ligne · toujours prêt à aider',
       messages: [
         'Il semble que vous essayiez de survivre.',
@@ -136,7 +136,7 @@ export const popupContent = {
       ],
     },
     {
-      name: 'B0nzi_Buddy',
+      name: 'Singe_du_Bureau',
       status: 'En ligne · ton nouvel ami violet',
       messages: [
         'salut ! je vis maintenant sur ton ordinateur',
@@ -165,12 +165,12 @@ export const popupContent = {
   ],
   error: [
     {
-      title: 'Windows — Erreur système',
+      title: 'Windows XD — Erreur système',
       heading: 'Trop de bonnes vibrations.',
       message: 'Le système n’a pas pu contenir autant d’énergie.',
     },
     {
-      title: 'chaos.exe ne répond pas',
+      title: 'ChaosSurvival.exe ne répond pas',
       heading: 'Votre bureau est débordé.',
       message: 'Fermez quelques fenêtres et respirez un grand coup.',
     },
@@ -196,8 +196,8 @@ export const popupContent = {
     },
     {
       title: 'Connexion à distance',
-      heading: 'Votre connexion à 56k a été interrompue.',
-      message: 'Quelqu’un a décroché le téléphone. Encore.',
+      heading: 'Votre connexion a été interrompue.',
+      message: 'Trop de sites de streaming ont été ouverts en même temps. Fermez-en quelques-uns et réessayez.',
     },
   ],
   ad: [
@@ -255,7 +255,7 @@ export const popupContent = {
       description: 'Ce fichier veut envoyer des WIZZ à toute votre liste de contacts.',
     },
     {
-      name: 'Adware.BonziBuddy',
+      name: 'Adware.PurpleFriend',
       file: 'ami_violet_setup.exe',
       severity: 'PUBLICITÉS INVASIVES',
       description: 'Un assistant violet a réservé votre bureau pour sa collection de publicités.',
