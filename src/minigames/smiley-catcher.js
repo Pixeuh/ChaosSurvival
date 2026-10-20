@@ -150,7 +150,7 @@ export class SmileyCatcher {
     this.frame = requestAnimationFrame((next) => this.tick(next));
   }
   finish() {
-    if (!this.element?.isConnected || this.finished) return;
+    if (!this.element?.isConnected || this.finished) return false;
     this.finished = true;
     this.music.stop();
     cancelAnimationFrame(this.frame);
@@ -163,6 +163,7 @@ export class SmileyCatcher {
     this.result.querySelector('strong').textContent = `${this.score} MEGA POINTS !!!`;
     this.sounds.play('victory');
     this.onComplete({ score: this.score, duration: this.elapsed });
+    return true;
   }
   dispose() {
     this.music.dispose();

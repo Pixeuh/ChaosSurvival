@@ -1677,17 +1677,18 @@ button.messenger-contact-row:hover {
 .messenger-wizz {
   animation: messenger-window-wizz 0.45s ease-in-out;
 }
-.messenger-wizz.window-maximized {
-  animation: none;
-}
 @keyframes messenger-window-wizz {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
   20%,
   60% {
-    transform: translateX(-5px);
+    transform: translate(-6px, 2px);
   }
   40%,
   80% {
-    transform: translateX(5px);
+    transform: translate(6px, -2px);
   }
 }
 .contact-typing.is-typing::before {

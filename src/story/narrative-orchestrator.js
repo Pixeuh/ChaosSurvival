@@ -122,9 +122,7 @@ export class NarrativeOrchestrator {
     sendWizz = () => false,
     getGroupThread = () => null,
     getTurboThread = () => null,
-    getK7Thread = () => null,
     onTurboMessage = () => {},
-    onK7Message = () => {},
     showGroupNotification = () => false,
     onGroupMessage = () => {},
     virtualFilesystem = null,
@@ -144,9 +142,7 @@ export class NarrativeOrchestrator {
       sendWizz,
       getGroupThread,
       getTurboThread,
-      getK7Thread,
       onTurboMessage,
-      onK7Message,
       showGroupNotification,
       onGroupMessage,
       virtualFilesystem,
@@ -1019,20 +1015,6 @@ export class NarrativeOrchestrator {
     if (changed) this.progression.save();
   }
 
-  updateK7(now) {
-    if (!this.flags.k7IntroductionStarted) return;
-    const definition = this.optionalConversations?.eventsFor('k7')
-      .find((event) => event.id === 'k7-intro');
-    const state = definition && this.progression.data.dialogues[definition.id];
-    const thread = state && this.getK7Thread();
-    if (!thread || !Number.isFinite(state.receiveDueAt) || state.finished) return;
-    const previousKeys = new Set(thread.state.history.map((message) => message.key));
-    if (!thread.receiveScheduled(definition, now)) return;
-    const history = thread.sync();
-    const messages = history.filter((message) => !previousKeys.has(message.key));
-    this.onK7Message(this.getContact('k7'), [definition], messages);
-  }
-
   onContactConnected(contactId, connectedAt, { notify = true, notificationOptions } = {}) {
     const contact = this.getContact(contactId);
     if (!contact) return;
@@ -1054,7 +1036,7 @@ export class NarrativeOrchestrator {
     );
     for (const threadId of threadIds) {
       const threadContact = this.getContact(threadId);
-      if (threadContact && contactId !== 'k7') this.ensureBackground(threadContact);
+      if (threadContact) this.ensureBackground(threadContact);
     }
   }
 
@@ -1196,7 +1178,6 @@ export class NarrativeOrchestrator {
     this.updateSuperPlombierWizzes(now);
     this.updatePixelGirlReplyReminders(now);
     this.updatePixelGirlWizzBrawl(now);
-    this.updateK7(now);
     this.updateGroup(now);
     this.updateBombArenaReminders(now);
   }

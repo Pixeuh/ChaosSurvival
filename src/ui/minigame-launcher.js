@@ -67,10 +67,13 @@ export class MiniGameLauncher {
         game.lastFrame = null;
       });
     };
-    if (import.meta.env?.DEV && this.active.element)
-      this.manager.setDevelopmentContent?.(this.active.element, () => this.active);
     this.sounds.unlock();
     this.active.open();
+    // Some games create their managed window in open(), so register only after
+    // the element exists. The shortcut still resolves the active window through
+    // WindowManager rather than retaining the most recently launched game.
+    if (import.meta.env?.DEV && this.active.element)
+      this.manager.setDevelopmentContent?.(this.active.element, () => this.active);
     this.onWindowOpened(this.active);
     return this.active;
   }

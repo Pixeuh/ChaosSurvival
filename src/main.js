@@ -411,12 +411,7 @@ narrativeOrchestrator = new NarrativeOrchestrator({
     return plumberGroupThread;
   },
   getTurboThread,
-  getK7Thread,
   onTurboMessage: (contact, incoming, messages) => {
-    if (!contact) return;
-    messenger.receiveIncoming(contact, incoming, messages ?? []);
-  },
-  onK7Message: (contact, incoming, messages) => {
     if (!contact) return;
     messenger.receiveIncoming(contact, incoming, messages ?? []);
   },

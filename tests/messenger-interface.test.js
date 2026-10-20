@@ -306,6 +306,15 @@ test('Wizz toast content uses the sender name and the Wizz wording', () => {
   });
 });
 
+test('Messenger Wizz animation remains enabled on maximized windows and shakes on both axes', () => {
+  const styles = readFileSync(new URL('../src/styles-story.css', import.meta.url), 'utf8');
+  assert.match(styles, /\.messenger-wizz\s*\{\s*animation:\s*messenger-window-wizz\s+0\.45s/);
+  assert.doesNotMatch(styles, /\.messenger-wizz\.window-maximized\s*\{[^}]*animation:\s*none/s);
+  assert.match(styles, /transform:\s*translate\(-6px,\s*2px\)/);
+  assert.match(styles, /transform:\s*translate\(6px,\s*-2px\)/);
+  assert.match(styles, /transform:\s*translate\(0,\s*0\)/);
+});
+
 test('a malformed thread row is isolated while valid messages and other contacts survive reload', () => {
   const values = new Map();
   const storage = {

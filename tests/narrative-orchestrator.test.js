@@ -67,7 +67,6 @@ function fixture(values = new Map()) {
   };
   const connectionNotifications = [];
   const turboMessages = [];
-  const k7Messages = [];
   const backgroundContacts = [];
   const preparedContacts = [];
   const turboThread = new ConversationThread('turbo', progression, () => [
@@ -103,11 +102,9 @@ function fixture(values = new Map()) {
       return { thread: turboThread };
     },
     getTurboThread: () => turboThread,
-    getK7Thread: () => k7Thread,
     ensureBackground: (contact) => backgroundContacts.push(contact?.id),
     connectionMessages,
     onTurboMessage: (contact, incoming, messages) => turboMessages.push({ contact, incoming, messages }),
-    onK7Message: (contact, incoming, messages) => k7Messages.push({ contact, incoming, messages }),
     showConnectionNotification: (id, options) => connectionNotifications.push({ id, options }),
     now: () => now,
   });
@@ -120,7 +117,6 @@ function fixture(values = new Map()) {
     values,
     connectionNotifications,
     turboMessages,
-    k7Messages,
     backgroundContacts,
     preparedContacts,
     get now() {
@@ -169,7 +165,7 @@ test('validating PixelGirl first reply saves Turb0 connection for exactly two se
   assert.equal(restored.connectionNotifications.length, 1);
 });
 
-test('K7 joins ten seconds after both private chats finish and the group arrives at T+40 independently', () => {
+test('K7 joins ten seconds after both private chats finish and the shared thread delivers messages progressively', () => {
   const context = fixture();
   const { progression, orchestrator } = context;
   progression.data.flags.superPlombierPostStarted = true;
@@ -192,19 +188,32 @@ test('K7 joins ten seconds after both private chats finish and the group arrives
   resumed.orchestrator.update(60_000);
   assert.equal(resumed.progression.data.contactConnections.k7.status, 'online');
   assert.equal(resumed.connectionNotifications.filter(({ id }) => id === 'k7').length, 1);
-  assert.equal(resumed.backgroundContacts.includes('k7'), false, 'connecting K7 does not open or prepare his conversation');
+  assert.equal(resumed.backgroundContacts.includes('k7'), true, 'K7 uses the same background conversation path as other contacts');
   assert.equal(resumed.progression.data.dialogues['k7-intro'].receiveDueAt, 63_000);
-  assert.equal(resumed.k7Messages.length, 0);
+  assert.equal(resumed.k7Thread.state.history.length, 0);
   resumed.orchestrator.onContactOpened({ id: 'k7' });
   assert.equal(resumed.progression.data.flags.k7FirstPlayerReplyAt, undefined);
   assert.equal(resumed.progression.data.flags.superPlombierGroupRestDueAt, 90_000);
   resumed.orchestrator.update(62_999);
-  assert.equal(resumed.k7Messages.length, 0);
+  assert.deepEqual(resumed.k7Thread.receive(62_999), []);
+  assert.equal(resumed.k7Thread.state.history.length, 0);
   resumed.orchestrator.update(63_000);
-  assert.equal(resumed.k7Messages.length, 1);
-  assert.equal(resumed.k7Messages[0].messages[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+  assert.deepEqual(resumed.k7Thread.receive(63_000), [definitions['k7-intro']]);
+  assert.equal(resumed.k7Thread.state.history.length, 1);
+  assert.equal(resumed.k7Thread.state.history[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+  const k7Messages = definitions['k7-intro'].nodes['first-contact'].messages;
+  let nextDueAt = resumed.progression.data.dialogues['k7-intro'].receiveDueAt;
+  for (let index = 1; index < k7Messages.length; index++) {
+    assert.equal(resumed.k7Thread.typingContact(nextDueAt - k7Messages[index].typingMs)?.nickname, 'K7');
+    resumed.orchestrator.update(nextDueAt);
+    assert.deepEqual(resumed.k7Thread.receive(nextDueAt), [definitions['k7-intro']]);
+    assert.equal(resumed.k7Thread.state.history.length, index + 1, 'the shared Messenger thread releases only one due message');
+    assert.equal(resumed.k7Thread.state.history.at(-1).text, k7Messages[index].text);
+    nextDueAt = resumed.progression.data.dialogues['k7-intro'].receiveDueAt;
+  }
   const reopened = fixture(resumed.values);
-  assert.equal(reopened.k7Thread.state.history[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
+  assert.equal(reopened.k7Thread.state.history.length, k7Messages.length);
+  assert.equal(reopened.k7Thread.state.history.at(-1).text, k7Messages.at(-1).text);
 
   resumed.orchestrator.update(89_999);
   assert.equal(resumed.progression.data.flags.superPlombierGroupCreated, undefined);
@@ -269,6 +278,7 @@ test('both completion orders start the K7 and group clocks only when the second 
     assert.equal(connectionNotifications.filter(({ id }) => id === 'k7').length, 1);
     assert.equal(progression.data.dialogues['k7-intro'].receiveDueAt, t0 + 13_000);
     orchestrator.update(t0 + 13_000);
+    assert.deepEqual(k7Thread.receive(t0 + 13_000), [definitions['k7-intro']]);
     assert.equal(
       k7Thread.state.history.filter((entry) => entry.text === definitions['k7-intro'].nodes['first-contact'].messages[0].text).length,
       1,
@@ -318,6 +328,7 @@ test('real private dialogue completion order anchors K7 deadlines to the second 
       assert.equal(progression.data.dialogues['k7-intro'].receiveDueAt, connectionDueAt + 3_000);
       clockNow = connectionDueAt + 3_000;
       orchestrator.update(clockNow);
+      assert.deepEqual(k7Thread.receive(clockNow), [definitions['k7-intro']]);
       assert.equal(k7Thread.state.history[0].text, definitions['k7-intro'].nodes['first-contact'].messages[0].text);
     }
   } finally {

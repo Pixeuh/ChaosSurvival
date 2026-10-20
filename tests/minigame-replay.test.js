@@ -76,6 +76,18 @@ function setup(progression, t, tutorials = false, onVictory) {
       this.windows.delete(id);
       item.options.onDismiss();
     },
+    setDevelopmentContent(element, getContent) {
+      const item = [...this.windows.values()].find((window) => window.element === element);
+      if (!item) return false;
+      item.developmentContent = getContent;
+      return true;
+    },
+    activeDevelopmentContent() {
+      const item = [...this.windows.values()].at(-1);
+      return item?.element.isConnected && !item.element.hidden
+        ? item.developmentContent?.() ?? null
+        : null;
+    },
   };
   let frame = 0;
   const frames = new Map();
@@ -276,9 +288,15 @@ test('finished mini-game stays single, can replay internally and from desktop af
 test('development shortcut finishes Smiley normally once, cleans up and allows another round', (t) => {
   const { progression, file } = savedRun();
   progression.finishTransfer(file.key);
-  const { context, visibility } = setup(progression, t);
+  const { context, manager, visibility } = setup(progression, t);
   context.openDesktopFile(file);
   const game = context.game();
+  const launcherSource = read('../src/ui/minigame-launcher.js');
+  assert.ok(
+    launcherSource.indexOf('this.active.open();') < launcherSource.indexOf('setDevelopmentContent'),
+    'the launcher registers development content after the game has created its window',
+  );
+  assert.equal(manager.setDevelopmentContent(game.element, () => game), true);
   let handler;
   let wins = 0;
   context.sounds.play = (sound) => {
@@ -294,21 +312,24 @@ test('development shortcut finishes Smiley normally once, cleans up and allows a
         handler = null;
       },
     },
-    () => game,
+    () => manager.activeDevelopmentContent(),
   );
-  const key = { key: 'D', ctrlKey: true, shiftKey: true, preventDefault() {} };
+  const key = { key: 'D', ctrlKey: true, shiftKey: true, preventDefault() { this.defaultPrevented = true; } };
   handler({ ...key, repeat: true });
   handler({ ...key, ctrlKey: false });
   assert.equal(game.finished, false);
   handler(key);
   assert.equal(game.finished, true);
+  assert.equal(key.defaultPrevented, true);
   assert.equal(game.result.hidden, false);
   assert.equal(game.elapsed, definition.durationSeconds);
   assert.equal(game.targets.length, 0);
   assert.equal(visibility.size, 0);
   assert.equal(progression.current.id, 'pixelgirl-smiley-win');
   const saved = JSON.stringify(progression.data);
-  handler(key);
+  const repeated = { ...key, defaultPrevented: false };
+  handler(repeated);
+  assert.equal(repeated.defaultPrevented, false, 'an already-finished game is no longer an eligible target');
   game.tick(123456);
   assert.equal(wins, 1);
   assert.equal(JSON.stringify(progression.data), saved);
