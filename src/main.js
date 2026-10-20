@@ -222,7 +222,7 @@ const getK7Thread = () =>
     () => optionalConversations.entries
       .filter((entry) => entry.contactId === 'k7')
       .map((entry) => dialogues[entry.id]
-        ? { ...dialogues[entry.id], deliveryPolicy: entry.deliveryPolicy }
+        ? dialogues[entry.id]
         : null)
       .filter(Boolean),
     (event) => optionalConversations.isAvailable(event.id),

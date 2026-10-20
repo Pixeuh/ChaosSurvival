@@ -36,6 +36,7 @@ const hoplaHotelOnly = process.argv.includes('--hopla-hotel-only');
 const explorerOnly = process.argv.includes('--explorer-only');
 const visibleExplorerOnly = process.argv.includes('--visible-explorer-only');
 const visibleMessengerOnly = process.argv.includes('--visible-messenger-only');
+const visibleK7DeliveryOnly = process.argv.includes('--visible-k7-delivery-only');
 const visibleSmokeOnly = process.argv.includes('--visible-smoke-only');
 const visiblePortraitOnly = process.argv.includes('--visible-portrait-only');
 const minigameOnly =
@@ -59,6 +60,7 @@ const minigameOnly =
   explorerOnly ||
   visibleExplorerOnly ||
   visibleMessengerOnly ||
+  visibleK7DeliveryOnly ||
   visibleSmokeOnly ||
   visiblePortraitOnly ||
   stabilityOnly;
@@ -66,6 +68,7 @@ const browserAutomation =
   minigameOnly &&
   !visibleExplorerOnly &&
   !visibleMessengerOnly &&
+  !visibleK7DeliveryOnly &&
   !visibleSmokeOnly &&
   !visiblePortraitOnly;
 let browserServer, profile, port, gameUrl, chromiumExecutable = null, child, spawnError = null;
@@ -173,6 +176,8 @@ const scenarioName = visibleSmokeOnly
   ? 'Bureau minimal Electron visible'
   : visiblePortraitOnly
     ? 'Disposition des portraits Messenger'
+    : visibleK7DeliveryOnly
+      ? 'Réception K7 Messenger (Electron visible)'
   : visibleMessengerOnly || messengerOnly
     ? 'Messenger'
     : visibleExplorerOnly
@@ -180,7 +185,9 @@ const scenarioName = visibleSmokeOnly
       : explorerOnly
         ? 'Poste de travail Chromium'
         : 'campagne de validation visuelle';
-const scenarioBudgetMs = visibleSmokeOnly || visiblePortraitOnly
+const scenarioBudgetMs = visibleK7DeliveryOnly
+  ? 60_000
+  : visibleSmokeOnly || visiblePortraitOnly
   ? 45_000
   : visibleMessengerOnly || messengerOnly
     ? 90_000
@@ -885,6 +892,8 @@ try {
     await verifyVisibleSmoke();
   } else if (visiblePortraitOnly) {
     await verifyVisiblePortraitLayout();
+  } else if (visibleK7DeliveryOnly) {
+    await verifyVisibleK7Delivery();
   } else if (browserSecurityElectron) {
     await verifyBrowser();
   } else if (minigameOnly) {
@@ -4534,6 +4543,114 @@ async function verifyWindowOverIcons(selector, allEdges = false) {
     ),
     saved,
   );
+}
+
+async function verifyVisibleK7Delivery() {
+  qaStep('K7 : préparer une sauvegarde de test isolée après la fin des deux conversations privées');
+  const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json')));
+  const files = await readdir(path.join(root, 'src/dialogues'));
+  const definitions = Object.fromEntries(await Promise.all(files
+    .filter((name) => name.endsWith('.json'))
+    .map(async (name) => {
+      const definition = JSON.parse(await readFile(path.join(root, 'src/dialogues', name), 'utf8'));
+      return [definition.id, definition];
+    })));
+  const values = new Map();
+  const progression = new Progression(story, {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  });
+  progression.begin();
+  progression.data.current = null;
+  progression.data.completed = story.sequences.map(({ id }) => id);
+  progression.data.flags.superPlombierPostStarted = true;
+  for (const [id, nodeId, text] of [
+    ['turbo-super-plombier', 'last-goodbye', 'allez a+'],
+    ['pixelgirl-smiley-victory', 's8-common-1', 'bon jreviens :3'],
+    ['pixelgirl-super-plombier-wizz', 'ending', 'allez bisousss :3'],
+  ]) {
+    const dialogue = definitions[id];
+    const node = dialogue.nodes[nodeId];
+    progression.data.dialogues[id] = {
+      node: nodeId,
+      cursor: node.messages.length,
+      finished: true,
+      revision: dialogue.revision ?? 1,
+      transcript: [{ speaker: 'contact', text, receivedAt: Date.now() - 1_000 }],
+    };
+  }
+  progression.save();
+  const fixture = JSON.stringify(progression.data);
+  await command('Page.enable');
+  const injection = await command('Page.addScriptToEvaluateOnNewDocument', {
+    source: `localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(fixture)});window.__k7DeliveryFixture=true`,
+  });
+  qaLog('Un rechargement renderer installe la sauvegarde temporaire; aucune donnée du profil utilisateur n’est utilisée.');
+  await command('Page.reload');
+  await until(
+    () => evaluate("window.__k7DeliveryFixture&&window.chaosDebug?.snapshot().phase==='menu'").catch(() => false),
+    'K7 delivery fixture reload',
+  );
+  await command('Page.removeScriptToEvaluateOnNewDocument', { identifier: injection.identifier });
+  await click('#menu-play');
+  await until(() => evaluate("window.chaosDebug.snapshot().phase==='desktop'"), 'desktop with K7 fixture');
+  await click('#windows-start');
+  await click('#menu-messenger');
+  await until(() => evaluate("!!document.querySelector('.messenger-contact-list')"), 'Messenger roster');
+  qaStep('K7 : attendre sa connexion, puis ouvrir sa conversation privée');
+  await until(
+    () => evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).contactConnections.k7?.status==='online'"),
+    'K7 online',
+    20_000,
+  );
+  await until(() => evaluate("!!document.querySelector('[data-contact-id=k7]')"), 'K7 contact row');
+  await doubleClick('[data-contact-id=k7]');
+  await until(() => evaluate("!!document.querySelector('[data-messenger-contact=k7] .conversation-log')"), 'K7 private conversation');
+
+  const firstFive = [];
+  let seen = 0;
+  let scheduledDueAt = null;
+  let typingObserved = false;
+  qaStep('K7 : mesurer les échéances sauvegardées et les cinq premières réceptions réelles');
+  while (seen < 5) {
+    const sample = await evaluate(`(() => {
+      const save=JSON.parse(localStorage.getItem('chaos-survival-story-v1'));
+      const dialogue=save.dialogues['k7-intro'];
+      const rows=[...document.querySelectorAll('[data-messenger-contact=k7] .conversation-message.from-contact')].map(row=>row.textContent.trim());
+      return {now:Date.now(),dialogue:dialogue&&{receiveDueAt:dialogue.receiveDueAt,transcript:dialogue.transcript.filter(message=>message.speaker==='contact').map(message=>({text:message.text,receivedAt:message.receivedAt}))},rows,typing:!!document.querySelector('[data-messenger-contact=k7] .contact-typing.is-typing')};
+    })()`);
+    if (Number.isFinite(sample.dialogue?.receiveDueAt) && scheduledDueAt === null)
+      scheduledDueAt = sample.dialogue.receiveDueAt;
+    typingObserved ||= sample.typing;
+    const transcript = sample.dialogue?.transcript ?? [];
+    if (transcript.length > seen) {
+      assert.equal(transcript.length, seen + 1, 'the renderer must not deliver a message burst');
+      const message = transcript[seen];
+      firstFive.push({
+        text: message.text,
+        scheduledDueAt,
+        receivedAt: message.receivedAt,
+        observedAt: sample.now,
+        displayed: sample.rows.includes(message.text),
+      });
+      scheduledDueAt = sample.dialogue.receiveDueAt;
+      seen = transcript.length;
+    }
+    await wait(50);
+  }
+  const expected = definitions['k7-intro'].nodes['first-contact'].messages.slice(0, 5);
+  assert.deepEqual(firstFive.map(({ text }) => text), expected.map(({ text }) => text));
+  assert.equal(firstFive.every(({ displayed }) => displayed), true, JSON.stringify(firstFive));
+  assert.equal(typingObserved, true, 'the shared Messenger typing indicator appears during the scheduled waits');
+  for (let index = 1; index < firstFive.length; index++) {
+    const minimumGap = expected[index].delayMs + expected[index].typingMs + (expected[index].typingPauseMs ?? 0);
+    assert.ok(firstFive[index].receivedAt - firstFive[index - 1].receivedAt >= minimumGap,
+      `message ${index + 1} respects its authored ${minimumGap} ms delay`);
+  }
+  await capture('k7-first-five-messages-electron.png');
+  qaLog(`Horodatages de réception K7 : ${JSON.stringify(firstFive)}`);
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+  console.log('OK : Electron réel, fenêtre K7 visible, indicateur de saisie observé, cinq messages affichés progressivement et chronologie JSON respectée.');
 }
 
 async function verifyTypingIndicator() {

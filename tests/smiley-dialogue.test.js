@@ -503,6 +503,11 @@ test('a level-one replay does not hide the later question or change PixelGirl fi
   const offered = structuredClone(reactions.thread.availableResponses[0].choices);
   reactions.launch(10000);
   reactions.flush(20000);
+  const replayId = progression.data.replayReactions.at(-1).id;
+  for (let update = 0; update < 20 && !progression.data.dialogues[replayId]?.finished; update++) {
+    const dueAt = progression.data.dialogues[replayId]?.receiveDueAt;
+    reactions.flush(Number.isFinite(dueAt) ? Math.max(20000, dueAt) : 20000);
+  }
   assert.deepEqual(reactions.thread.availableResponses[0].choices, offered);
   assert.equal(reactions.thread.availableResponses[0].definition.id, dialogue.id);
   const session = new DialogueSession(dialogue, progression);

@@ -120,10 +120,12 @@ function deliverActiveReminderSalvo(orchestrator, thread, firstScheduledAt) {
     assert.deepEqual(thread.typingContacts(scheduledAt).map(({ nickname }) => nickname), [
       { xX_PixelGirl_Xx: 'PixelGirl', Turb0: 'Turb0', '°•.LuNa.°•': 'Luna' }[expected.author],
     ]);
-    thread.receive(scheduledAt + 800);
-    const message = thread.state.history.find((entry) =>
-      entry.eventId === `bomb-arena-reminder-salvo-${salvoNumber}-${sequenceIndex}-${index + 1}`,
-    );
+    let receiveAt = scheduledAt + 800;
+    let message = null;
+    for (let update = 0; update < 20 && !message; update++, receiveAt++) {
+      thread.receive(receiveAt);
+      message = thread.state.history.find((entry) => entry.eventId === reminderId);
+    }
     assert.ok(message, `salvo ${salvoNumber} message ${index + 1} is delivered after typing`);
     messages.push(message);
     index++;
@@ -308,11 +310,13 @@ test('every early BombArena closure creates a fresh four-message burst, cancels 
   ]);
   assert.deepEqual(restoredAgainThread.typingContacts(persistedDueAt).map(({ nickname }) => nickname), ['Turb0'],
     'the saved typing interval resumes after reload with the correct group author');
-  restoredAgainThread.receive(persistedDueAt + 800);
-  const countAfterOneDueTime = restoredAgainThread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length;
+  const pendingReminderId = `bomb-arena-reminder-salvo-${restoredAgain.data.bombArena.reminderBurstSalvo}-${restoredAgain.data.bombArena.reminderBurstSequence}-${restoredAgain.data.bombArena.reminderBurstSent}`;
+  const receivedPendingReminder = () => restoredAgainThread.state.history.filter((message) => message.eventId === pendingReminderId).length;
+  for (let now = persistedDueAt + 800; now < persistedDueAt + 2_000 && !receivedPendingReminder(); now++)
+    restoredAgainThread.receive(now);
+  assert.equal(receivedPendingReminder(), 1, 'the due periodic message appears exactly once');
   restoredAgainThread.receive(persistedDueAt + 900);
-  assert.equal(restoredAgainThread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length, countAfterOneDueTime,
-    'one persisted periodic due time is delivered once after reload');
+  assert.equal(receivedPendingReminder(), 1, 'a later update does not duplicate that same saved event');
 });
 
 test('relaunching BombArena cancels a saved pending reminder and clears its typing indicator', () => {
@@ -412,11 +416,8 @@ test('closing the actual BombArena desktop window starts one persisted reminder 
   assert.equal(openedGroup, 1, 'the close callback reactivates the existing group conversation route');
   assert.equal(progression.data.bombArena.reminderBurstRemaining, 4);
   let due = progression.data.bombArena.reminderBurstNextAt;
-  for (let i = 0; i < 4; i++) {
-    tickBombArenaReminders(orchestrator, thread, due);
-    tickBombArenaReminders(orchestrator, thread, due + 800);
-    due = progression.data.bombArena.reminderBurstNextAt;
-  }
+  tickBombArenaReminders(orchestrator, thread, due);
+  deliverActiveReminderSalvo(orchestrator, thread, due);
   assert.equal(thread.state.history.filter((message) => message.eventId?.startsWith('bomb-arena-reminder-salvo-')).length, 4);
 });
 
@@ -594,9 +595,12 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
     ...(restoredOrchestrator.bombArenaPostMatchAvailable() ? [postMatch] : []),
     ...restoredOrchestrator.bombArenaRedownloadEvents(),
   ]);
-  restoredThread.receive(200_000_000);
-  restoredThread.receive(200_100_000);
-  restoredThread.receive(200_200_000);
+  let resumedAt = 200_000_000;
+  for (let update = 0; update < 40 && !reloaded.data.dialogues[postMatch.id]?.finished; update++) {
+    const dueAt = reloaded.data.dialogues[postMatch.id]?.receiveDueAt;
+    restoredThread.receive(Number.isFinite(dueAt) ? Math.max(resumedAt, dueAt) : resumedAt);
+    resumedAt += 100_000;
+  }
   assert.equal(restoredThread.state.history.filter((entry) => entry.eventId === postMatch.id).length, 23,
     'reloading mid-dialogue resumes the saved sequence without duplicating messages');
   assert.equal(reloaded.data.dialogues[postMatch.id].finished, true);
@@ -891,7 +895,7 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
       assert.deepEqual(sentWizzes.map(([, eventId, speaker]) => [eventId, speaker]), [
         ['pixelgirl-super-plombier-player-wizz', 'player'],
       ]);
-      assert.ok(session.state.transcript.some((message) => message.text === 'quoi, tu veux encore des wizz :p ??'));
+      assert.ok(session.state.transcript.some((message) => message.text === 'quoi, tu veux encore des wizz ??'));
       session.persist();
       orchestrator.update(20_000);
       assert.equal(sentWizzes.length, 1, 'the current dialogue does not start the removed Wizz battle');
@@ -959,7 +963,7 @@ test('PixelGirl Wizz action keeps its narrative branch and sends one Wizz event'
   assert.equal(session.state.node, 'wizz-reply');
   assert.equal(session.state.transcript.at(-1).text, choice.text);
   session.deliver();
-  assert.equal(session.state.transcript.at(-1).text, 'quoi, tu veux encore des wizz :p ??');
+  assert.equal(session.state.transcript.at(-1).text, 'quoi, tu veux encore des wizz ??');
   assert.equal(session.advance(), true);
   assert.equal(session.state.node, 'closing');
 });
@@ -1366,8 +1370,12 @@ test('each explicit Bomb Arena refusal schedules exactly one persisted reoffer w
   for (let refusal = 1; refusal <= 10; refusal++) {
     const event = orchestrator.bombArenaRedownloadEvents()[refusal - 1];
     assert.equal(event.id, `bomb-arena-redownload-${refusal}`);
-    thread.receive(now + 5_000);
     const offer = new DialogueSession(event, progression);
+    for (let update = 0; update < 10 && !offer.activeTransfer; update++) {
+      const dueAt = progression.data.dialogues[event.id]?.receiveDueAt;
+      now = Math.max(now + 1, Number.isFinite(dueAt) ? dueAt : now + 1);
+      thread.receive(now);
+    }
     assert.equal(offer.state.transcript.filter((entry) => entry.text === 'tiens tu peux le télécharger').length, 1);
     const transfer = offer.activeTransfer;
     assert.ok(transfer, `offer ${refusal} is awaiting a player action`);

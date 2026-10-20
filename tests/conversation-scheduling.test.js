@@ -7,7 +7,6 @@ import { DialogueSession } from '../src/story/dialogue.js';
 
 const k7 = {
   ...JSON.parse(readFileSync(new URL('../src/dialogues/k7-intro.json', import.meta.url), 'utf8')),
-  deliveryPolicy: 'progressive',
 };
 const story = {
   version: 1,
@@ -15,14 +14,14 @@ const story = {
   sequences: [{ id: 'chat', type: 'conversation', dialogue: k7.id, next: null }],
 };
 
-function setup(definition = k7, values = new Map()) {
+function setup(definition = k7, values = new Map(), contactId = 'k7') {
   const storage = {
     getItem: (key) => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
   };
   const progression = new Progression(story, storage);
   progression.begin();
-  const thread = new ConversationThread('k7', progression, () => [definition]);
+  const thread = new ConversationThread(contactId, progression, () => [definition]);
   return { progression, thread, values };
 }
 
@@ -88,6 +87,112 @@ test('legacy receive path also catches up at most one message per update', () =>
   assert.equal(progression.data.dialogues[k7.id].receiveDueAt, 20_000 + 350 + 280);
   assert.deepEqual(thread.receive(20_000), []);
   assert.equal(texts(thread).length, 1);
+});
+
+test('every contact thread releases only one overdue message and anchors the next deadline to receipt time', () => {
+  const definition = {
+    id: 'ordinary-contact',
+    version: 1,
+    contact: { id: 'friend', name: 'Friend', nickname: 'Friend', status: 'En ligne' },
+    player: { nickname: 'JustMe' },
+    start: 'burst',
+    incomingAt: 0,
+    nodes: {
+      burst: {
+        messages: [
+          { speaker: 'contact', text: 'one', delayMs: 0, typingMs: 0 },
+          { speaker: 'contact', text: 'two', delayMs: 300, typingMs: 200, typingPauseMs: 100 },
+          { speaker: 'contact', text: 'three', delayMs: 400, typingMs: 250 },
+        ],
+        choices: [{ id: 'reply', text: 'reply', next: 'end' }],
+      },
+      end: { messages: [], end: true },
+    },
+  };
+  const { progression, thread } = setup(definition);
+
+  assert.deepEqual(thread.receive(10_000), [definition]);
+  assert.deepEqual(texts(thread), ['one']);
+  assert.equal(progression.data.dialogues[definition.id].receiveDueAt, 10_600);
+  assert.deepEqual(thread.receive(10_000), []);
+  assert.deepEqual(thread.receive(10_599), []);
+
+  assert.deepEqual(thread.receive(12_000), [definition]);
+  assert.deepEqual(texts(thread), ['one', 'two']);
+  assert.equal(progression.data.dialogues[definition.id].receiveDueAt, 12_650);
+  assert.deepEqual(thread.receive(12_000), []);
+  assert.equal(thread.availableResponses.length, 0);
+
+  assert.deepEqual(thread.receive(20_000), [definition]);
+  assert.deepEqual(texts(thread), ['one', 'two', 'three']);
+  assert.equal(thread.availableResponses[0].choices[0].id, 'reply');
+  assert.equal(progression.data.dialogues[definition.id].receiveDueAt, undefined);
+});
+
+test('independent due events on one contact retain their own deadlines and histories', () => {
+  const first = {
+    id: 'first-event', version: 1, contact: k7.contact, player: k7.player, start: 'start', incomingAt: 0,
+    nodes: { start: { messages: [{ speaker: 'contact', text: 'first', delayMs: 0, typingMs: 0 }], end: true } },
+  };
+  const second = {
+    ...first,
+    id: 'second-event',
+    nodes: { start: { messages: [{ speaker: 'contact', text: 'second', delayMs: 0, typingMs: 0 }], end: true } },
+  };
+  const { thread } = setup(first);
+  thread.getEvents = () => [first, second];
+
+  assert.deepEqual(thread.receive(10_000), [first, second]);
+  assert.deepEqual(thread.lastIncomingMessages.map(({ text }) => text), ['first', 'second']);
+  assert.deepEqual(thread.receive(10_000), []);
+});
+
+test('generic group and choice branches keep their deadlines progressive across reload', () => {
+  const definition = {
+    id: 'generic-branch', version: 1,
+    contact: { id: 'group', name: 'Group', nickname: 'Friends', status: 'En ligne' },
+    player: { nickname: 'JustMe' }, start: 'opening',
+    nodes: {
+      opening: {
+        messages: [{ speaker: 'contact', author: 'Friend A', text: 'question', delayMs: 0, typingMs: 0 }],
+        choices: [{ id: 'answer', text: 'answer', next: 'reply' }],
+      },
+      reply: {
+        messages: [
+          { speaker: 'contact', author: 'Friend B', text: 'reply one', delayMs: 200, typingMs: 100 },
+          { speaker: 'contact', author: 'Friend A', text: 'reply two', delayMs: 300, typingMs: 200, typingPauseMs: 100 },
+        ],
+        end: true,
+      },
+    },
+  };
+  const { progression, thread, values } = setup(definition, new Map(), 'group');
+  thread.schedule(definition, 1_000);
+  assert.deepEqual(thread.receive(10_000), [definition]);
+  const session = new DialogueSession(definition, progression);
+  session.choose('answer');
+  thread.schedule(definition, 10_000);
+  assert.deepEqual(thread.receiveScheduled(definition, 20_000), true);
+  thread.sync();
+  assert.deepEqual(
+    progression.data.dialogues[definition.id].transcript.filter(({ speaker }) => speaker === 'contact').map(({ text }) => text),
+    ['question', 'reply one'],
+  );
+  assert.equal(progression.data.dialogues[definition.id].receiveDueAt, 20_600);
+  assert.deepEqual(thread.receive(20_000), []);
+
+  const restoredProgression = new Progression(story, {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  });
+  const restored = new ConversationThread('group', restoredProgression, () => [definition]);
+  assert.deepEqual(restored.receive(20_599), []);
+  assert.deepEqual(restored.receive(20_600), [definition]);
+  assert.deepEqual(
+    restoredProgression.data.dialogues[definition.id].transcript.filter(({ speaker }) => speaker === 'contact').map(({ text }) => text),
+    ['question', 'reply one', 'reply two'],
+  );
+  assert.deepEqual(restored.availableResponses, []);
 });
 
 test('the next K7 deadline and received history survive reload without duplicate delivery', () => {

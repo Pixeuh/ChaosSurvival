@@ -112,8 +112,11 @@ test('a saved group-intro checkpoint advances the real offer, retries Messenger,
 
   // Resume the usual orchestrator from a saved group intro checkpoint.
   firstStory.orchestrator.updateGroup(now);
-  now += 60_000;
-  firstStory.orchestrator.updateGroup(now);
+  for (let update = 0; update < 100 && !Object.values(progression.data.files).some((file) => file.extractable === 'bomb-arena'); update++) {
+    const dueAt = progression.data.dialogues[group.id]?.receiveDueAt;
+    now = Math.max(now + 1, Number.isFinite(dueAt) ? dueAt : now + 1);
+    firstStory.orchestrator.updateGroup(now);
+  }
   assert.equal(progression.data.dialogues[group.id].node, 'bomb-arena-transfer');
   assert.ok(Number.isFinite(progression.data.bombArena.expectedAt), 'the offer arms the mandatory gate');
   assert.equal(progression.data.bombArena.status, 'NOT_STARTED');
@@ -126,12 +129,11 @@ test('a saved group-intro checkpoint advances the real offer, retries Messenger,
   const filesystem = new VirtualFilesystem(progression);
   assert.equal(filesystem.extractBombArena('downloads/bombarena.zip').ok, true);
   assert.equal(filesystem.exists('bomb-arena-folder/bombarena.exe'), true);
-  const groupSession = new DialogueSession(group, progression);
-  assert.equal(groupSession.advance(), true, 'accepted transfer advances the existing group dialogue');
-  now += 60_000;
-  firstStory.orchestrator.updateGroup(now);
-  now += 60_000;
-  firstStory.orchestrator.updateGroup(now);
+  for (let update = 0; update < 100 && !progression.data.dialogues[group.id].finished; update++) {
+    const dueAt = progression.data.dialogues[group.id]?.receiveDueAt;
+    now = Math.max(now + 1, Number.isFinite(dueAt) ? dueAt : now + 1);
+    firstStory.orchestrator.updateGroup(now);
+  }
   assert.equal(progression.data.dialogues[group.id].finished, true,
     'the normal group thread finishes its post-transfer messages before match results');
 

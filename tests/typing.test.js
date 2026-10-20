@@ -12,7 +12,6 @@ const story = {
 };
 const definition = {
   id: 'intro',
-  deliveryPolicy: 'progressive',
   version: 1,
   contact: { name: 'Friend', nickname: 'xX_Friend_Xx', status: 'En ligne' },
   player: { nickname: 'Me' },
@@ -216,7 +215,9 @@ test('group typing lists only currently active authors, concurrently and in pres
   const { thread, events, progression } = make(authors);
   thread.receive(1500);
   assert.deepEqual(thread.typingContacts(1500), []);
-  assert.equal(events.every((event) => !Number.isFinite(progression.data.dialogues[event.id].receiveDueAt)), true);
+  assert.equal(events.every((event) =>
+    !Number.isFinite(progression.data.dialogues[event.id].receiveDueAt)), true,
+    'each independent due dialogue can deliver its one message during the same update');
 
   const partial = make([authors[0], authors[1]]);
   partial.progression.data.dialogues[partial.events[0].id].receiveDueAt = 1500;

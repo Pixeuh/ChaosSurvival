@@ -251,34 +251,39 @@ export class ConversationThread {
       state.receiveDueAt = dueAt;
       session.persist();
     }
-    let delivered = false;
-    const catchUpOverdue = definition.deliveryPolicy !== 'progressive';
-    // Existing dialogues keep their established catch-up behavior. Dialogues
-    // marked progressive release one overdue message per update and anchor the
-    // next deadline to its actual receipt time.
-    while (session.nextMessage() && dueAt <= now) {
-      if (session.state.cursor === 0)
-        this.progression.consumeMiniGameReaction(definition.id);
-      if (!session.deliver(now)) return false;
-      delivered = true;
-      let transitions = 0;
-      while (!session.nextMessage() && session.advance()) {
-        if (++transitions >= 100) throw new Error('Automatic dialogue loop.');
-      }
-      const next = session.nextMessage();
-      if (!next) {
-        delete state.receiveDueAt;
-        if (session.choices.length) session.offerChoices();
-        session.persist();
-        return delivered;
-      }
-      const interval = next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
-      dueAt = catchUpOverdue ? dueAt + interval : now + interval;
-      state.receiveDueAt = dueAt;
+    if (!session.nextMessage()) {
+      delete state.receiveDueAt;
+      if (session.choices.length) session.offerChoices();
+      session.advance();
       session.persist();
-      if (!catchUpOverdue) break;
+      return false;
     }
-    return delivered;
+    if (dueAt > now) return false;
+    if (session.state.cursor === 0)
+      this.progression.consumeMiniGameReaction(definition.id);
+    if (!session.deliver(now)) return false;
+
+    let transitions = 0;
+    while (!session.nextMessage() && session.advance()) {
+      if (++transitions >= 100) throw new Error('Automatic dialogue loop.');
+    }
+    const next = session.nextMessage();
+    if (!next) {
+      delete state.receiveDueAt;
+      if (session.choices.length) session.offerChoices();
+      session.persist();
+      return true;
+    }
+
+    // Every contact thread releases at most one message per update. If the
+    // renderer was throttled or the app was closed, keep the authored gap from
+    // the actual receipt time instead of draining overdue deadlines in a burst.
+    state.receiveDueAt = now + Math.max(
+      1,
+      next.delayMs + next.typingMs + (next.typingPauseMs ?? 0),
+    );
+    session.persist();
+    return true;
   }
   isReceiving(id) {
     const scheduled = this.progression.data.dialogues[id];
@@ -339,29 +344,9 @@ export class ConversationThread {
               0,
             );
       dueAt = Math.max(dueAt, this.miniGameReactionDueAt(event) ?? -Infinity);
-      let delivered = false;
-      const catchUpOverdue = event.deliveryPolicy !== 'progressive';
-      // Apply the same per-dialogue delivery policy in both receive paths.
-      while (session.nextMessage() && dueAt <= now) {
-        if (session.state.cursor === 0)
-          this.progression.consumeMiniGameReaction(event.id);
-        if (!session.deliver(now)) break;
-        delivered = true;
-        const next = session.nextMessage();
-        if (next) {
-          const interval = next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
-          dueAt = catchUpOverdue ? dueAt + interval : now + interval;
-          session.state.receiveDueAt = dueAt;
-          session.persist();
-        }
-        if (!catchUpOverdue) break;
-      }
-      if (!session.nextMessage()) {
-        delete session.state.receiveDueAt;
-        if (session.choices.length) session.offerChoices();
-        session.advance();
-      }
-      if (delivered) incoming.push(event);
+      session.state.receiveDueAt = dueAt;
+      session.persist();
+      if (this.receiveScheduled(event, now)) incoming.push(event);
     }
     this.sync();
     this.lastIncomingMessages = this.state.history.filter((entry) => !previousKeys.has(entry.key));

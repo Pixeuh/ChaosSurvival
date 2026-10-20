@@ -140,10 +140,11 @@ test('invitation is a saved Turbo conversation event with a clickable local Flas
   const thread = new ConversationThread('turbo', progression, () => events);
   thread.schedule(invitation, 1000);
   const state = progression.data.dialogues[invitation.id];
+  let now = 100_000;
   while (!state.finished) {
     if (new DialogueSession(invitation, progression).nextMessage()) {
-      state.receiveDueAt = 0;
-      thread.receive(100_000);
+      state.receiveDueAt = now;
+      thread.receive(now++);
     } else new DialogueSession(invitation, progression).advance();
   }
   thread.sync();

@@ -50,6 +50,16 @@ function finish(session, progression) {
   }
   assert.ok(session.state.finished);
 }
+function finishScheduledEvent(thread, progression, definition, now) {
+  for (let update = 0; update < 100 && !progression.data.dialogues[definition.id]?.finished; update++) {
+    const dueAt = progression.data.dialogues[definition.id]?.receiveDueAt;
+    now = Math.max(now, Number.isFinite(dueAt) ? dueAt : now);
+    thread.receive(now);
+    now++;
+  }
+  assert.equal(progression.data.dialogues[definition.id]?.finished, true, `${definition.id} finishes through scheduled reception`);
+  return now;
+}
 test('attempts are counted immediately, including abandonments, without reactions before the first meeting', () => {
   const { progression, reactions } = setup();
   reactions.launch(0);
@@ -131,6 +141,7 @@ test('closed Messenger and relaunch preserve message-only replays and narrative 
   const reopened = new Progression(story, storage);
   const restored = new ReplayReactions(reopened, definitions, config);
   const [incoming] = restored.flush(7000);
+  finishScheduledEvent(restored.thread, reopened, incoming, 7000);
   const session = new DialogueSession(incoming, reopened);
   assert.equal(session.state.finished, true);
   assert.deepEqual(session.choices, []);
@@ -202,6 +213,7 @@ test('replay messages arrive after two seconds even while the original choice is
     ['pixelgirl-intro'],
   );
   assert.deepEqual(reactions.thread.availableResponses, []);
+  reactions.flush(3750);
   reactions.flush(4500);
   assert.equal(reactions.thread.availableResponses.length, 1);
   const previousHistory = structuredClone(reactions.thread.state.history);
@@ -223,11 +235,15 @@ test('completed message-only replays survive restart without blocking subsequent
   meet(progression);
   reactions.launch(1000);
   reactions.flush(6000);
+  const firstEvent = reactions.definition(progression.data.replayReactions[0]);
+  finishScheduledEvent(reactions.thread, progression, firstEvent, 6000);
   const history = structuredClone(reactions.thread.state.history);
   const restored = new ReplayReactions(new Progression(story, storage), definitions, config);
   assert.deepEqual(restored.thread.state.history, history);
   restored.launch(7000);
   restored.flush(9000);
+  const secondEvent = restored.definition(restored.progression.data.replayReactions.at(-1));
+  finishScheduledEvent(restored.thread, restored.progression, secondEvent, 9000);
   assert.equal(restored.thread.availableResponses.length, 0);
   assert.ok(restored.thread.state.history.some((entry) => entry.text === 'ENCORE ??? MDRRR'));
   assert.equal(restored.progression.data.level1Launches, 3);
@@ -292,7 +308,9 @@ test('legacy five-second deadlines migrate to two seconds without changing recei
   assert.deepEqual(restored.progression.data.choices, choices);
   assert.deepEqual(restored.progression.data.dialogues['pixelgirl-intro'].transcript, transcript);
   const resumed = new ReplayReactions(new Progression(story, storage), definitions, config);
-  assert.equal(resumed.flush(99999).length, 1);
+  resumed.flush(99999);
+  const legacyDefinition = resumed.definition(resumed.progression.data.replayReactions[0]);
+  finishScheduledEvent(resumed.thread, resumed.progression, legacyDefinition, 99999);
   assert.equal(resumed.progression.data.dialogues['legacy-attempt'].transcript.length, 3);
   assert.deepEqual(resumed.flush(100000), []);
 });
