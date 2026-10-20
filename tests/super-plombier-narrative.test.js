@@ -224,7 +224,6 @@ test('BombArena offer starts persistent unlimited Messenger reminders, suspends 
     type: 'match-completed', matchId: 'reminder-finished', difficulty: 'PGM', winnerId: 'pixelgirl', roundsPlayed: 8,
     scores: { justme: 1, pixelgirl: 3, turbo: 2, luna: 2 },
   });
-  orchestrator.onBombArenaEvent({ type: 'results-closed' });
   orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' });
   const before = thread.state.history.length;
   tickBombArenaReminders(orchestrator, thread, clock + 1_000_000);
@@ -405,7 +404,6 @@ test('closing the actual BombArena desktop window starts one persisted reminder 
     restore() {},
     onWindowState() {},
     onBombArenaEvent: (event) => orchestrator.onBombArenaEvent(event),
-    onBombArenaContinue: () => true,
     onBombArenaInterrupted() { openedGroup++; return true; },
   });
 
@@ -455,7 +453,7 @@ test('BombArena post-match dialogue branches on the saved final winner and conve
     ['°•.LuNa.°•', "c'était un peu le principe"], ['Turb0', 'ouais bah merci'],
     ['xX_PixelGirl_Xx', 'mdrrrr'], ['xX_PixelGirl_Xx', 'en vrai c\'était trop bieeen :3'],
     ['Turb0', 'ouais grave'], ['°•.LuNa.°•', 'c\'était sympa :)'],
-    ['xX_PixelGirl_Xx', 'ah au fait justme'], ['xX_PixelGirl_Xx', 'pense à supprimer bombarena après, dans tes documents, dossier "Mes fichiers reçus" !!! :)'],
+    ['xX_PixelGirl_Xx', 'ah au fait'], ['xX_PixelGirl_Xx', 'pensez à supprimer bombarena après, dans vos documents, dossier "Mes fichiers reçus" !!! :D'],
     ['xX_PixelGirl_Xx', 'il prend grave de place ce truc mdr'],
     ['Turb0', 'on vient de finir et tu veux déjà le virer ??'],
     ['xX_PixelGirl_Xx', 'bah oui xD'], ['xX_PixelGirl_Xx', "on y a joué c'est bon"],
@@ -477,11 +475,11 @@ test('BombArena post-match dialogue branches on the saved final winner and conve
     assert.deepEqual(session.choices, []);
     assert.equal(session.state.finished, true);
   }
-  assert.equal(definition.nodes['after-match'].messages[definition.nodes['after-match'].messages.findIndex((message) => message.text === 'ah au fait justme')].delayMs, 2200,
+  assert.equal(definition.nodes['after-match'].messages[definition.nodes['after-match'].messages.findIndex((message) => message.text === 'ah au fait')].delayMs, 2200,
     'the pause before the deletion suggestion is represented only by a longer delivery delay');
 });
 
-test('closing final results starts the existing post-match branch for each winner once', () => {
+test('final results start the existing post-match branch for each winner once', () => {
   const expectedFirstMessage = {
     justme: 'AAAAAA',
     pixelgirl: 'AAAAAAAA',
@@ -494,12 +492,13 @@ test('closing final results starts the existing post-match branch for each winne
       .map((id) => [id, id === winner ? 8 : 0]));
     orchestrator.onBombArenaEvent({ type: 'expected' });
     orchestrator.onBombArenaEvent({
-      type: 'match-completed', matchId: `close-results-${index}`, difficulty: 'PGM',
+      type: 'match-completed', matchId: `immediate-results-${index}`, difficulty: 'PGM',
       winnerId: winner, roundsPlayed: 8, scores,
     });
     assert.equal(orchestrator.bombArenaPostMatchAvailable(), false,
-      'final results alone do not unlock the group branch');
-    assert.equal(orchestrator.onBombArenaEvent({ type: 'results-closed' }), true);
+      'the branch waits only for Messenger activation, not for BombArena to close');
+    assert.equal(bombArenaHandoffPending(progression), true,
+      'a saved final result immediately represents a pending handoff');
     assert.equal(completeBombArenaHandoff({
       progression,
       onBombArenaEvent: (event) => orchestrator.onBombArenaEvent(event),
@@ -550,16 +549,14 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
     type: 'match-completed', matchId: 'postmatch-test', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8, scores,
   }), true);
   assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
-  assert.equal(bombArenaHandoffPending(progression), false, 'results stay visible until the player closes the window');
-  assert.equal(getEvents().some((event) => event.id === postMatch.id), false, 'viewing results alone does not start the dialogue');
+  assert.equal(bombArenaHandoffPending(progression), true, 'saved results make the immediate handoff recoverable');
+  assert.equal(getEvents().some((event) => event.id === postMatch.id), false, 'the branch waits until the existing group is activated');
   assert.equal(completeBombArenaHandoff({
     progression,
     onBombArenaEvent: (event) => orchestrator.onBombArenaEvent(event),
     activateGroup: () => false,
   }), false, 'a missing group window leaves the handoff pending');
   assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
-  assert.equal(orchestrator.onBombArenaEvent({ type: 'results-closed' }), true);
-  assert.equal(bombArenaHandoffPending(progression), true, 'the player close persists a recoverable handoff request');
   const activationOrder = [];
   assert.equal(completeBombArenaHandoff({
     progression,
@@ -570,7 +567,7 @@ test('BombArena post-match sequence unlocks at the Messenger handoff and resumes
     activateGroup: () => { activationOrder.push('group-opened'); return true; },
   }), true);
   assert.deepEqual(activationOrder, ['group-opened', 'completed']);
-  assert.equal(bombArenaHandoffPending(progression), true, 'completion remains recoverable until the post-match dialogue finishes');
+  assert.equal(bombArenaHandoffPending(progression), true, 'the delivered branch remains recoverable until it finishes');
   assert.equal(getEvents().some((event) => event.id === postMatch.id), true);
   assert.deepEqual(orchestrator.bombArenaRedownloadEvents(), [], 'scheduled reminders and reoffers are suppressed after results');
   assert.equal(progression.data.flags.bombArenaWinner, 'luna');
@@ -1451,7 +1448,6 @@ test('deleting BombArena after the completed mandatory session never reopens an 
     scores: { justme: 8, pixelgirl: 0, turbo: 0, luna: 0 },
   }), true);
   assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
-  assert.equal(orchestrator.onBombArenaEvent({ type: 'results-closed' }), true);
   assert.equal(orchestrator.onBombArenaEvent({ type: 'returned-to-messenger' }), true);
   assert.equal(orchestrator.bombArenaPostMatchAvailable(), true);
   const postmatch = new DialogueSession(definitions['bomb-arena-postmatch'], progression);

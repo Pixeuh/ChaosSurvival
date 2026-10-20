@@ -73,7 +73,6 @@ test('BombArena milestones and match results persist once while old saves gain s
   assert.deepEqual(restored.data.bombArena, {
     status: 'NOT_STARTED',
     expectedAt: null,
-    resultsClosedAt: null,
     returnedToMessengerAt: null,
     completedRounds: 0,
     nextRound: 1,
@@ -192,7 +191,7 @@ test('BombArena checkpoints completed rounds atomically and the next session res
   assert.deepEqual(restored.data.bombArena.roundScores, { justme: 1, pixelgirl: 0, turbo: 0, luna: 0 });
 });
 
-test('BombArena blocks story progression until results are returned to Messenger, regardless of winner', () => {
+test('BombArena unlocks the post-match story as soon as final results are saved and Messenger is available', () => {
   const progression = new Progression(story, memory());
   progression.recordBombArenaEvent({ type: 'expected' }, 10);
   assert.equal(progression.isBombArenaBlockingStory(), true);
@@ -201,15 +200,8 @@ test('BombArena blocks story progression until results are returned to Messenger
     type: 'match-completed', matchId: 'mandatory-match', difficulty: 'PGM', winnerId: 'luna', roundsPlayed: 8,
     scores: { justme: 1, pixelgirl: 2, turbo: 2, luna: 3 },
   }, 20), true);
-  assert.equal(progression.isBombArenaBlockingStory(), true, 'the result screen alone does not unlock the story');
+  assert.equal(progression.isBombArenaBlockingStory(), true, 'results remain a durable handoff until the group is ready');
   let activations = 0;
-  assert.equal(completeBombArenaHandoff({
-    progression,
-    onBombArenaEvent: (event) => progression.recordBombArenaEvent(event, 30),
-    activateGroup: () => { activations++; return true; },
-  }), false, 'the handoff cannot complete until the results window has been dismissed');
-  assert.equal(activations, 0, 'an open results window cannot activate Messenger early');
-  assert.equal(progression.recordBombArenaEvent({ type: 'results-closed' }, 30), true);
   assert.equal(completeBombArenaHandoff({
     progression,
     onBombArenaEvent: (event) => progression.recordBombArenaEvent(event, 30),

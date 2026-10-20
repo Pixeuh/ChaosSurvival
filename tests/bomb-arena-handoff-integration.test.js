@@ -8,7 +8,7 @@ import { ConversationThread } from '../src/story/conversation-thread.js';
 import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
 import { createGame, drainGameEvents, updateGame } from '../src/minigames/bomb-arena/engine.js';
 import { createDevelopmentProgressionSandbox, installDevelopmentBombArenaShortcut } from '../src/dev/finish-shortcut.js';
-import { createBombArenaHandoffRetrier } from '../src/story/bomb-arena-handoff.js';
+import { bombArenaHandoffPending, createBombArenaHandoffRetrier, dispatchBombArenaEvent } from '../src/story/bomb-arena-handoff.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -38,7 +38,7 @@ function createStoryHarness(progression, now = () => Date.now()) {
   return { orchestrator, thread, events };
 }
 
-function advanceRealBombArenaMatch(progression, orchestrator) {
+function advanceRealBombArenaMatch(orchestrator, reportMatchCompleted = (event) => orchestrator.onBombArenaEvent(event)) {
   const game = createGame({ rng: () => 0.9 });
   orchestrator.onBombArenaEvent({ type: 'match-started', difficulty: game.difficulty });
   for (let round = 1; round <= 8; round++) {
@@ -59,14 +59,37 @@ function advanceRealBombArenaMatch(progression, orchestrator) {
   assert.equal(game.phase, 'match-end');
   assert.equal(game.round, 8);
   assert.equal(game.matchWinnerId, 'justme');
-  assert.equal(orchestrator.onBombArenaEvent({
+  assert.equal(reportMatchCompleted({
     type: 'match-completed', matchId: 'shortcut-session-1', difficulty: game.difficulty,
     winnerId: game.matchWinnerId, scores: game.wins, roundsPlayed: game.round,
   }), true);
   return game;
 }
 
-test('Ctrl+Shift+B isolated save advances the real group offer, persists eight-round results, retries Messenger, and sends the postmatch branch', () => {
+test('a tied eight-round result never starts the post-match handoff before a unique tiebreak winner exists', () => {
+  const progression = new Progression(story, { getItem: () => null, setItem() {} });
+  progression.begin();
+  const { orchestrator } = createStoryHarness(progression, () => 100);
+  orchestrator.onBombArenaEvent({ type: 'expected' });
+  const tiedScores = { justme: 3, pixelgirl: 3, turbo: 1, luna: 1 };
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'tied-regulation', difficulty: 'PGM',
+    winnerId: 'justme', roundsPlayed: 8, scores: tiedScores,
+  }), false, 'a tied score is not a final session result');
+  assert.equal(progression.data.bombArena.status, 'NOT_STARTED');
+  assert.equal(bombArenaHandoffPending({ data: progression.data }), false);
+
+  assert.equal(orchestrator.onBombArenaEvent({
+    type: 'match-completed', matchId: 'unique-overtime', difficulty: 'PGM',
+    winnerId: 'pixelgirl', roundsPlayed: 9,
+    scores: { justme: 3, pixelgirl: 4, turbo: 1, luna: 1 },
+  }), true);
+  assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
+  assert.equal(progression.data.bombArena.sessionWinner, 'pixelgirl');
+  assert.equal(bombArenaHandoffPending(progression), true);
+});
+
+test('Ctrl+Shift+B isolated save advances the real group offer, immediately starts the handoff, retries Messenger, and sends the postmatch branch', () => {
   const normalValues = new Map();
   const normalStorage = {
     getItem: (key) => normalValues.get(key) ?? null,
@@ -118,44 +141,53 @@ test('Ctrl+Shift+B isolated save advances the real group offer, persists eight-r
   assert.equal(progression.data.dialogues[group.id].finished, true,
     'the normal group thread finishes its post-transfer messages before match results');
 
-  advanceRealBombArenaMatch(progression, firstStory.orchestrator);
+  let firstAttempts = 0;
+  let firstTimerCallback;
+  const firstRetrier = createBombArenaHandoffRetrier({
+    progression,
+    onBombArenaEvent: (event) => firstStory.orchestrator.onBombArenaEvent(event),
+    activateGroup: () => { firstAttempts++; return false; },
+    setTimeoutFn: (callback, delay) => { assert.equal(delay, 1_000); firstTimerCallback = callback; return 1; },
+    clearTimeoutFn: () => { firstTimerCallback = null; },
+  });
+  let recordedFinalResult;
+  const bombArenaWindowOpen = true;
+  advanceRealBombArenaMatch(firstStory.orchestrator, (event) => {
+    recordedFinalResult = dispatchBombArenaEvent(event, {
+      onBombArenaEvent: (reportedEvent) => firstStory.orchestrator.onBombArenaEvent(reportedEvent),
+      handoffRetrier: firstRetrier,
+    });
+    return recordedFinalResult;
+  });
   assert.equal(progression.data.bombArena.status, 'RESULTS_READY');
   assert.equal(progression.data.bombArena.sessionRoundsPlayed, 8);
   assert.equal(progression.data.bombArena.sessionWinner, 'justme');
+  assert.equal(recordedFinalResult, true, 'the final result is immediately sent through the narrative handoff');
+  assert.equal(firstAttempts, 1);
+  assert.equal(firstRetrier.scheduled, true, 'a transient Messenger failure remains retryable');
+  assert.equal(bombArenaWindowOpen, true, 'the handoff does not close BombArena');
   assert.equal(normalStorage.getItem('chaos-survival-story-v1'), originalSave, 'the real save remains untouched');
 
-  // Reload the actual isolated save while the result-to-MSN transition is pending.
+  // Reload the actual isolated save while the immediate result handoff is pending.
   const resumed = new Progression(story, devStorage);
   const resumedStory = createStoryHarness(resumed, () => now);
   let attempts = 0;
-  let timerCallback;
-  let timerId = 0;
   const retrier = createBombArenaHandoffRetrier({
     progression: resumed,
     onBombArenaEvent: (event) => resumedStory.orchestrator.onBombArenaEvent(event),
-    activateGroup: () => ++attempts > 1,
-    setTimeoutFn: (callback, delay) => { assert.equal(delay, 1_000); timerCallback = callback; return ++timerId; },
-    clearTimeoutFn: () => { timerCallback = null; },
+    activateGroup: () => { attempts++; return true; },
   });
-  assert.equal(retrier.attempt(), true, 'a non-pending handoff is ignored while the player can review results');
-  assert.equal(resumed.data.bombArena.status, 'RESULTS_READY');
-  assert.equal(attempts, 0);
-  assert.equal(retrier.scheduled, false, 'an open results screen does not schedule an automatic return');
-  assert.equal(resumedStory.orchestrator.onBombArenaEvent({ type: 'results-closed' }), true,
-    'the player closing BombArena persists the handoff request');
-  assert.equal(retrier.attempt(), false, 'a failed Messenger activation keeps the requested handoff pending');
-  assert.equal(attempts, 1);
-  assert.equal(retrier.scheduled, true);
-  const retry = timerCallback;
-  timerCallback = null;
-  retry();
+  assert.equal(retrier.attempt(), true, 'startup resumes the saved transition without waiting for a window close');
   assert.equal(resumed.data.bombArena.status, 'COMPLETED');
-  assert.equal(attempts, 2);
+  assert.equal(attempts, 1);
   assert.equal(retrier.scheduled, false);
+  assert.equal(firstRetrier.scheduled, true, 'an old runtime timer is not needed for recovery after reload');
+  assert.equal(typeof firstTimerCallback, 'function');
+  assert.equal(firstRetrier.cancel(), true, 'the reloaded runtime can discard its obsolete timer');
 
   assert.equal(resumedStory.orchestrator.bombArenaPostMatchAvailable(), true);
   assert.equal(resumed.data.flags.bombArenaWinner, 'justme');
-  resumedStory.thread.schedule(postmatch, now);
+  resumedStory.thread.receive(now);
   const incoming = resumedStory.thread.receive(now + 20_000);
   assert.ok(incoming.includes(postmatch), 'the existing group thread receives the real postmatch dialogue');
   assert.equal(resumed.data.dialogues[postmatch.id].transcript[0].text, 'AAAAAA');

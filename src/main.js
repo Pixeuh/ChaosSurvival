@@ -73,7 +73,7 @@ import {
   NarrativeOrchestrator,
   DEFERRED_CONNECTION_DIALOGUES,
 } from './story/narrative-orchestrator.js';
-import { bombArenaHandoffPending, createBombArenaHandoffRetrier } from './story/bomb-arena-handoff.js';
+import { bombArenaHandoffPending, createBombArenaHandoffRetrier, dispatchBombArenaEvent } from './story/bomb-arena-handoff.js';
 import { resetGameToInitialState as resetSession, recoverGameReset } from './story/reset-game.js';
 import { applicationName, trackIdentity } from './ui/identity.js';
 import {
@@ -195,11 +195,10 @@ const desktopApplications = new DesktopApplications(
   renderDesktopFiles,
   openDesktopFile,
   launchExecutable,
-  (event) => narrativeOrchestrator?.onBombArenaEvent(event),
-  (instance) => {
-    manager.close(instance.id);
-    return tryOpenBombArenaGroupConversation();
-  },
+  (event) => dispatchBombArenaEvent(event, {
+    onBombArenaEvent: (reportedEvent) => narrativeOrchestrator?.onBombArenaEvent(reportedEvent) ?? false,
+    handoffRetrier: bombArenaHandoffRetrier,
+  }),
   () => tryOpenBombArenaGroupConversation(),
 );
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
@@ -451,7 +450,7 @@ narrativeOrchestrator = new NarrativeOrchestrator({
 bombArenaHandoffRetrier = createBombArenaHandoffRetrier({
   progression,
   onBombArenaEvent: (event) => narrativeOrchestrator.onBombArenaEvent(event),
-  activateGroup: () => phase === 'desktop' && tryOpenBombArenaGroupConversation(),
+  activateGroup: () => phase === 'desktop' && ensureBombArenaGroupBackground(),
 });
 virtualFilesystem.onDelete = (change) => {
   narrativeOrchestrator?.onVirtualFilesDeleted(change);
@@ -504,6 +503,13 @@ function openBombArenaGroupConversation() {
   const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
   if (!group) return false;
   const view = messenger.openContact(group);
+  return Boolean(view?.element?.isConnected);
+}
+
+function ensureBombArenaGroupBackground() {
+  const group = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+  if (!group) return false;
+  const view = messenger.ensureBackground(group);
   return Boolean(view?.element?.isConnected);
 }
 

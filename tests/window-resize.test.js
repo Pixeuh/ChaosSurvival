@@ -251,6 +251,24 @@ test('minimizing a BombArena taskbar tab never dismisses the window or runs clos
   assert.equal(dismissals, 0, 'a taskbar minimize is not a close event');
 });
 
+test('opening a Messenger conversation in the background leaves the current foreground window active', (t) => {
+  const { manager, makeWindow } = setup(t);
+  const bombArena = makeWindow({ type: 'arcade-game' });
+  const group = makeWindow({ type: 'narrative' });
+  const bombArenaTab = new FakeElement('button');
+  const groupTab = new FakeElement('button');
+  manager.windows.get(bombArena.id).taskButton = bombArenaTab;
+  manager.windows.get(group.id).taskButton = groupTab;
+  manager.syncTaskbarButtons();
+
+  assert.equal(manager.minimize(group.element), true);
+
+  assert.equal(manager.isActive(bombArena.element), true);
+  assert.equal(bombArenaTab.attributes['aria-pressed'], 'true');
+  assert.equal(groupTab.attributes['aria-pressed'], 'false');
+  assert.equal(group.element.hidden, true);
+});
+
 function handle(element, direction) {
   return element.querySelectorAll('.window-resize-handle')
     .find((candidate) => candidate.dataset.resizeDirection === direction);

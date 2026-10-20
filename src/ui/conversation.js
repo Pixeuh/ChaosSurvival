@@ -92,9 +92,10 @@ export class ConversationWindow {
     }
     if (this.element?.isConnected) {
       this.refresh();
-      this.element.hidden = false;
+      if (this.manager.activate) this.manager.activate(this.element);
+      else this.element.hidden = false;
       this.lastFrame = null;
-      this.element.style.zIndex = ++this.manager.z;
+      if (!this.manager.activate) this.element.style.zIndex = ++this.manager.z;
       this.element.querySelector('.dialogue-choices button')?.focus();
       this.onWindowState({ open: true, minimized: false });
       return;
@@ -175,7 +176,8 @@ export class ConversationWindow {
       minimize.textContent = '−';
       minimize.setAttribute('aria-label', 'Réduire MSN');
       minimize.addEventListener('click', () => {
-        this.element.hidden = true;
+        if (this.manager.minimize) this.manager.minimize(this.element);
+        else this.element.hidden = true;
         this.lastFrame = null;
         this.onWindowState({ open: true, minimized: true });
         if (this.ghost) {
@@ -248,8 +250,11 @@ export class ConversationWindow {
   }
   restore() {
     if (!this.element?.isConnected) return this.open(Boolean(this.offlineContact));
-    this.element.hidden = false;
-    this.element.style.zIndex = ++this.manager.z;
+    if (this.manager.activate) this.manager.activate(this.element);
+    else {
+      this.element.hidden = false;
+      this.element.style.zIndex = ++this.manager.z;
+    }
     this.lastFrame = null;
     this.refresh();
     this.onWindowState({ open: true, minimized: false });
@@ -258,7 +263,8 @@ export class ConversationWindow {
     if (this.element?.isConnected) return this.element;
     this.open();
     if (!this.element?.isConnected) return this.element;
-    this.element.hidden = true;
+    if (this.manager.minimize) this.manager.minimize(this.element);
+    else this.element.hidden = true;
     this.lastFrame = null;
     this.messengerInstance?.task.setAttribute('aria-pressed', 'false');
     this.onWindowState({ open: true, minimized: true });

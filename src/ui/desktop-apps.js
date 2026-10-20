@@ -5,7 +5,6 @@ import { fileIcon, icon } from './icons.js';
 import { isArcadeExecutable } from './arcade-launcher.js';
 import { VirtualTextFiles } from '../story/text-files.js';
 import { VirtualFilesystem, virtualFileId } from '../story/virtual-filesystem.js';
-import { completeBombArenaHandoff } from '../story/bomb-arena-handoff.js';
 import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
@@ -90,7 +89,6 @@ export class DesktopApplications {
     onOpenReceived = null,
     onLaunchExecutable = null,
     onBombArenaEvent = () => {},
-    onBombArenaContinue = () => {},
     onBombArenaInterrupted = () => {},
   ) {
     Object.assign(this, {
@@ -102,7 +100,6 @@ export class DesktopApplications {
       onOpenReceived,
       onLaunchExecutable,
       onBombArenaEvent,
-      onBombArenaContinue,
       onBombArenaInterrupted,
     });
     this.textFiles = textFiles;
@@ -1246,12 +1243,7 @@ export class DesktopApplications {
         instance.task.remove();
         this.onWindowState();
         const progress = this.virtualFilesystem?.progression?.data?.bombArena;
-        if (instance && !instance.returningToMessenger && progress?.status === 'RESULTS_READY') {
-          if (dismissal.reason === 'close') {
-            this.onBombArenaEvent?.({ type: 'results-closed' });
-            instance.onBombArenaFinish?.();
-          }
-        } else if (instance && !instance.returningToMessenger) {
+        if (instance && !['RESULTS_READY', 'COMPLETED'].includes(progress?.status)) {
           this.onBombArenaEvent?.({ type: 'interrupted' });
           this.onBombArenaInterrupted?.(instance);
         }
@@ -1260,35 +1252,6 @@ export class DesktopApplications {
     const instance = this.attachWindow(key, id, 'BombArena.exe', 'arcade-game');
     instance.fileId = fileId;
     instance.onBombArenaEvent = (event) => this.onBombArenaEvent?.(event);
-    instance.onBombArenaFinish = () => {
-      if (instance.returningToMessenger) return false;
-      const progress = this.virtualFilesystem?.progression?.data?.bombArena;
-      const needsHandoff = progress?.expectedAt !== null && progress?.expectedAt !== undefined;
-      if (needsHandoff && progress.status !== 'RESULTS_READY' && progress.status !== 'COMPLETED') return false;
-      if (needsHandoff && progress.status === 'RESULTS_READY' && !Number.isFinite(progress.resultsClosedAt)) return false;
-
-      // Keep RESULTS_READY persisted until the existing group conversation is
-      // actually available. resultsClosedAt records the player's explicit
-      // dismissal and is the recovery intent if Messenger cannot open yet.
-      instance.returningToMessenger = true;
-      const activateGroup = () => {
-        const result = this.onBombArenaContinue?.(instance);
-        return needsHandoff ? result === true : result !== false;
-      };
-      const activated = needsHandoff
-        ? completeBombArenaHandoff({
-            progression: this.virtualFilesystem?.progression,
-            onBombArenaEvent: (event) => this.onBombArenaEvent?.(event),
-            activateGroup,
-          })
-        : activateGroup();
-      if (!activated) {
-        instance.returningToMessenger = false;
-        return false;
-      }
-      return true;
-    };
-    instance.onBombArenaContinue = () => instance.onBombArenaFinish();
     const savedMatch = this.virtualFilesystem?.progression?.data?.bombArena;
     instance.bombArenaProgress = savedMatch;
     if (savedMatch?.status === 'RESULTS_READY')
