@@ -650,7 +650,7 @@ export class NarrativeOrchestrator {
     this.progression.save();
   }
 
-  onChoiceValidated(definition, { nodeId }) {
+  onChoiceValidated(definition, { nodeId, choice }) {
     if (
       definition.id === 'pixelgirl-smiley-victory' &&
       this.flags.superPlombierPixelCase === 'B' &&
@@ -670,24 +670,26 @@ export class NarrativeOrchestrator {
       this.progression.save();
       this.dialogueEvents.triggerConnection('turbo', this.now());
     }
-    if (
-      definition.id === 'pixelgirl-super-plombier-wizz' &&
-      nodeId === definition.start &&
-      ['A', 'B'].includes(this.flags.superPlombierPixelCase) &&
-      this.progression.data.choices.some(
-        (choice) => choice.key === `${definition.id}:${nodeId}` && choice.choice === 'wizz',
-      ) &&
-      !this.flags.pixelGirlSuperPlombierPlayerWizzSent
-    ) {
-      this.flags.pixelGirlSuperPlombierPlayerWizzSent = Boolean(
-        this.sendNarrativeWizz(
-          'pixelgirl',
-          'pixelgirl-super-plombier-player-wizz',
+    if (choice?.action === 'wizz') {
+      const isPixelGirlOpeningWizz =
+        definition.id === 'pixelgirl-super-plombier-wizz' &&
+        nodeId === definition.start &&
+        ['A', 'B'].includes(this.flags.superPlombierPixelCase);
+      if (!isPixelGirlOpeningWizz || !this.flags.pixelGirlSuperPlombierPlayerWizzSent) {
+        const eventId = isPixelGirlOpeningWizz
+          ? 'pixelgirl-super-plombier-player-wizz'
+          : `${definition.id}-${nodeId}-player-wizz`;
+        const sent = this.sendNarrativeWizz(
+          definition.contact.id,
+          eventId,
           'player',
           this.now(),
-        ),
-      );
-      this.progression.save();
+        );
+        if (isPixelGirlOpeningWizz) {
+          this.flags.pixelGirlSuperPlombierPlayerWizzSent = Boolean(sent);
+          this.progression.save();
+        }
+      }
     }
   }
 

@@ -112,6 +112,7 @@ export function validateDialogue(dialogue) {
           (choice) =>
             typeof choice.id !== 'string' ||
             typeof choice.text !== 'string' ||
+            (choice.action !== undefined && choice.action !== 'wizz') ||
             !Object.hasOwn(dialogue.nodes, choice.next) ||
             !validCondition(choice.when) ||
             !validSet(choice.set),

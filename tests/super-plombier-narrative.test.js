@@ -852,6 +852,7 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
     'quoiiiii',
     '*wizz*',
   ]);
+  assert.equal(definition.nodes.opening.choices.find((choice) => choice.id === 'wizz').action, 'wizz');
 
   for (const [branchIndex, openingChoice] of definition.nodes.opening.choices.entries()) {
     const { progression, orchestrator, sentWizzes } = fixture();
@@ -860,8 +861,8 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
     session.deliver();
     session.deliver();
     session.choose(openingChoice.id);
-    orchestrator.onChoiceValidated(definition, { nodeId: definition.start });
-    orchestrator.onChoiceValidated(definition, { nodeId: definition.start });
+    orchestrator.onChoiceValidated(definition, { nodeId: definition.start, choice: openingChoice });
+    orchestrator.onChoiceValidated(definition, { nodeId: definition.start, choice: openingChoice });
 
     while (session.state.node !== 'closing') {
       if (session.nextMessage()) session.deliver();
@@ -912,6 +913,43 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
     orchestrator.updatePixelGirlWizzBrawl(100_000);
     assert.equal(sentWizzes.length, countAtEnd);
   }
+});
+
+test('a structured Wizz action in another conversation routes through the shared Messenger Wizz path', () => {
+  const { orchestrator, sentWizzes } = fixture();
+  orchestrator.onChoiceValidated(
+    { id: 'future-conversation', start: 'question', contact: { id: 'turbo' } },
+    { nodeId: 'question', choice: { id: 'buzz', action: 'wizz' } },
+  );
+  assert.deepEqual(sentWizzes, [[
+    'turbo',
+    'future-conversation-question-player-wizz',
+    'player',
+    1000,
+  ]]);
+});
+
+test('PixelGirl Wizz action keeps its narrative branch and sends one Wizz event', () => {
+  const { progression, orchestrator, sentWizzes } = fixture();
+  const definition = definitions['pixelgirl-super-plombier-wizz'];
+  progression.data.flags.superPlombierPixelCase = 'A';
+  const session = new DialogueSession(definition, progression);
+  session.deliver();
+  session.deliver();
+  const choice = session.choices.find((item) => item.action === 'wizz');
+  assert.ok(choice);
+  session.choose(choice.id);
+  orchestrator.onChoiceValidated(definition, { nodeId: definition.start, choice });
+  orchestrator.onChoiceValidated(definition, { nodeId: definition.start, choice });
+  assert.deepEqual(sentWizzes.map(([, id, speaker]) => [id, speaker]), [
+    ['pixelgirl-super-plombier-player-wizz', 'player'],
+  ]);
+  assert.equal(session.state.node, 'wizz-reply');
+  assert.equal(session.state.transcript.at(-1).text, choice.text);
+  session.deliver();
+  assert.equal(session.state.transcript.at(-1).text, 'quoi, tu veux encore des wizz :p ??');
+  assert.equal(session.advance(), true);
+  assert.equal(session.state.node, 'closing');
 });
 
 test('Wizz dialogue migration preserves an in-progress save and leaves completed saves finished', () => {

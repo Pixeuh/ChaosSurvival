@@ -424,6 +424,15 @@ test('Messenger and conversation views share the central player profile instead 
   assert.equal(intro.player.nickname, 'Moi', 'narrative JSON is not rewritten');
 });
 
+test('narrative Wizz choices suppress the ordinary send sound while text choices retain it', () => {
+  const played = [];
+  const view = { sounds: { play: (sound) => played.push(sound) } };
+  ConversationWindow.prototype.playChoiceSound.call(view, { action: 'wizz' });
+  assert.deepEqual(played, [], 'the Messenger Wizz event is the sole sound source for an action choice');
+  ConversationWindow.prototype.playChoiceSound.call(view, { id: 'reply', text: 'D’accord !' });
+  assert.deepEqual(played, ['send'], 'ordinary narrative text keeps the send sound');
+});
+
 test('requested personal messages and distinct local avatars are available before narrative unlock', () => {
   const contacts = visibleContacts({ [intro.id]: intro }, []);
   for (const [id, message, avatar] of [
@@ -1481,18 +1490,20 @@ test('response rendering keeps all buttons below the transcript and queues narra
     },
   });
   const events = [definition('one'), definition('two')];
+  events[0].nodes.question.choices[0].action = 'wizz';
   const sessions = new Map(
     events.map((event) => [event.id, new DialogueSession(event, progression)]),
   );
   sessions.get('one').deliver();
   const thread = new ConversationThread('pixelgirl', progression, () => events);
+  const playedSounds = [];
   const view = {
     choices: createElement('div'),
     log: createElement('div'),
     element: createElement('article'),
     thread,
     progression,
-    sounds: { play() {} },
+    sounds: { play: (sound) => playedSounds.push(sound) },
     sessionFor: (event) => sessions.get(event.id),
     renderResponses: ConversationWindow.prototype.renderResponses,
     appendHistory() {
@@ -1518,10 +1529,13 @@ test('response rendering keeps all buttons below the transcript and queues narra
   assert.equal(view.choices.querySelector('button').dataset.choiceId, 'answer-one');
   assert.equal(view.log.querySelectorAll('button').length, 0);
   view.choices.querySelector('button').handlers.click();
+  assert.deepEqual(playedSounds, [], 'a narrative Wizz action does not play the regular send sound');
   assert.equal(view.log.children.filter((message) => message.speaker === 'player').length, 1);
   assert.ok(view.log.children.some((message) => message.textContent === 'réponse one'));
   assert.equal(view.log.querySelectorAll('button').length, 0);
   assert.equal(view.choices.querySelector('button').dataset.choiceId, 'answer-two');
+  view.choices.querySelector('button').handlers.click();
+  assert.deepEqual(playedSounds, ['send'], 'a regular narrative text choice still plays send');
 });
 
 test('offline contacts reuse the conversation window, remain empty and preserve narrative history', (t) => {

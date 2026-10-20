@@ -48,6 +48,7 @@
         {
           "id": "wizz",
           "text": "*wizz*",
+          "action": "wizz",
           "next": "wizz-reply"
         }
       ]

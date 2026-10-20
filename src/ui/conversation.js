@@ -79,6 +79,9 @@ export class ConversationWindow {
     this.onChoiceValidated?.(definition, { nodeId, choice });
     return choice;
   }
+  playChoiceSound(choice) {
+    if (choice?.action !== 'wizz') this.sounds.play('send');
+  }
   openOffline(contact) {
     if (this.element?.isConnected && this.offlineContact?.id === contact.id) return this.restore();
     this.closeForViewSwitch();
@@ -538,7 +541,7 @@ export class ConversationWindow {
           panel.querySelectorAll('button').forEach((item) => {
             item.disabled = true;
           });
-          ConversationWindow.prototype.chooseResponse.call(
+          const selectedChoice = ConversationWindow.prototype.chooseResponse.call(
             this,
             group.definition,
             session,
@@ -549,7 +552,7 @@ export class ConversationWindow {
           this.pending = null;
           this.lastFrame = null;
           this.element.classList.remove('contact-away');
-          this.sounds.play('send');
+          ConversationWindow.prototype.playChoiceSound.call(this, selectedChoice);
           this.appendHistory();
           this.renderResponses();
           const echo = this.session.takeEcho();
