@@ -252,10 +252,14 @@ export class ConversationThread {
       session.persist();
     }
     let delivered = false;
+    const catchUpOverdue = definition.deliveryPolicy !== 'progressive';
+    // Existing dialogues keep their established catch-up behavior. Dialogues
+    // marked progressive release one overdue message per update and anchor the
+    // next deadline to its actual receipt time.
     while (session.nextMessage() && dueAt <= now) {
       if (session.state.cursor === 0)
         this.progression.consumeMiniGameReaction(definition.id);
-      if (!session.deliver(now)) break;
+      if (!session.deliver(now)) return false;
       delivered = true;
       let transitions = 0;
       while (!session.nextMessage() && session.advance()) {
@@ -266,11 +270,13 @@ export class ConversationThread {
         delete state.receiveDueAt;
         if (session.choices.length) session.offerChoices();
         session.persist();
-        break;
+        return delivered;
       }
-      dueAt += next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
+      const interval = next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
+      dueAt = catchUpOverdue ? dueAt + interval : now + interval;
       state.receiveDueAt = dueAt;
       session.persist();
+      if (!catchUpOverdue) break;
     }
     return delivered;
   }
@@ -334,6 +340,8 @@ export class ConversationThread {
             );
       dueAt = Math.max(dueAt, this.miniGameReactionDueAt(event) ?? -Infinity);
       let delivered = false;
+      const catchUpOverdue = event.deliveryPolicy !== 'progressive';
+      // Apply the same per-dialogue delivery policy in both receive paths.
       while (session.nextMessage() && dueAt <= now) {
         if (session.state.cursor === 0)
           this.progression.consumeMiniGameReaction(event.id);
@@ -341,10 +349,12 @@ export class ConversationThread {
         delivered = true;
         const next = session.nextMessage();
         if (next) {
-          dueAt += next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
+          const interval = next.delayMs + next.typingMs + (next.typingPauseMs ?? 0);
+          dueAt = catchUpOverdue ? dueAt + interval : now + interval;
           session.state.receiveDueAt = dueAt;
           session.persist();
         }
+        if (!catchUpOverdue) break;
       }
       if (!session.nextMessage()) {
         delete session.state.receiveDueAt;

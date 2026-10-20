@@ -619,19 +619,21 @@ export class DesktopApplications {
     const makeSection = (name, heading, contentNodes) => {
       const section = documentRef.createElement('section');
       section.className = 'explorer-side-section';
+      section.dataset ??= {};
       section.dataset.section = name;
       const toggle = documentRef.createElement('button');
       toggle.type = 'button';
       toggle.className = 'explorer-side-heading';
-      toggle.setAttribute('aria-expanded', 'true');
+      toggle.setAttribute?.('aria-expanded', 'true');
       toggle.innerHTML = `<span class="explorer-side-chevron" aria-hidden="true">⌄</span><strong>${heading}</strong>`;
       const body = documentRef.createElement('div');
       body.className = 'explorer-side-section-body';
       body.append(...contentNodes);
       toggle.addEventListener('click', () => {
         body.hidden = !body.hidden;
-        toggle.setAttribute('aria-expanded', String(!body.hidden));
-        toggle.querySelector('.explorer-side-chevron').textContent = body.hidden ? '›' : '⌄';
+        toggle.setAttribute?.('aria-expanded', String(!body.hidden));
+        const chevron = toggle.querySelector?.('.explorer-side-chevron');
+        if (chevron) chevron.textContent = body.hidden ? '›' : '⌄';
       });
       section.append(toggle, body);
       panel.append(section);
@@ -641,6 +643,7 @@ export class DesktopApplications {
       link.type = 'button';
       link.className = 'explorer-side-link';
       link.disabled = disabled;
+      link.dataset ??= {};
       if (locationId) link.dataset.explorerSideLocation = locationId;
       link.innerHTML = `${icon(iconName)}<span>${label}</span>`;
       return link;
@@ -1225,7 +1228,10 @@ export class DesktopApplications {
         this.onWindowState();
         const progress = this.virtualFilesystem?.progression?.data?.bombArena;
         if (instance && !instance.returningToMessenger && progress?.status === 'RESULTS_READY') {
-          if (dismissal.reason === 'close') instance.onBombArenaFinish?.({ alreadyClosing: true });
+          if (dismissal.reason === 'close') {
+            this.onBombArenaEvent?.({ type: 'results-closed' });
+            instance.onBombArenaFinish?.();
+          }
         } else if (instance && !instance.returningToMessenger) {
           this.onBombArenaEvent?.({ type: 'interrupted' });
           this.onBombArenaInterrupted?.(instance);
@@ -1235,19 +1241,19 @@ export class DesktopApplications {
     const instance = this.attachWindow(key, id, 'BombArena.exe', 'arcade-game');
     instance.fileId = fileId;
     instance.onBombArenaEvent = (event) => this.onBombArenaEvent?.(event);
-    instance.onBombArenaFinish = ({ alreadyClosing = false } = {}) => {
+    instance.onBombArenaFinish = () => {
       if (instance.returningToMessenger) return false;
       const progress = this.virtualFilesystem?.progression?.data?.bombArena;
       const needsHandoff = progress?.expectedAt !== null && progress?.expectedAt !== undefined;
       if (needsHandoff && progress.status !== 'RESULTS_READY' && progress.status !== 'COMPLETED') return false;
+      if (needsHandoff && progress.status === 'RESULTS_READY' && !Number.isFinite(progress.resultsClosedAt)) return false;
 
       // Keep RESULTS_READY persisted until the existing group conversation is
-      // actually available. That state is also the recovery intent on reload.
+      // actually available. resultsClosedAt records the player's explicit
+      // dismissal and is the recovery intent if Messenger cannot open yet.
       instance.returningToMessenger = true;
       const activateGroup = () => {
-        const result = alreadyClosing
-          ? this.onBombArenaInterrupted?.(instance)
-          : this.onBombArenaContinue?.(instance);
+        const result = this.onBombArenaContinue?.(instance);
         return needsHandoff ? result === true : result !== false;
       };
       const activated = needsHandoff

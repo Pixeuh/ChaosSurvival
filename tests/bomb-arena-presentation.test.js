@@ -4,7 +4,7 @@ import { createBombArenaAudio } from '../src/minigames/bomb-arena/audio.js';
 import { createArenaEffects, renderBombArena, renderCharacterRoster, renderCollisionDiagnostics } from '../src/minigames/bomb-arena/presentation.js';
 import { createGame, getCollisionDebugData } from '../src/minigames/bomb-arena/engine.js';
 import { PLAYER_COLORS } from '../src/minigames/bomb-arena/player-colors.js';
-import { BOMB_ARENA_RESULTS_DISPLAY_MS, createResultsAutoReturn, isArenaTextEntryTarget } from '../src/minigames/bomb-arena/view.js';
+import { isArenaTextEntryTarget } from '../src/minigames/bomb-arena/view.js';
 
 function state() {
   return {
@@ -150,29 +150,10 @@ test('BombArena player identities use distinct team colors, including Turbo gree
   assert.equal(new Set(Object.values(PLAYER_COLORS)).size, 4);
 });
 
-test('BombArena results auto-return schedules one five-second transition and can be cancelled', () => {
-  const scheduled = [], cleared = [], returned = [];
-  const automatic = createResultsAutoReturn(() => returned.push('timer'), {
-    setTimeoutFn(callback, delay) { scheduled.push({ callback, delay }); return scheduled.length; },
-    clearTimeoutFn(id) { cleared.push(id); },
-  });
-  assert.equal(BOMB_ARENA_RESULTS_DISPLAY_MS, 5000);
-  assert.equal(automatic.start(), true);
-  assert.equal(automatic.start(), false);
-  assert.equal(scheduled.length, 1);
-  assert.equal(scheduled[0].delay, 5000);
-  scheduled[0].callback();
-  assert.deepEqual(returned, ['timer']);
-  assert.equal(automatic.start(), false, 'a completed timer cannot schedule a duplicate transition');
-
-  const cancelled = createResultsAutoReturn(() => returned.push('cancelled'), {
-    setTimeoutFn(callback, delay) { scheduled.push({ callback, delay }); return 2; },
-    clearTimeoutFn(id) { cleared.push(id); },
-  });
-  cancelled.start();
-  assert.equal(cancelled.cancel(), true);
-  assert.deepEqual(cleared, [2]);
-  assert.equal(cancelled.cancel(), false);
+test('BombArena has no automatic timer for dismissing final results', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/minigames/bomb-arena/view.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /setTimeout\s*\(|resultsAutoReturn|RESULTS_DISPLAY_MS/);
 });
 
 test('BombArena movement ignores focused buttons but still protects text-entry controls', () => {

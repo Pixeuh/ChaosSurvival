@@ -18,6 +18,7 @@ function freshBombArenaProgress() {
   return {
     status: 'NOT_STARTED',
     expectedAt: null,
+    resultsClosedAt: null,
     returnedToMessengerAt: null,
     completedRounds: 0,
     nextRound: 1,
@@ -230,7 +231,7 @@ function normalizeSaved(saved, story) {
   if (!record(saved.bombArena)) saved.bombArena = freshBombArenaProgress();
   else saved.bombArena = { ...freshBombArenaProgress(), ...saved.bombArena };
   const bombArena = saved.bombArena;
-  for (const key of ['expectedAt', 'returnedToMessengerAt', 'nextReminderAt', 'reminderBurstNextAt', 'downloadedAt', 'extractedAt', 'firstLaunchedAt', 'firstGameStartedAt', 'firstGameCompletedAt'])
+  for (const key of ['expectedAt', 'resultsClosedAt', 'returnedToMessengerAt', 'nextReminderAt', 'reminderBurstNextAt', 'downloadedAt', 'extractedAt', 'firstLaunchedAt', 'firstGameStartedAt', 'firstGameCompletedAt'])
     if (bombArena[key] !== null && !Number.isFinite(bombArena[key])) bombArena[key] = null;
   if (!['NOT_STARTED', 'IN_PROGRESS', 'RESULTS_READY', 'COMPLETED'].includes(bombArena.status))
     bombArena.status = 'NOT_STARTED';
@@ -724,8 +725,16 @@ export class Progression {
         state.firstGameRoundsPlayed = event.roundsPlayed;
       }
       changed = true;
+    } else if (event.type === 'results-closed') {
+      if (state.status !== 'RESULTS_READY' || !state.sessionWinner ||
+        !state.sessionScores || !state.sessionRoundsPlayed) return false;
+      if (state.resultsClosedAt === null) {
+        state.resultsClosedAt = now;
+        changed = true;
+      }
     } else if (event.type === 'returned-to-messenger') {
-      if (state.expectedAt === null || state.status !== 'RESULTS_READY') return false;
+      if (state.expectedAt === null || state.status !== 'RESULTS_READY' ||
+        !Number.isFinite(state.resultsClosedAt)) return false;
       state.status = 'COMPLETED';
       state.returnedToMessengerAt = now;
       state.nextReminderAt = null;

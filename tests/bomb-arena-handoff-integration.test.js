@@ -9,7 +9,6 @@ import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
 import { createGame, drainGameEvents, updateGame } from '../src/minigames/bomb-arena/engine.js';
 import { createDevelopmentProgressionSandbox, installDevelopmentBombArenaShortcut } from '../src/dev/finish-shortcut.js';
 import { createBombArenaHandoffRetrier } from '../src/story/bomb-arena-handoff.js';
-import { BOMB_ARENA_RESULTS_DISPLAY_MS, createResultsAutoReturn } from '../src/minigames/bomb-arena/view.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -130,7 +129,6 @@ test('Ctrl+Shift+B isolated save advances the real group offer, persists eight-r
   const resumedStory = createStoryHarness(resumed, () => now);
   let attempts = 0;
   let timerCallback;
-  let resultCallback;
   let timerId = 0;
   const retrier = createBombArenaHandoffRetrier({
     progression: resumed,
@@ -139,20 +137,14 @@ test('Ctrl+Shift+B isolated save advances the real group offer, persists eight-r
     setTimeoutFn: (callback, delay) => { assert.equal(delay, 1_000); timerCallback = callback; return ++timerId; },
     clearTimeoutFn: () => { timerCallback = null; },
   });
-  const resultsTimer = createResultsAutoReturn(() => retrier.attempt(), {
-    setTimeoutFn: (callback, delay) => {
-      assert.equal(delay, BOMB_ARENA_RESULTS_DISPLAY_MS);
-      resultCallback = callback;
-      return 'results-delay';
-    },
-    clearTimeoutFn() {},
-  });
-  assert.equal(resultsTimer.start(), true, 'final results start the automatic five-second return timer');
-  const elapsedResultsCallback = resultCallback;
-  resultCallback = null;
-  elapsedResultsCallback();
+  assert.equal(retrier.attempt(), true, 'a non-pending handoff is ignored while the player can review results');
   assert.equal(resumed.data.bombArena.status, 'RESULTS_READY');
-  assert.equal(attempts, 1, 'the first automatic group activation was attempted after results');
+  assert.equal(attempts, 0);
+  assert.equal(retrier.scheduled, false, 'an open results screen does not schedule an automatic return');
+  assert.equal(resumedStory.orchestrator.onBombArenaEvent({ type: 'results-closed' }), true,
+    'the player closing BombArena persists the handoff request');
+  assert.equal(retrier.attempt(), false, 'a failed Messenger activation keeps the requested handoff pending');
+  assert.equal(attempts, 1);
   assert.equal(retrier.scheduled, true);
   const retry = timerCallback;
   timerCallback = null;

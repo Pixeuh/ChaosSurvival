@@ -182,6 +182,7 @@ export class NarrativeOrchestrator {
   }
 
   bombArenaRedownloadEvents() {
+    if (['RESULTS_READY', 'COMPLETED'].includes(this.progression.data.bombArena?.status)) return [];
     const group = this.definitions['pixelgirl-super-plombier-group'];
     if (!group) return [];
     return Object.keys(this.progression.data.dialogues)
@@ -243,6 +244,7 @@ export class NarrativeOrchestrator {
   }
 
   scheduleBombArenaRedownload() {
+    if (['RESULTS_READY', 'COMPLETED'].includes(this.progression.data.bombArena?.status)) return null;
     const group = this.definitions['pixelgirl-super-plombier-group'];
     const thread = group && this.getGroupThread();
     if (!thread) return null;
@@ -259,6 +261,7 @@ export class NarrativeOrchestrator {
   }
 
   onBombArenaTransferDeclined(file, dialogueId) {
+    if (['RESULTS_READY', 'COMPLETED'].includes(this.progression.data.bombArena?.status)) return false;
     const recognizedDialogue =
       dialogueId === 'pixelgirl-super-plombier-group' ||
       /^bomb-arena-redownload-\d+$/.test(dialogueId ?? '');
@@ -277,6 +280,7 @@ export class NarrativeOrchestrator {
   }
 
   onVirtualFilesDeleted(change) {
+    if (['RESULTS_READY', 'COMPLETED'].includes(this.progression.data.bombArena?.status)) return false;
     if (change?.origin !== 'manual' || !Array.isArray(change.removedFileIds)) return false;
     const bombArenaIds = new Set([
       'downloads/bombarena.zip',
@@ -1017,7 +1021,8 @@ export class NarrativeOrchestrator {
 
   updateK7(now) {
     if (!this.flags.k7IntroductionStarted) return;
-    const definition = this.definitions['k7-intro'];
+    const definition = this.optionalConversations?.eventsFor('k7')
+      .find((event) => event.id === 'k7-intro');
     const state = definition && this.progression.data.dialogues[definition.id];
     const thread = state && this.getK7Thread();
     if (!thread || !Number.isFinite(state.receiveDueAt) || state.finished) return;

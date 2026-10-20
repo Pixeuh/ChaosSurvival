@@ -9,33 +9,7 @@ const KEY_MAP = Object.freeze({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'le
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 let fallbackMatchSequence = 0;
 const createMatchId = () => globalThis.crypto?.randomUUID?.() ?? `bomb-arena-${Date.now()}-${++fallbackMatchSequence}`;
-export const BOMB_ARENA_RESULTS_DISPLAY_MS = 5000;
 const DEV_BUILD = Boolean(import.meta.env?.DEV);
-
-export function createResultsAutoReturn(onReturn, {
-  setTimeoutFn = (callback, delay) => globalThis.setTimeout(callback, delay),
-  clearTimeoutFn = (id) => globalThis.clearTimeout(id),
-} = {}) {
-  let timer = null;
-  let started = false;
-  return {
-    start() {
-      if (started) return false;
-      started = true;
-      timer = setTimeoutFn(() => {
-        timer = null;
-        onReturn();
-      }, BOMB_ARENA_RESULTS_DISPLAY_MS);
-      return true;
-    },
-    cancel() {
-      if (timer === null) return false;
-      clearTimeoutFn(timer);
-      timer = null;
-      return true;
-    },
-  };
-}
 
 export function isArenaTextEntryTarget(target) {
   return Boolean(target?.closest?.('input,select,textarea,[contenteditable="true"]'));
@@ -80,7 +54,6 @@ export function mountBombArena(instance, manager) {
   let audioWasActive = false, goUntil = 0, matchId = null, completionReported = false;
   const pressed = new Set();
   const step = 1000 / 60;
-  const resultsAutoReturn = createResultsAutoReturn(() => instance.onBombArenaFinish?.());
 
   const renderHud = () => {
     const list = host.querySelector('.ba-player-list');
@@ -241,7 +214,6 @@ export function mountBombArena(instance, manager) {
               type: 'match-completed', matchId, difficulty: game.difficulty, winnerId: winner.id,
               scores: { ...game.wins }, roundsPlayed: game.round,
             });
-            resultsAutoReturn.start();
           }
         }
         chat.advance(step);
@@ -278,7 +250,7 @@ export function mountBombArena(instance, manager) {
   globalThis.addEventListener('keydown', onKeyDown); globalThis.addEventListener('keyup', onKeyUp);
   instance.onMinimize = () => { pressed.clear(); setPlayerControls(game, {}); audio.setPaused(true); audioWasActive = false; };
   instance.onRestore = () => { audioWasActive = false; if (game && manager.isActive(instance.element)) canvas.focus({ preventScroll: true }); };
-  instance.disposeGame = () => { disposed = true; resultsAutoReturn.cancel(); pressed.clear(); setPlayerControls(game, {}); CANCEL_RAF(frameId); observer.disconnect(); chat.dispose(); audio.dispose(); globalThis.removeEventListener('keydown', onKeyDown); globalThis.removeEventListener('keyup', onKeyUp); host.replaceChildren(); };
+  instance.disposeGame = () => { disposed = true; pressed.clear(); setPlayerControls(game, {}); CANCEL_RAF(frameId); observer.disconnect(); chat.dispose(); audio.dispose(); globalThis.removeEventListener('keydown', onKeyDown); globalThis.removeEventListener('keyup', onKeyUp); host.replaceChildren(); };
   if (instance.savedMatchResult) {
     game = createGame();
     game.phase = 'match-end';
@@ -294,7 +266,6 @@ export function mountBombArena(instance, manager) {
     game.matchWinnerId = instance.savedMatchResult.winnerId;
     menu.hidden = true;
     completionReported = true;
-    resultsAutoReturn.start();
     renderHud();
   }
   resizeCanvas(); frameId = RAF(animate); renderArena();

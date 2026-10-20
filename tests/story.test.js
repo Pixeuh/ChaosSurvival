@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Progression, validateStory } from '../src/story/progression.js';
 import { DialogueSession, validateDialogue, matches } from '../src/story/dialogue.js';
+import { completeBombArenaHandoff } from '../src/story/bomb-arena-handoff.js';
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const dialogue = JSON.parse(
   readFileSync(new URL('../src/dialogues/pixelgirl-intro.json', import.meta.url)),
@@ -72,6 +73,7 @@ test('BombArena milestones and match results persist once while old saves gain s
   assert.deepEqual(restored.data.bombArena, {
     status: 'NOT_STARTED',
     expectedAt: null,
+    resultsClosedAt: null,
     returnedToMessengerAt: null,
     completedRounds: 0,
     nextRound: 1,
@@ -200,7 +202,20 @@ test('BombArena blocks story progression until results are returned to Messenger
     scores: { justme: 1, pixelgirl: 2, turbo: 2, luna: 3 },
   }, 20), true);
   assert.equal(progression.isBombArenaBlockingStory(), true, 'the result screen alone does not unlock the story');
-  assert.equal(progression.recordBombArenaEvent({ type: 'returned-to-messenger' }, 30), true);
+  let activations = 0;
+  assert.equal(completeBombArenaHandoff({
+    progression,
+    onBombArenaEvent: (event) => progression.recordBombArenaEvent(event, 30),
+    activateGroup: () => { activations++; return true; },
+  }), false, 'the handoff cannot complete until the results window has been dismissed');
+  assert.equal(activations, 0, 'an open results window cannot activate Messenger early');
+  assert.equal(progression.recordBombArenaEvent({ type: 'results-closed' }, 30), true);
+  assert.equal(completeBombArenaHandoff({
+    progression,
+    onBombArenaEvent: (event) => progression.recordBombArenaEvent(event, 30),
+    activateGroup: () => { activations++; return true; },
+  }), true);
+  assert.equal(activations, 1);
   assert.equal(progression.isBombArenaBlockingStory(), false);
   assert.equal(progression.data.bombArena.status, 'COMPLETED');
 });

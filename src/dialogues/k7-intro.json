@@ -32,7 +32,7 @@
       { "speaker": "contact", "text": "celui dont je t'ai parlé hier", "delayMs": 500, "typingMs": 520 },
       { "speaker": "contact", "text": "...", "delayMs": 800, "typingMs": 220 },
       { "speaker": "contact", "text": "attends", "delayMs": 1100, "typingMs": 280 },
-      { "speaker": "contact", "text": "c'est pas toi à qui j'en ai parlé ?", "delayMs": 600, "typingMs": 650 }
+      { "speaker": "contact", "text": "c'est pas toi à qui j'en ai parlé ? dsl", "delayMs": 600, "typingMs": 650 }
     ], "next": "opening-common" },
     "hear-my-art": { "messages": [
       { "speaker": "contact", "text": "AAAAAAH enfin quelqu'un qui s'intéresse à mon art", "delayMs": 300, "typingMs": 900 },
@@ -46,11 +46,11 @@
       { "speaker": "contact", "text": "aaah je me suis trompé de conv dsl", "delayMs": 1500, "typingMs": 950 }
     ], "next": "opening-common" },
     "opening-common": { "messages": [
-      { "speaker": "contact", "text": "mais sinon.......", "delayMs": 650, "typingMs": 380 }
+      { "speaker": "contact", "text": "mais... sinon......", "delayMs": 650, "typingMs": 380 }
     ], "next": "player-activity" },
     "player-activity": {
       "messages": [
-        { "speaker": "contact", "text": " tu fais quoi toi ?", "delayMs": 500, "typingMs": 500 },
+        { "speaker": "contact", "text": " tfk ?", "delayMs": 500, "typingMs": 500 },
         { "speaker": "contact", "text": "à part survivre aux jeux éclatés de ce pc mdr", "delayMs": 600, "typingMs": 750 }
       ],
       "choices": [
@@ -273,7 +273,7 @@
       { "speaker": "contact", "text": "bonne idée", "delayMs": 500, "typingMs": 400 }
     ], "end": true },
     "see-you-reply": { "messages": [
-      { "speaker": "contact", "text": "a+ !!", "delayMs": 400, "typingMs": 300 }
+      { "speaker": "contact", "text": ":)", "delayMs": 400, "typingMs": 300 }
     ], "end": true }
   }
 }

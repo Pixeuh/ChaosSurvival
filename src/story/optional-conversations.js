@@ -5,6 +5,7 @@ export const OPTIONAL_CONVERSATIONS = Object.freeze([
     id: 'k7-intro',
     contactId: 'k7',
     optional: true,
+    deliveryPolicy: 'progressive',
     availableFrom: { flag: 'k7IntroductionStarted' },
     expiresAt: { sequence: 'act2-start' },
     activityGraceMs: 30_000,
@@ -44,7 +45,9 @@ export class OptionalConversations {
   eventsFor(contactId) {
     return this.entries
       .filter((entry) => entry.contactId === contactId && this.isAvailable(entry.id))
-      .map((entry) => this.definitions[entry.id])
+      .map((entry) => this.definitions[entry.id]
+        ? { ...this.definitions[entry.id], deliveryPolicy: entry.deliveryPolicy }
+        : null)
       .filter(Boolean);
   }
 

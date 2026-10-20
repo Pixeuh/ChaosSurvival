@@ -12,6 +12,7 @@ const story = {
 };
 const definition = {
   id: 'intro',
+  deliveryPolicy: 'progressive',
   version: 1,
   contact: { name: 'Friend', nickname: 'xX_Friend_Xx', status: 'En ligne' },
   player: { nickname: 'Me' },
@@ -87,8 +88,12 @@ test('scheduled messages and typing deadlines survive closed/reduced windows and
   const loaded = new Progression(story, storage);
   const reopened = new ConversationThread('friend', loaded, () => [definition]);
   assert.equal(reopened.typingContact(1700).nickname, 'xX_Friend_Xx');
-  reopened.receive(3200); // No window is needed for receiving.
+  reopened.receive(3200); // No window is needed for receiving; overdue messages do not flush together.
   assert.equal(reopened.typingContact(3200), null);
+  assert.equal(reopened.state.history.length, 1);
+  assert.equal(loaded.data.dialogues.intro.receiveDueAt, 4600,
+    'the next message is scheduled from the actual receipt time after reload');
+  reopened.receive(4600);
   assert.equal(reopened.state.history.length, 2);
   assert.equal(loaded.data.choices.length, 0);
   assert.deepEqual(
