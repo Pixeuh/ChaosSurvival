@@ -866,45 +866,6 @@ export class NarrativeOrchestrator {
     }
   }
 
-  updatePixelGirlWizzBrawl(now) {
-    if (
-      !['A', 'B'].includes(this.flags.superPlombierPixelCase) ||
-      this.flags.pixelGirlSuperPlombierPlayerWizzSent !== true
-    )
-      return;
-    const state = this.progression.data.dialogues['pixelgirl-super-plombier-wizz'];
-    const wizzReply = state?.transcript?.findLast((message) =>
-      ['BATAILLE DE WIZZ !!!', 'bataille de wizz !!!!'].includes(message.text),
-    );
-    if (!wizzReply) return;
-    let count = this.flags.pixelGirlSuperPlombierReplyWizzCount ?? 0;
-    if (!Number.isInteger(count) || count < 0 || count > 2) count = 0;
-    let dueAt = this.flags.pixelGirlSuperPlombierReplyWizzDueAt;
-    if (!Number.isFinite(dueAt)) {
-      dueAt = (wizzReply.receivedAt ?? now) + 600;
-      this.flags.pixelGirlSuperPlombierReplyWizzDueAt = dueAt;
-      this.progression.save();
-    }
-    while (count < 2 && now >= dueAt) {
-      if (
-        !this.sendNarrativeWizz(
-          'pixelgirl',
-          `pixelgirl-super-plombier-battle-${count + 1}`,
-          'contact',
-          dueAt,
-        )
-      )
-        return;
-      count++;
-      this.flags.pixelGirlSuperPlombierReplyWizzCount = count;
-      if (count < 2) {
-        dueAt += 900;
-        this.flags.pixelGirlSuperPlombierReplyWizzDueAt = dueAt;
-      } else delete this.flags.pixelGirlSuperPlombierReplyWizzDueAt;
-      this.progression.save();
-    }
-  }
-
   pixelGirlPostDialogueFinished() {
     return (
       this.isDialogueFinished('pixelgirl-smiley-victory', 'bon jreviens :3') &&
@@ -1179,7 +1140,6 @@ export class NarrativeOrchestrator {
     this.prepareSuperPlombierTurbo();
     this.updateSuperPlombierWizzes(now);
     this.updatePixelGirlReplyReminders(now);
-    this.updatePixelGirlWizzBrawl(now);
     this.updateGroup(now);
     this.updateBombArenaReminders(now);
   }

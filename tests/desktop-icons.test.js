@@ -25,6 +25,21 @@ function memory() {
   };
 }
 
+function classList(initial = []) {
+  const tokens = new Set(initial);
+  return {
+    add(...names) { names.forEach((name) => tokens.add(name)); },
+    remove(...names) { names.forEach((name) => tokens.delete(name)); },
+    contains(name) { return tokens.has(name); },
+    toggle(name, force) {
+      const shouldAdd = force === undefined ? !tokens.has(name) : Boolean(force);
+      if (shouldAdd) tokens.add(name);
+      else tokens.delete(name);
+      return shouldAdd;
+    },
+  };
+}
+
 test('the arcade EXE keeps the legacy music shortcut position without changing other saved icon IDs', () => {
   assert.equal(
     DesktopIcons.prototype.id.call({}, { dataset: { shortcut: 'arcade' } }),
@@ -236,18 +251,23 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
 });
 
 test('Delete removes selected desktop shortcuts through the same removal path and ignores text inputs', () => {
+  const desktop = { inert: false };
   const shortcut = {
     dataset: { fileId: 'downloads/notes.txt' },
     classList: { contains: (name) => name === 'desktop-virtual-shortcut' },
-    closest(selector) { return selector.includes('.desktop-icons, .desktop-files') ? this : null; },
+    closest(selector) {
+      if (selector.includes('[data-shortcut]') || selector.includes('[data-file-id]')) return this;
+      if (selector.includes('.desktop-icons, .desktop-files')) return desktop;
+      return null;
+    },
   };
   const calls = [];
   const icons = Object.assign(Object.create(DesktopIcons.prototype), {
-    desktop: { inert: false },
+    desktop,
     selectedIds: new Set(['file:downloads/notes.txt']),
     buttons: () => [shortcut],
     backgroundHit: () => false,
-    removeMany(buttons) { calls.push(buttons); return true; },
+    removeMany(buttons) { calls.push(buttons); return buttons.length > 0; },
   });
   let prevented = false;
   let stopped = false;
@@ -262,6 +282,9 @@ test('Delete removes selected desktop shortcuts through the same removal path an
   assert.equal(stopped, true);
   assert.equal(icons.deleteSelectionFromKeyboard({ ...event, target: { tagName: 'INPUT' } }), false);
   assert.equal(calls.length, 1, 'Delete remains ordinary text editing in input fields');
+  icons.selectedIds.clear();
+  assert.equal(icons.deleteSelectionFromKeyboard(event), false, 'Delete does nothing without a selected icon');
+  assert.deepEqual(calls.at(-1), []);
 });
 
 test('desktop file shortcut deduplication uses target paths and includes the initial ChaosSurvival.exe icon', (t) => {
@@ -434,14 +457,14 @@ test('DesktopIcons applies the initial cells as actual aligned CSS coordinates',
     attrs: {},
     offsetWidth: 100,
     offsetHeight: 90,
-    classList: { add() {}, remove() {} },
+    classList: classList(),
     setAttribute(name, value) { this.attrs[name] = value; },
     closest() { return this; },
     setPointerCapture() {},
     hasPointerCapture() { return false; },
   }));
   const desktop = {
-    classList: { add() {} },
+    classList: classList(),
     addEventListener() {},
     querySelectorAll: () => buttons,
     querySelector: () => ({ getBoundingClientRect: () => ({ height: 40, top: 760 }) }),
@@ -549,7 +572,7 @@ test('dragging snaps, persists, rejects occupied cells, suppresses accidental cl
     attrs: {},
     offsetWidth: 100,
     offsetHeight: 90,
-    classList: { add() {}, remove() {} },
+    classList: classList(),
     setAttribute(key, value) {
       this.attrs[key] = value;
     },
@@ -737,7 +760,7 @@ test('empty-area dragging selects icons without moving them and clears the box o
     attrs: {},
     offsetWidth: 100,
     offsetHeight: 90,
-    classList: { add() {}, remove() {} },
+    classList: classList(),
     setAttribute(key, value) {
       this.attrs[key] = value;
     },

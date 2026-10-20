@@ -18,7 +18,7 @@
     "after-match": {
       "messages": [
         { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "AAAAAA", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 350, "typingMs": 300 },
-        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "GG JUSTME", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 250, "typingMs": 350 },
+        { "speaker": "contact", "author": "xX_PixelGirl_Xx", "text": "GG !!!", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 250, "typingMs": 350 },
         { "speaker": "contact", "author": "Turb0", "text": "MAIS NAN", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 450, "typingMs": 300 },
         { "speaker": "contact", "author": "Turb0", "text": "j'y crois pas mdr", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 250, "typingMs": 400 },
         { "speaker": "contact", "author": "°•.LuNa.°•", "text": "gg :)", "when": { "flag": "bombArenaWinner", "equals": "justme" }, "delayMs": 500, "typingMs": 300 },

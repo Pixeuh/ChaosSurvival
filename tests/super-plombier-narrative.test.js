@@ -424,7 +424,7 @@ test('BombArena post-match dialogue branches on the saved final winner and conve
   const definition = definitions['bomb-arena-postmatch'];
   const branches = {
     justme: [
-      ['xX_PixelGirl_Xx', 'AAAAAA'], ['xX_PixelGirl_Xx', 'GG JUSTME'],
+      ['xX_PixelGirl_Xx', 'AAAAAA'], ['xX_PixelGirl_Xx', 'GG !!!'],
       ['Turb0', 'MAIS NAN'], ['Turb0', "j'y crois pas mdr"], ['°•.LuNa.°•', 'gg :)'],
       ['Turb0', 'ouais bon gg'], ['xX_PixelGirl_Xx', 'mdrrrrr turbo il est dégouté'],
       ['Turb0', 'même pas'],
@@ -684,12 +684,11 @@ test('case B preserves the prior PixelGirl conversation and does not unlock the 
   assert.equal(progression.data.flags.superPlombierPixelCase, 'B');
   progression.data.flags.superPlombierWizzCount = 3;
   progression.data.flags.superPlombierNextWizzAt = 20_000;
-  progression.data.flags.pixelGirlSuperPlombierReplyWizzDueAt = 21_000;
   progression.data.dialogues['turbo-super-plombier'] = {
     transcript: [{ speaker: 'contact', receivedAt: 1_000 }],
   };
   orchestrator.updateSuperPlombierWizzes(100_000);
-  orchestrator.updatePixelGirlWizzBrawl(100_000);
+  orchestrator.update(100_000);
   assert.equal(sentWizzes.length, 0);
   assert.equal(progression.data.flags.superPlombierNextWizzAt, undefined);
   assert.equal(progression.data.dialogues['pixelgirl-smiley-victory'], previousDialogue);
@@ -729,6 +728,26 @@ test('case B preserves the prior PixelGirl conversation and does not unlock the 
   resumed.updateSuperPlombierWizzes(500_000);
   assert.equal(restored.data.flags.superPlombierPixelCase, 'B');
   assert.equal(restoredWizzCount, 0);
+});
+
+test('an old saved Wizz-battle marker and deadline are inert', () => {
+  const { progression, orchestrator, sentWizzes } = fixture();
+  progression.data.flags.superPlombierPixelCase = 'A';
+  progression.data.flags.pixelGirlSuperPlombierPlayerWizzSent = true;
+  progression.data.flags.pixelGirlSuperPlombierReplyWizzCount = 0;
+  progression.data.flags.pixelGirlSuperPlombierReplyWizzDueAt = 1_600;
+  progression.data.dialogues['pixelgirl-super-plombier-wizz'] = {
+    node: 'closing',
+    cursor: 0,
+    finished: false,
+    transcript: [{ speaker: 'contact', text: 'BATAILLE DE WIZZ !!!', receivedAt: 1_000 }],
+  };
+
+  orchestrator.update(50_000);
+
+  assert.deepEqual(sentWizzes, [], 'loading legacy battle state does not replay NPC Wizzes');
+  assert.equal(progression.data.flags.pixelGirlSuperPlombierReplyWizzDueAt, 1_600,
+    'legacy saved timing data remains untouched and has no active consumer');
 });
 
 test('case B sends exactly three saved reminder Wizzes at 20, 35 and 45 seconds, then stops after a reply', () => {
@@ -872,22 +891,15 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
       assert.deepEqual(sentWizzes.map(([, eventId, speaker]) => [eventId, speaker]), [
         ['pixelgirl-super-plombier-player-wizz', 'player'],
       ]);
-      assert.ok(session.state.transcript.some((message) => message.text === 'AHAHAHAHA'));
-      assert.ok(session.state.transcript.some((message) => message.text === 'BATAILLE DE WIZZ !!!'));
-      session.state.transcript.at(-1).receivedAt = 10_000;
+      assert.ok(session.state.transcript.some((message) => message.text === 'quoi, tu veux encore des wizz :p ??'));
       session.persist();
-      orchestrator.updatePixelGirlWizzBrawl(10_599);
-      assert.equal(sentWizzes.length, 1);
-      orchestrator.updatePixelGirlWizzBrawl(10_600);
-      orchestrator.updatePixelGirlWizzBrawl(11_499);
-      assert.equal(sentWizzes.length, 2);
-      orchestrator.updatePixelGirlWizzBrawl(11_500);
-      orchestrator.updatePixelGirlWizzBrawl(20_000);
-      assert.deepEqual(sentWizzes.map(([, eventId, speaker]) => [eventId, speaker]), [
-        ['pixelgirl-super-plombier-player-wizz', 'player'],
-        ['pixelgirl-super-plombier-battle-1', 'contact'],
-        ['pixelgirl-super-plombier-battle-2', 'contact'],
-      ]);
+      orchestrator.update(20_000);
+      assert.equal(sentWizzes.length, 1, 'the current dialogue does not start the removed Wizz battle');
+      assert.equal(
+        session.state.transcript.some((message) => /bataille de wizz/i.test(message.text)),
+        false,
+        'no removed battle line is present in the current dialogue',
+      );
     } else {
       assert.deepEqual(sentWizzes, []);
     }
@@ -910,7 +922,7 @@ test('PixelGirl Wizz dialogue preserves its three opening choices and completes 
       false,
     );
     const countAtEnd = sentWizzes.length;
-    orchestrator.updatePixelGirlWizzBrawl(100_000);
+    orchestrator.update(100_000);
     assert.equal(sentWizzes.length, countAtEnd);
   }
 });

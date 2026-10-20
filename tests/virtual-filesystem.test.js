@@ -110,13 +110,19 @@ test('virtual files have stable path IDs, protect system files, delete permanent
 });
 
 test('navigable folders have stable virtual targets for desktop shortcuts without changing folder delete permissions', () => {
-  const filesystem = new VirtualFilesystem(new Progression(story, memory()));
-  const folder = filesystem.getLocation('folder').items.find((item) => item.location === 'shared-profile');
+  const disk = memory();
+  const filesystem = new VirtualFilesystem(new Progression(story, disk));
+  const folder = filesystem.getLocation('profiles').items.find((item) => item.location === 'shared-profile');
   assert.ok(folder);
-  assert.equal(folder.fileId, virtualFileId('folder', folder.name));
+  assert.equal(folder.name, 'All Users');
+  assert.equal(folder.fileId, virtualFileId('profiles', folder.name));
   assert.equal(folder.directory, true);
   assert.equal(filesystem.exists(folder.fileId), true);
   assert.equal(filesystem.canDelete(folder.fileId), false, 'structural folders keep their existing protection');
+  const reloadedFilesystem = new VirtualFilesystem(new Progression(story, disk));
+  assert.equal(reloadedFilesystem.getFile(folder.fileId)?.location, 'shared-profile',
+    'the virtual folder target remains stable after reloading');
+  assert.equal(reloadedFilesystem.getLocation('shared-profile').parent, 'profiles');
 });
 
 test('every received desktop file is a removable shortcut, not a second deletable file', (t) => {
@@ -1001,7 +1007,8 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   const dispatch = (type, event) => {
     for (const listener of eventListeners.get(type) ?? []) listener(event);
   };
-  const progression = new Progression(story, memory());
+  const disk = memory();
+  const progression = new Progression(story, disk);
   const transfer = progression.receiveFile({
     id: 'super-mega-game',
     name: 'SUPER_MEGA_GAME.exe',
@@ -1306,23 +1313,52 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   assert.equal(extractAction.hidden, false);
   assert.equal(filesystem.extractBombArena(archiveId).ok, true);
   desktopFiles.render();
-  const bombArenaShortcut = () => desktopItems.children.filter((item) => item.className.includes('desktop-virtual-shortcut'));
-  assert.equal(bombArenaShortcut().length, 1);
-  assert.equal(bombArenaShortcut()[0].children.at(-1).textContent, 'BombArena');
-  bombArenaShortcut()[0].handlers.dblclick();
+  const bombArenaShortcuts = () => desktopItems.children.filter((item) => item.className.includes('desktop-virtual-shortcut'));
+  const bombArenaExecutableId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
+  assert.deepEqual(
+    bombArenaShortcuts().map((item) => item.dataset.fileId).sort(),
+    [archiveId, bombArenaExecutableId].sort(),
+    'the archive and extracted executable have distinct virtual targets and each gets one shortcut',
+  );
+  assert.equal(bombArenaShortcuts().filter((item) => item.dataset.fileId === archiveId).length, 1);
+  assert.equal(bombArenaShortcuts().filter((item) => item.dataset.fileId === bombArenaExecutableId).length, 1);
+  const reloadedProgression = new Progression(story, disk);
+  const reloadedFilesystem = new VirtualFilesystem(reloadedProgression);
+  const reloadedNav = new FakeElement();
+  const reloadedDesktop = new FakeElement();
+  reloadedDesktop.querySelector = (selector) => selector === '#desktop-files' ? reloadedNav : null;
+  new DesktopFiles(reloadedDesktop, reloadedProgression, () => {}, () => {}, reloadedFilesystem).render();
+  assert.deepEqual(
+    reloadedNav.children.map((item) => item.dataset.fileId).sort(),
+    [archiveId, bombArenaExecutableId].sort(),
+    'reloading preserves exactly one shortcut for each distinct archive and executable target',
+  );
+  const executableShortcut = bombArenaShortcuts().find((item) => item.dataset.fileId === bombArenaExecutableId);
+  assert.equal(executableShortcut.children.at(-1).textContent, 'BombArena');
+  executableShortcut.handlers.dblclick();
   assert.equal(openedDesktopFiles.at(-1).virtualApp, 'bomb-arena');
   assert.equal(filesystem.deleteFile(virtualFileId('bomb-arena-folder', 'BombArena.exe')).ok, true);
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 0);
+  assert.deepEqual(bombArenaShortcuts().map((item) => item.dataset.fileId), [archiveId],
+    'deleting the executable leaves the separate archive shortcut intact');
   assert.equal(filesystem.extractBombArena(archiveId).ok, true);
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 1, 're-extraction after deleting only the EXE restores the shortcut');
+  assert.deepEqual(
+    bombArenaShortcuts().map((item) => item.dataset.fileId).sort(),
+    [archiveId, bombArenaExecutableId].sort(),
+    're-extraction after deleting only the EXE restores exactly its shortcut',
+  );
   assert.equal(filesystem.deleteFile(virtualFileId('downloads', 'BombArena')).ok, true);
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 0, 'removing the EXE removes the derived desktop shortcut');
+  assert.deepEqual(bombArenaShortcuts().map((item) => item.dataset.fileId), [archiveId],
+    'removing the extracted folder removes only the executable shortcut');
   assert.equal(filesystem.extractBombArena(archiveId).ok, true);
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 1, 'extracting again restores only one shortcut');
+  assert.deepEqual(
+    bombArenaShortcuts().map((item) => item.dataset.fileId).sort(),
+    [archiveId, bombArenaExecutableId].sort(),
+    'repeated extraction does not create duplicate targets',
+  );
   app.render(first, filesystem.getLocation('downloads'));
   const currentArchiveRow = first.element.querySelector('.explorer-items').children.find(
     (item) => item.dataset.fileId === archiveId,
@@ -1333,7 +1369,8 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   first.explorerConfirmation.querySelector('[data-delete-answer="yes"]').handlers.click();
   assert.equal(filesystem.exists(archiveId), false);
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 1, 'the shortcut remains when only the archive is deleted');
+  assert.deepEqual(bombArenaShortcuts().map((item) => item.dataset.fileId), [bombArenaExecutableId],
+    'deleting only the archive leaves the executable shortcut');
   const protectedFile = filesystem.getLocation('windows').items.find((item) => item.name === 'win.ini');
   const systemExplorer = makeExplorer();
   app.render(systemExplorer, filesystem.getLocation('windows'));
@@ -1350,11 +1387,11 @@ test('explorer selects files, provides XP properties and confirmation, and refre
   globalThis.document.activeElement = protectedRow;
   assert.equal(dispatchDelete(protectedRow), false, 'Delete cannot bypass protected-file permissions');
   assert.equal(filesystem.exists(protectedFile.fileId), true);
-  const bombArenaExecutableId = virtualFileId('bomb-arena-folder', 'BombArena.exe');
   assert.equal(filesystem.exists(bombArenaExecutableId), true);
   progression.data.desktopIconsRemoved = [`file:${bombArenaExecutableId}`];
   desktopFiles.render();
-  assert.equal(bombArenaShortcut().length, 0, 'a removed narrative shortcut stays hidden across desktop refreshes');
+  assert.equal(bombArenaShortcuts().some((item) => item.dataset.fileId === bombArenaExecutableId), false,
+    'a removed narrative shortcut stays hidden across desktop refreshes');
   assert.equal(filesystem.exists(bombArenaExecutableId), true, 'removing its shortcut preserves the virtual executable');
   for (const instance of [first, second, systemExplorer]) app.teardownExplorer(instance);
   assert.equal(listeners.size, 0);

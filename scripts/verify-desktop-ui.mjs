@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import electron from 'electron';
@@ -55,7 +56,7 @@ let browserServer;
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, '.qa');
 await mkdir(output, { recursive: true });
-const profile = await mkdtemp(path.join(output, 'desktop-profile-'));
+const profile = await mkdtemp(path.join(tmpdir(), 'chaos-survival-desktop-profile-'));
 const listener = createServer().listen(0, '127.0.0.1');
 await once(listener, 'listening');
 const port = listener.address().port;
@@ -71,15 +72,39 @@ if (minigameOnly) {
   });
 }
 const gameUrl = minigameOnly ? browserServer.resolvedUrls.local[0] : 'chaos://game/';
-const executable = minigameOnly
-  ? 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
-  : electron;
+const chromiumCandidates = [
+  process.env.CHAOS_CHROMIUM_PATH,
+  'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+].filter(Boolean);
+let chromiumExecutable = null;
+if (minigameOnly) {
+  for (const candidate of chromiumCandidates) {
+    try {
+      await access(candidate);
+      chromiumExecutable = candidate;
+      break;
+    } catch {
+      // Try the next locally installed browser.
+    }
+  }
+  if (!chromiumExecutable) {
+    throw new Error(
+      'Aucun navigateur Chromium trouvé. Définissez CHAOS_CHROMIUM_PATH ou installez Chrome/Edge.',
+    );
+  }
+}
+const executable = minigameOnly ? chromiumExecutable : electron;
 const child = spawn(
   executable,
   minigameOnly
     ? [
         '--headless=new',
         '--disable-gpu',
+        '--disable-gpu-compositing',
+        '--disable-features=Vulkan,WebGPU,SkiaGraphite',
+        '--use-gl=angle',
+        '--use-angle=swiftshader',
         '--no-first-run',
         '--no-default-browser-check',
         `--remote-debugging-port=${port}`,
@@ -111,7 +136,7 @@ function command(method, params = {}) {
     const id = ++sequence;
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error(`CDP : ${method} ${params.expression ?? ''}`));
+      reject(new Error(`CDP : ${method} ${params.expression ?? ''}. ${stderr}`));
     }, 10000);
     pending.set(id, { resolve, reject, timer });
     socket.send(JSON.stringify({ id, method, params }));
@@ -536,11 +561,33 @@ async function capture(name) {
   await writeFile(path.join(output, name), Buffer.from(shot.data, 'base64'));
 }
 async function verifyExplorer() {
-  await click('#menu-play');
+  await physicalClick('#menu-play');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='desktop'"), 'desktop');
-  await doubleClick('#desktop > .desktop-icons [data-shortcut=computer]');
+  assert.deepEqual(
+    await evaluate(
+      "['computer','folder','bin'].map(kind=>document.querySelectorAll(`#desktop > .desktop-icons [data-shortcut=${kind}]`).length)",
+    ),
+    [1, 1, 1],
+    'the three primary Windows XD system icons are present once',
+  );
+  await physicalClick('#desktop > .desktop-icons [data-shortcut=computer]', true);
   const windowSelector = '.popup-desktopapp:has(.explorer-menu)';
   await until(() => evaluate(`!!document.querySelector(${JSON.stringify(windowSelector)})`), 'Poste de travail');
+  const taskSelector = '.desktop-app-task[data-app=computer]';
+  await physicalClick(`${windowSelector} .msn-minimize`);
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(windowSelector)}).hidden`), true,
+    'the active Explorer window minimizes instead of closing');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(taskSelector)}) !== null`), true,
+    'the minimized window stays on the taskbar');
+  await physicalClick(taskSelector);
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(windowSelector)}).hidden`), false,
+    'the taskbar restores the minimized Explorer window');
+  await physicalClick(taskSelector);
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(windowSelector)}).hidden`), true,
+    'clicking the active taskbar button minimizes the window');
+  await physicalClick(taskSelector);
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(windowSelector)}).hidden`), false,
+    'clicking the minimized taskbar button restores the window');
   assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('${windowSelector} .explorer-toolbar-button')).map(button=>({label:button.querySelector('span')?.textContent,icon:!!button.querySelector('svg')}))`), [
     { label: 'Précédente', icon: true }, { label: 'Suivante', icon: true },
     { label: 'Remonter', icon: true }, { label: 'Rechercher', icon: true },
@@ -563,6 +610,16 @@ async function verifyExplorer() {
   await click(firstItem);
   assert.ok(await evaluate(`document.querySelector('${windowSelector} .explorer-side-section[data-section=details]').textContent.includes('Nom :')`),
     'the details section reacts to an item selection');
+  await physicalRightClick(firstItem);
+  assert.equal(
+    await evaluate(`!!document.querySelector('${windowSelector} .explorer-context-menu:not([hidden])')`),
+    true,
+    'a real right-click opens the selected item context menu',
+  );
+  await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' });
+  await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+  assert.equal(await evaluate(`document.querySelector('${windowSelector} .explorer-context-menu').hidden`), true,
+    'Escape closes the context menu cleanly');
   await capture('explorer-toolbar-xp.png');
   await click(`${windowSelector} [data-explorer-menu=tools]`);
   await click('.explorer-command-menu [data-command=folder-options]');
@@ -588,8 +645,13 @@ async function verifyExplorer() {
   await capture('explorer-icons-search.png');
   await evaluate(`(()=>{const i=document.querySelector('${windowSelector} .explorer-search-input');i.value='no-such-virtual-file';document.querySelector('${windowSelector} .explorer-search-submit').click();})()`);
   assert.ok(await evaluate(`document.querySelector('${windowSelector} .explorer-empty').textContent.includes('Aucun fichier')`));
+  await physicalClick(`${windowSelector} .close-button`);
+  await until(
+    () => evaluate(`!document.querySelector(${JSON.stringify(windowSelector)}) && !document.querySelector(${JSON.stringify(taskSelector)})`),
+    'clean Explorer close',
+  );
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
-  console.log('OK: Chromium Explorer toolbar/menu, permanent XP task pane, real sidebar navigation, selection details, folder options, saved extension preference, icon-only view, virtual address and search. Screenshots saved in .qa.');
+  console.log('OK: Chromium desktop/system icons, Explorer minimize/restore/taskbar toggle, context menu, close cleanup, toolbar/menu, XP task pane, navigation, selection details, folder options, icon-only view, virtual address and search. Screenshots saved in .qa.');
 }
 try {
   let target;
@@ -850,8 +912,12 @@ try {
   await new Promise((resolve) =>
     browserServer ? browserServer.httpServer.close(resolve) : resolve(),
   );
-  const relative = path.relative(output, profile);
-  assert.ok(relative.startsWith('desktop-profile-') && !relative.includes(path.sep));
+  const relative = path.relative(tmpdir(), profile);
+  assert.ok(
+    path.basename(relative).startsWith('chaos-survival-desktop-profile-') &&
+      !relative.startsWith('..') &&
+      !path.isAbsolute(relative),
+  );
   await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
@@ -874,6 +940,26 @@ async function physicalClick(selector, twice = false) {
         clickCount: count,
       });
   }
+}
+
+async function physicalRightClick(selector) {
+  const point = await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    const rect = element.getBoundingClientRect();
+    const x = rect.x + rect.width / 2, y = rect.y + rect.height / 2;
+    return {x, y, hit: element.contains(document.elementFromPoint(x, y)),
+      blocker: document.elementFromPoint(x, y)?.id};
+  })()`);
+  assert.ok(point.hit, `Right-click intercepted for ${selector} by ${point.blocker}`);
+  for (const type of ['mousePressed', 'mouseReleased'])
+    await command('Input.dispatchMouseEvent', {
+      type,
+      x: point.x,
+      y: point.y,
+      button: 'right',
+      buttons: type === 'mousePressed' ? 2 : 0,
+      clickCount: 1,
+    });
 }
 
 async function verifyMenuLayout() {

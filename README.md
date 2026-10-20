@@ -121,6 +121,16 @@ est vide. Les contenus fictifs se configurent dans `src/config/desktop-apps.json
 `npm run verify:desktop` effectue une vérification ciblée de ces interfaces dans
 Electron avec un profil isolé, après `npm run build`, sans produire de portable.
 
+Pour le parcours réel du bureau et de Poste de travail dans Chromium, lancer
+`npm run verify:desktop:browser` après le build. Chrome est cherché avant Edge ;
+`CHAOS_CHROMIUM_PATH` permet d'indiquer un autre exécutable Chromium. Le profil
+isolé est créé dans le dossier temporaire Windows puis supprimé. Le parcours
+vérifie les icônes système, la réduction/restauration par la barre des tâches,
+le menu contextuel et la fermeture propre de l'explorateur. Si le navigateur
+headless est bloqué par une politique GPU/sandbox de l'environnement, exécuter
+la même commande depuis une session Windows autorisée avec Chrome ou Edge ; les
+scripts ne changent ni les ACL ni les paramètres de sécurité.
+
 Les disques du Poste de travail utilisent l'arborescence fictive de
 `src/config/filesystem.json`. Les boutons **Précédente**, **Remonter** et
 **Poste de travail** naviguent entre les dossiers ; le chemin courant reste
