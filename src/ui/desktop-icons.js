@@ -210,6 +210,7 @@ export class DesktopIcons {
         },
         true,
       );
+    desktop.addEventListener('keydown', (event) => this.deleteSelectionFromKeyboard(event));
     this.observer = new ResizeObserver(() => this.refresh());
     this.observer.observe(desktop);
     this.refresh();
@@ -241,6 +242,20 @@ export class DesktopIcons {
   remove(button) {
     return this.removeMany([button]);
   }
+  deleteSelectionFromKeyboard(event) {
+    if (
+      event.key !== 'Delete' || event.repeat || event.altKey || event.ctrlKey ||
+      event.metaKey || event.shiftKey || this.desktop.inert ||
+      (event.target?.tagName && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) ||
+      event.target?.isContentEditable ||
+      (!this.button(event.target) && !this.backgroundHit(event.target))
+    ) return false;
+    const selected = this.buttons().filter((button) => this.selectedIds.has(this.id(button)));
+    if (!this.removeMany(selected)) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  }
   removeMany(buttons) {
     const ids = [...new Set(buttons
       .filter((button) => button?.dataset?.shortcut || button?.classList?.contains('desktop-virtual-shortcut'))
@@ -260,6 +275,59 @@ export class DesktopIcons {
     this.progression.save();
     this.refresh();
     return true;
+  }
+  removeDeletedTargets(fileIds) {
+    const targets = new Set((Array.isArray(fileIds) ? fileIds : [fileIds])
+      .filter((fileId) => typeof fileId === 'string')
+      .map((fileId) => fileId.toLowerCase()));
+    if (!targets.size) return false;
+    const shortcuts = Array.isArray(this.progression.data.desktopShortcuts)
+      ? this.progression.data.desktopShortcuts
+      : [];
+    const removedRecords = shortcuts.filter((shortcut) =>
+      typeof shortcut?.targetFileId === 'string' && targets.has(shortcut.targetFileId.toLowerCase()),
+    );
+    const removedIds = new Set(removedRecords.map((shortcut) => `shortcut:${shortcut.id}`));
+    const previousShortcuts = this.progression.data.desktopShortcuts;
+    const previousPositions = this.progression.data.desktopIcons;
+    const previousTombstones = this.progression.data.desktopIconsRemoved;
+    const positions = { ...(previousPositions ?? {}) };
+    for (const target of targets) delete positions[`file:${target}`];
+    for (const id of removedIds) delete positions[id];
+    const oldTombstones = Array.isArray(previousTombstones) ? previousTombstones : [];
+    const tombstones = oldTombstones.filter((id) =>
+      ![...targets].some((target) => id === `file:${target}`) && !removedIds.has(id),
+    );
+    const keptShortcuts = shortcuts.filter((shortcut) => !removedRecords.includes(shortcut));
+    if (keptShortcuts.length === shortcuts.length &&
+      Object.keys(positions).length === Object.keys(previousPositions ?? {}).length &&
+      tombstones.length === oldTombstones.length) return false;
+    this.progression.data.desktopShortcuts = keptShortcuts;
+    this.progression.data.desktopIcons = positions;
+    this.progression.data.desktopIconsRemoved = tombstones;
+    if (!this.progression.save()) {
+      this.progression.data.desktopShortcuts = previousShortcuts;
+      this.progression.data.desktopIcons = previousPositions;
+      this.progression.data.desktopIconsRemoved = previousTombstones;
+      return false;
+    }
+    this.saved = positions;
+    for (const id of removedIds) this.selectedIds.delete(id);
+    for (const target of targets) this.selectedIds.delete(`file:${target}`);
+    return true;
+  }
+  pruneMissingFileTargets() {
+    if (!this.virtualFilesystem) return false;
+    const targets = new Set();
+    for (const shortcut of this.progression.data.desktopShortcuts ?? [])
+      if (typeof shortcut?.targetFileId === 'string' && !this.virtualFilesystem.exists(shortcut.targetFileId))
+        targets.add(shortcut.targetFileId.toLowerCase());
+    for (const id of this.removedIds())
+      if (typeof id === 'string' && id.startsWith('file:')) {
+        const target = id.slice('file:'.length);
+        if (!this.virtualFilesystem.exists(target)) targets.add(target.toLowerCase());
+      }
+    return this.removeDeletedTargets([...targets]);
   }
   dropTarget(fileId, clientX, clientY) {
     if (this.desktop.inert || !this.virtualFilesystem?.exists(fileId)) return null;
@@ -400,7 +468,14 @@ export class DesktopIcons {
       const label = button.querySelector?.('span');
       if (file && label) label.textContent = getDisplayFileName(file);
     }
-    for (const button of allButtons) button.hidden = removed.has(this.id(button));
+    for (const button of allButtons) {
+      const targetFileId = this.targetFileId(button);
+      const isFileShortcut = button.dataset.fileId || button.dataset.shortcutId ||
+        button.classList?.contains('desktop-virtual-shortcut') || INITIAL_SHORTCUT_TARGETS.has(button.dataset.shortcut);
+      button.hidden = removed.has(this.id(button)) || Boolean(
+        isFileShortcut && targetFileId && this.virtualFilesystem && !this.virtualFilesystem.exists(targetFileId),
+      );
+    }
     const buttons = allButtons.filter((button) => !button.hidden);
     const rect = this.desktop.getBoundingClientRect();
     this.grid = iconGrid(

@@ -109,6 +109,71 @@ test('virtual files have stable path IDs, protect system files, delete permanent
   assert.throws(() => fresh.getLocation('user-desktop'), /inconnu/);
 });
 
+test('navigable folders have stable virtual targets for desktop shortcuts without changing folder delete permissions', () => {
+  const filesystem = new VirtualFilesystem(new Progression(story, memory()));
+  const folder = filesystem.getLocation('folder').items.find((item) => item.location === 'shared-profile');
+  assert.ok(folder);
+  assert.equal(folder.fileId, virtualFileId('folder', folder.name));
+  assert.equal(folder.directory, true);
+  assert.equal(filesystem.exists(folder.fileId), true);
+  assert.equal(filesystem.canDelete(folder.fileId), false, 'structural folders keep their existing protection');
+});
+
+test('every received desktop file is a removable shortcut, not a second deletable file', (t) => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { createElement: (tag) => Object.assign(new FakeElement(), { tagName: tag.toUpperCase() }) };
+  t.after(() => {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  });
+  const disk = memory();
+  const progression = new Progression(story, disk);
+  const filesystem = new VirtualFilesystem(progression);
+  const fileIds = [];
+  for (const name of ['installer.exe', 'notes.txt', 'bundle.zip']) {
+    const transfer = progression.receiveFile({
+      id: name,
+      name,
+      sizeLabel: '1 Mo',
+      size: 1024,
+      description: 'Fichier reçu',
+      deletable: true,
+    }, 'test-dialogue', 'transfer');
+    progression.finishTransfer(transfer.key);
+    fileIds.push(virtualFileId('downloads', name));
+  }
+  const nav = new FakeElement();
+  const desktop = new FakeElement();
+  desktop.querySelector = (selector) => selector === '#desktop-files' ? nav : null;
+  desktop.append = (item) => nav === item ? undefined : desktop.children.push(item);
+  const rendered = new DesktopFiles(desktop, progression, () => {}, () => {}, filesystem);
+  rendered.render();
+  assert.equal(nav.children.length, 3);
+  assert.ok(nav.children.every((button) => button.className.includes('desktop-virtual-shortcut')));
+  for (const button of nav.children)
+    button.classList.contains = (name) => button.className.split(' ').includes(name);
+
+  const icons = Object.assign(Object.create(DesktopIcons.prototype), {
+    progression,
+    saved: {},
+    cells: new Map(),
+    selectedIds: new Set(nav.children.map((button) => `file:${button.dataset.fileId}`)),
+    buttons: () => nav.children,
+    refresh() {},
+  });
+  assert.equal(icons.removeMany(nav.children), true);
+  for (const fileId of fileIds) assert.equal(filesystem.exists(fileId), true, 'shortcut removal preserves its original');
+  assert.equal(new Progression(story, disk).data.desktopIconsRemoved.length, 3, 'shortcut removals persist');
+  const restored = new Progression(story, disk);
+  const restoredDesktop = new FakeElement();
+  const restoredNav = new FakeElement();
+  restoredDesktop.querySelector = (selector) => selector === '#desktop-files' ? restoredNav : null;
+  restoredDesktop.append = (item) => restoredNav === item ? undefined : restoredDesktop.children.push(item);
+  new DesktopFiles(restoredDesktop, restored, () => {}, () => {}, new VirtualFilesystem(restored)).render();
+  assert.equal(restoredNav.children.length, 0, 'removed shortcuts stay absent after reload');
+  for (const fileId of fileIds) assert.equal(new VirtualFilesystem(restored).exists(fileId), true);
+});
+
 test('XP personal folders are rooted in Mes documents without legacy Games or Downloads paths', () => {
   const files = new VirtualFilesystem(new Progression(story, memory()));
   assert.equal(files.metadata(virtualFileId('messenger-files', 'readme.txt')).size, null,
@@ -130,7 +195,7 @@ test('XP personal folders are rooted in Mes documents without legacy Games or Do
   assert.equal(files.getLocation('music').address.endsWith('\\Ma musique'), true);
 });
 
-test('custom desktop shortcuts render from saved target IDs, route through the original folder, and remain broken after target deletion', (t) => {
+test('custom desktop shortcuts render from saved target IDs and disappear when the real target is deleted', (t) => {
   const previousDocument = globalThis.document;
   globalThis.document = { createElement: (tag) => Object.assign(new FakeElement(), { tagName: tag.toUpperCase() }) };
   t.after(() => {
@@ -149,6 +214,12 @@ test('custom desktop shortcuts render from saved target IDs, route through the o
   desktop.append = (element) => { desktop.children.push(element); };
   const opened = [];
   const files = new DesktopFiles(desktop, progression, (item, location) => opened.push({ item, location }), () => {}, filesystem);
+  const icons = Object.assign(Object.create(DesktopIcons.prototype), {
+    progression,
+    selectedIds: new Set(),
+    saved: progression.data.desktopIcons,
+  });
+  filesystem.onDelete = (change) => icons.removeDeletedTargets(change.removedFileIds);
   files.render();
   assert.equal(nav.children.length, 1);
   const shortcut = nav.children[0];
@@ -161,14 +232,10 @@ test('custom desktop shortcuts render from saved target IDs, route through the o
 
   assert.equal(filesystem.deleteFile(fileId).ok, true);
   files.render();
-  assert.equal(nav.children.length, 1, 'the shortcut remains as a broken link after its target is removed');
-  assert.equal(nav.children[0].children.at(-1).textContent, 'Sport Dubstep');
-  nav.children[0].handlers.dblclick();
-  assert.equal(opened[1].location, null);
-  assert.equal(opened[1].item.shortcutTarget, true);
-  assert.equal(filesystem.exists(opened[1].item.fileId), false);
+  assert.equal(nav.children.length, 0, 'the target deletion removes its shortcut instead of leaving a broken link');
+  assert.deepEqual(progression.data.desktopShortcuts, []);
   const restored = new Progression(story, disk);
-  assert.deepEqual(restored.data.desktopShortcuts, progression.data.desktopShortcuts);
+  assert.deepEqual(restored.data.desktopShortcuts, [], 'the deleted shortcut stays absent after reload');
   restored.newGame();
   assert.deepEqual(restored.data.desktopShortcuts, []);
 });

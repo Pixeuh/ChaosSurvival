@@ -178,6 +178,13 @@ export class DesktopApplications {
     this.restore(instance);
     return instance;
   }
+  openLocation(locationId) {
+    if (!this.virtualFilesystem) return null;
+    const instance = this.open('computer');
+    if (!instance) return null;
+    this.render(instance, this.virtualFilesystem.getLocation(locationId));
+    return instance;
+  }
   attachWindow(kind, id, title, iconName) {
     const element = this.manager.windows.get(id).element;
     const task = document.createElement('button');
@@ -1028,7 +1035,7 @@ export class DesktopApplications {
       if (event.button !== 0 || fileDrag) return;
       const row = event.target.closest?.('.explorer-item');
       const item = row && instance.current?.items.find((entry) => entry.fileId === row.dataset.fileId);
-      if (!item?.fileId || item.location || !this.virtualFilesystem?.exists(item.fileId)) return;
+      if (!item?.fileId || !this.virtualFilesystem?.exists(item.fileId)) return;
       const selected = [...(content.querySelectorAll?.('.explorer-item[aria-selected="true"]') ?? [])];
       if (selected.length > 1) return;
       fileDrag = {

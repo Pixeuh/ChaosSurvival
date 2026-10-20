@@ -1435,7 +1435,7 @@ test('desktop applications contain credible data and the trash starts genuinely 
   }
 });
 
-test('response rendering keeps all buttons below the transcript and queues narrative questions', (t) => {
+test('response rendering routes narrative Wizz choices through Messenger without also playing send', async (t) => {
   // Minimal DOM objects exercise the real renderer without launching the game.
   const createElement = (tag) => ({
     tag,
@@ -1504,6 +1504,7 @@ test('response rendering keeps all buttons below the transcript and queues narra
     thread,
     progression,
     sounds: { play: (sound) => playedSounds.push(sound) },
+    refresh() {},
     sessionFor: (event) => sessions.get(event.id),
     renderResponses: ConversationWindow.prototype.renderResponses,
     appendHistory() {
@@ -1517,6 +1518,25 @@ test('response rendering keeps all buttons below the transcript and queues narra
       this.renderResponses();
     },
   };
+  const wizzClasses = new Set();
+  view.element.classList = {
+    add: (name) => wizzClasses.add(name),
+    remove: (name) => wizzClasses.delete(name),
+  };
+  const messenger = Object.create(Messenger.prototype);
+  messenger.contacts = () => [
+    { id: 'pixelgirl', nickname: 'PixelGirl', online: true, status: 'En ligne' },
+  ];
+  messenger.player = playerIdentity;
+  messenger.primary = () => view;
+  messenger.sounds = {
+    unlock: () => Promise.resolve(true),
+    play: (sound) => playedSounds.push(sound),
+  };
+  view.onChoiceValidated = (definition, { choice }) => {
+    if (choice.action === 'wizz')
+      messenger.sendWizz('pixelgirl', { eventId: `${definition.id}-player-wizz` });
+  };
   view.appendHistory();
   view.renderResponses();
   assert.equal(view.choices.querySelectorAll('button').length, 0); // Second sequence is still sending.
@@ -1529,13 +1549,16 @@ test('response rendering keeps all buttons below the transcript and queues narra
   assert.equal(view.choices.querySelector('button').dataset.choiceId, 'answer-one');
   assert.equal(view.log.querySelectorAll('button').length, 0);
   view.choices.querySelector('button').handlers.click();
-  assert.deepEqual(playedSounds, [], 'a narrative Wizz action does not play the regular send sound');
-  assert.equal(view.log.children.filter((message) => message.speaker === 'player').length, 1);
+  await Promise.resolve();
+  assert.deepEqual(playedSounds, ['wizz'], 'a narrative Wizz action plays its one Messenger sound');
+  assert.equal(thread.state.history.filter((entry) => entry.type === 'wizz').length, 1);
+  assert.ok(wizzClasses.has('messenger-wizz'), 'the shared Wizz entry point triggers the animation');
+  assert.equal(view.log.children.filter((message) => message.speaker === 'player').length, 2);
   assert.ok(view.log.children.some((message) => message.textContent === 'réponse one'));
   assert.equal(view.log.querySelectorAll('button').length, 0);
   assert.equal(view.choices.querySelector('button').dataset.choiceId, 'answer-two');
   view.choices.querySelector('button').handlers.click();
-  assert.deepEqual(playedSounds, ['send'], 'a regular narrative text choice still plays send');
+  assert.deepEqual(playedSounds, ['wizz', 'send'], 'a regular narrative text choice only plays send');
 });
 
 test('offline contacts reuse the conversation window, remain empty and preserve narrative history', (t) => {

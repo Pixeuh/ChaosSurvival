@@ -450,6 +450,8 @@ bombArenaHandoffRetrier = createBombArenaHandoffRetrier({
 virtualFilesystem.onDelete = (change) => {
   narrativeOrchestrator?.onVirtualFilesDeleted(change);
   mediaPlayer?.onFilesDeleted(change);
+  desktopIcons?.removeDeletedTargets(change.removedFileIds ?? [change.fileId]);
+  renderDesktopFiles();
 };
 browser.onSuperPlombierStart = () => narrativeOrchestrator.onSuperPlombierStart();
 browser.onSuperPlombierVictory = () => narrativeOrchestrator.onSuperPlombierVictory();
@@ -664,7 +666,9 @@ desktopApplications.onExplorerPreferencesChanged = () => {
 };
 desktopIcons.onShortcutsChanged = renderDesktopFiles;
 desktopApplications.onOpenDesktopShortcut = (file, location) =>
-  openDesktopFile({ ...file, shortcutTarget: true }, location);
+  file.directory && file.location
+    ? desktopApplications.openLocation(file.location)
+    : openDesktopFile({ ...file, shortcutTarget: true }, location);
 desktopApplications.onDesktopShortcutDrag = (action, fileId, x, y) => {
   if (action === 'cancel') return desktopIcons.clearShortcutDropPreview();
   if (action === 'preview') return desktopIcons.updateShortcutDropPreview(fileId, x, y);
@@ -1241,6 +1245,7 @@ function replayLevelOne() {
   startGame();
 }
 function renderDesktopFiles() {
+  desktopIcons.pruneMissingFileTargets();
   desktopFiles.render();
 }
 function openDesktopFile(file, location = null) {

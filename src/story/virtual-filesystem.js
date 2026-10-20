@@ -34,6 +34,22 @@ function staticFiles() {
   return files;
 }
 
+function staticDirectories() {
+  const directories = new Map();
+  for (const [locationId, location] of Object.entries(locations))
+    for (const item of location.items ?? [])
+      if (item.location && safeName(item.name))
+        directories.set(virtualFileId(locationId, item.name), {
+          ...item,
+          detail: item.detail ?? 'Dossier',
+          icon: item.icon ?? 'folder',
+          directory: true,
+          locationId,
+          deletable: false,
+        });
+  return directories;
+}
+
 function receivedDeletionId(fileId, transferKey) {
   return `received:${fileId}:${encodeURIComponent(transferKey)}`;
 }
@@ -64,7 +80,7 @@ function receivedFiles(files = {}, deleted = []) {
 function normalizeAdded(added) {
   if (!added || typeof added !== 'object' || Array.isArray(added)) return {};
   const valid = {};
-  const staticIds = new Set(staticFiles().keys());
+    const staticIds = new Set([...staticFiles().keys(), ...staticDirectories().keys()]);
   for (const [key, file] of Object.entries(added)) {
     const match = keyPattern.exec(key);
     if (
@@ -153,7 +169,14 @@ export class VirtualFilesystem {
     const deleted = new Set(this.state.deleted);
     const items = (base.items ?? [])
       .map((item) => {
-        if (item.location) return { ...item };
+        if (item.location) return {
+          ...item,
+          fileId: virtualFileId(id, item.name),
+          detail: item.detail ?? 'Dossier',
+          directory: true,
+          locationId: id,
+          deletable: false,
+        };
         return { ...item, fileId: virtualFileId(id, item.name) };
       })
       .filter((item) => item.location || !deleted.has(item.fileId));
@@ -173,7 +196,8 @@ export class VirtualFilesystem {
     const key = fileId.toLowerCase();
     if (this.state.deleted.includes(key)) return null;
     const added = this.state.added[key];
-    const file = added ?? staticFiles().get(key) ?? receivedFiles(this.progression.data.files, this.state.deleted).get(key);
+    const file = added ?? staticFiles().get(key) ?? staticDirectories().get(key) ??
+      receivedFiles(this.progression.data.files, this.state.deleted).get(key);
     return file ? { ...file, fileId: key, deletable: isDeletableFile(file) } : null;
   }
   exists(fileId) {
@@ -201,7 +225,7 @@ export class VirtualFilesystem {
     if (
       !match || !location || locationId === 'bin' ||
       !Array.isArray(location.items) || unsafeKeys.has(locationId) ||
-      !safeName(file?.name) || staticFiles().has(key) || this.state.added[key] ||
+      !safeName(file?.name) || staticFiles().has(key) || staticDirectories().has(key) || this.state.added[key] ||
       typeof file.detail !== 'string' || !file.detail.trim()
     ) return { ok: false, reason: 'invalid' };
     const normalized = normalizeAdded({ [key]: {

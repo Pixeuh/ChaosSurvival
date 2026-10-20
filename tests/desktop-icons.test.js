@@ -235,6 +235,35 @@ test('file shortcuts use a free drop cell, persist a distinct target link, dedup
   assert.deepEqual(afterDelete.data.desktopIconsRemoved, []);
 });
 
+test('Delete removes selected desktop shortcuts through the same removal path and ignores text inputs', () => {
+  const shortcut = {
+    dataset: { fileId: 'downloads/notes.txt' },
+    classList: { contains: (name) => name === 'desktop-virtual-shortcut' },
+    closest(selector) { return selector.includes('.desktop-icons, .desktop-files') ? this : null; },
+  };
+  const calls = [];
+  const icons = Object.assign(Object.create(DesktopIcons.prototype), {
+    desktop: { inert: false },
+    selectedIds: new Set(['file:downloads/notes.txt']),
+    buttons: () => [shortcut],
+    backgroundHit: () => false,
+    removeMany(buttons) { calls.push(buttons); return true; },
+  });
+  let prevented = false;
+  let stopped = false;
+  const event = {
+    key: 'Delete', target: shortcut,
+    preventDefault() { prevented = true; },
+    stopPropagation() { stopped = true; },
+  };
+  assert.equal(icons.deleteSelectionFromKeyboard(event), true);
+  assert.deepEqual(calls, [[shortcut]]);
+  assert.equal(prevented, true);
+  assert.equal(stopped, true);
+  assert.equal(icons.deleteSelectionFromKeyboard({ ...event, target: { tagName: 'INPUT' } }), false);
+  assert.equal(calls.length, 1, 'Delete remains ordinary text editing in input fields');
+});
+
 test('desktop file shortcut deduplication uses target paths and includes the initial ChaosSurvival.exe icon', (t) => {
   const oldDocument = globalThis.document;
   globalThis.document = { elementFromPoint: () => ({ closest: () => null }) };

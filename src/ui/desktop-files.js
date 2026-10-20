@@ -28,20 +28,11 @@ export class DesktopFiles {
     const renderedShortcutTargets = new Set();
     for (const file of received.values()) {
       const fileId = virtualFileId('downloads', file.name);
-      const smileyCatcherShortcut = file.launch?.game === 'smiley-catcher';
-      if (
-        smileyCatcherShortcut &&
-        removedShortcuts.includes(`file:${fileId}`)
-      ) continue;
+      if (removedShortcuts.includes(`file:${fileId}`)) continue;
       const button = document.createElement('button');
-      button.className = smileyCatcherShortcut
-        ? 'desktop-file desktop-virtual-shortcut'
-        : 'desktop-file';
-      button.dataset.fileId = this.virtualFilesystem
-        ? fileId
-        : file.id;
-      if (smileyCatcherShortcut) renderedShortcutTargets.add(button.dataset.fileId);
-      if (smileyCatcherShortcut) button.title = `Raccourci vers ${file.name}`;
+      button.className = 'desktop-file desktop-virtual-shortcut';
+      button.dataset.fileId = this.virtualFilesystem ? fileId : file.id;
+      button.title = `Raccourci vers ${file.name}`;
       button.setAttribute('aria-pressed', 'false');
       button.innerHTML = icon(fileIcon(file, 'download'));
       const name = document.createElement('span');
@@ -77,7 +68,8 @@ export class DesktopFiles {
     }
     for (const record of this.progression.data.desktopShortcuts ?? []) {
       const shortcutId = `shortcut:${record.id}`;
-      if (removedShortcuts.includes(shortcutId) || renderedShortcutTargets.has(record.targetFileId)) continue;
+      if (removedShortcuts.includes(shortcutId) || renderedShortcutTargets.has(record.targetFileId) ||
+        (this.virtualFilesystem && !this.virtualFilesystem.exists(record.targetFileId))) continue;
       const target = this.virtualFilesystem?.getFile(record.targetFileId);
       const button = document.createElement('button');
       button.className = 'desktop-file desktop-virtual-shortcut';
@@ -94,7 +86,10 @@ export class DesktopFiles {
         const item = current
           ? { ...current, fileId: record.targetFileId, shortcutTarget: true }
           : { fileId: record.targetFileId, name: record.name, shortcutTarget: true };
-        this.onOpen(item, current ? this.virtualFilesystem.getLocation(current.locationId) : null);
+        const targetLocation = current?.directory
+          ? current.location
+          : current?.locationId;
+        this.onOpen(item, targetLocation ? this.virtualFilesystem.getLocation(targetLocation) : null);
       });
       files.append(button);
       renderedShortcutTargets.add(record.targetFileId);

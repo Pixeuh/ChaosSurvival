@@ -80,7 +80,8 @@ export class ConversationWindow {
     return choice;
   }
   playChoiceSound(choice) {
-    if (choice?.action !== 'wizz') this.sounds.play('send');
+    if (choice?.action === 'wizz') return;
+    this.sounds.play('send');
   }
   openOffline(contact) {
     if (this.element?.isConnected && this.offlineContact?.id === contact.id) return this.restore();
