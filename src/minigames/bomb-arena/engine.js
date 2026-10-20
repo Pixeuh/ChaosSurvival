@@ -490,6 +490,27 @@ function resolveRound(state) {
   });
 }
 
+// DEV shortcut helper: resolve the current and any remaining rounds through the
+// same round-resolution events used by live play, keeping prior scores intact.
+export function finishMatchForDevelopment(state) {
+  if (!state || !Array.isArray(state.players) || state.phase === 'match-end' || state.phase === 'ready')
+    return false;
+  if (state.phase === 'round-end' || state.phase === 'difficulty-transition') startRound(state);
+  let operations = 0;
+  while (state.phase !== 'match-end' && operations++ < 128) {
+    const scores = Object.values(state.wins ?? {});
+    if (!scores.length) return false;
+    const highScore = Math.max(...scores);
+    const winnerId = state.players.find((player) => state.wins[player.id] === highScore)?.id;
+    if (!winnerId) return false;
+    state.phase = 'playing';
+    state.players.forEach((player) => { player.alive = player.id === winnerId; });
+    resolveRound(state);
+    if (state.phase !== 'match-end') startRound(state);
+  }
+  return state.phase === 'match-end';
+}
+
 export function updateGame(state, dt) {
   state.events ??= [];
   dt = Math.min(Math.max(dt, 0), 50);

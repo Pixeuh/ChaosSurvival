@@ -36,3 +36,20 @@ tests et les outils existants.
 Choisir les vérifications suffisantes les plus rapides. Dans le compte rendu,
 indiquer les vérifications réellement effectuées et les limites importantes,
 sans présenter comme testé un comportement qui ne l'a pas été.
+
+## Interfaces des raccourcis de développement
+
+- Un mini-jeu peut exposer `finishForDevelopment()` sur son instance ou sa vue
+  lorsqu'une fin valide exige une simulation spécifique. Cette méthode doit
+  utiliser le parcours normal des résultats, émettre les événements habituels,
+  être idempotente et retourner `false` si le jeu n'est pas actif.
+- Si aucune simulation particulière n'est nécessaire, un `finish()` idempotent
+  peut servir d'interface commune. Enregistrer le contenu auprès du gestionnaire
+  de fenêtres afin que Ctrl+Maj+D ne cible que la fenêtre active.
+- Les pages de mini-jeu du navigateur exposent cette capacité sur la racine de
+  la page active. Ne pas ajouter de liste de noms de jeux dans le raccourci.
+- Les conversations utilisent `ConversationWindow.finishImmediately()` et le
+  moteur de dialogues partagé pour enregistrer messages, choix, transferts et
+  événements. Ne pas ajouter de logique propre à un personnage.
+- Ces interfaces et leur enregistrement doivent être réservés à
+  `import.meta.env.DEV` et ne doivent pas modifier la progression normale.

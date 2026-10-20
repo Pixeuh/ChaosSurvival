@@ -8,6 +8,7 @@ import { DialogueEvents } from '../src/story/dialogue-events.js';
 import { ConnectionMessages } from '../src/story/connection-messages.js';
 import { ConversationWindow } from '../src/ui/conversation.js';
 import {
+  installDevelopmentVictoryShortcut,
   installDevelopmentConversationShortcut,
   installDevelopmentBombArenaShortcut,
   createDevelopmentProgressionSandbox,
@@ -22,6 +23,37 @@ const pixelgirlIntro = read('../src/dialogues/pixelgirl-intro.json');
 const pixelgirlAfterSmiley = read('../src/dialogues/pixelgirl-smiley-victory.json');
 const plumberGroup = read('../src/dialogues/pixelgirl-super-plombier-group.json');
 const connectionConfig = read('../src/config/connection-messages.json');
+
+test('Ctrl+Shift+D uses the shared dev-finish capability and ignores unavailable content', () => {
+  let listener;
+  const target = {
+    addEventListener: (_type, callback) => { listener = callback; },
+    removeEventListener() {},
+  };
+  let finishes = 0;
+  installDevelopmentVictoryShortcut(target, () => ({
+    finishForDevelopment() { finishes++; return true; },
+    finish() { assert.fail('the normal finish fallback must not override the dev capability'); },
+  }));
+  const key = { key: 'D', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false,
+    preventDefault() { this.defaultPrevented = true; } };
+  listener(key);
+  assert.equal(finishes, 1);
+  assert.equal(key.defaultPrevented, true);
+
+  let prevented = 0;
+  listener({ ...key, defaultPrevented: false, preventDefault() { prevented++; } });
+  assert.equal(finishes, 2);
+  assert.equal(prevented, 1);
+
+  const unavailable = installDevelopmentVictoryShortcut(target, () => ({
+    finishForDevelopment: () => false,
+  }));
+  let unavailablePrevented = 0;
+  listener({ ...key, preventDefault() { unavailablePrevented++; } });
+  assert.equal(unavailablePrevented, 0);
+  unavailable();
+});
 
 function createView(dialogue = turbo, events = [dialogue]) {
   const values = new Map();

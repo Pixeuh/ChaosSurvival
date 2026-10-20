@@ -67,6 +67,8 @@ export class MiniGameLauncher {
         game.lastFrame = null;
       });
     };
+    if (import.meta.env?.DEV && this.active.element)
+      this.manager.setDevelopmentContent?.(this.active.element, () => this.active);
     this.sounds.unlock();
     this.active.open();
     this.onWindowOpened(this.active);

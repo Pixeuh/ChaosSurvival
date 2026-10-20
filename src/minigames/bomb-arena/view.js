@@ -1,4 +1,4 @@
-import { createGame, drainGameEvents, setPlayerControls, togglePause, updateGame } from './engine.js';
+import { createGame, drainGameEvents, finishMatchForDevelopment, setPlayerControls, togglePause, updateGame } from './engine.js';
 import { createBombArenaChat } from './chat-system.js';
 import { createArenaEffects, renderBombArena, renderCharacterRoster, renderCollisionDiagnostics } from './presentation.js';
 import { createBombArenaAudio } from './audio.js';
@@ -121,6 +121,18 @@ export function mountBombArena(instance, manager) {
     }
   };
 
+  const reportMatchCompletion = () => {
+    if (!game || game.phase !== 'match-end' || completionReported) return false;
+    const winner = game.players.find((player) => player.id === game.matchWinnerId);
+    if (!winner) return false;
+    completionReported = true;
+    instance.onBombArenaEvent?.({
+      type: 'match-completed', matchId, difficulty: game.difficulty, winnerId: winner.id,
+      scores: { ...game.wins }, roundsPlayed: game.round,
+    });
+    return true;
+  };
+
   const renderArena = () => {
     const now = globalThis.performance?.now?.() ?? Date.now();
     renderCharacterRoster(rosterCtx, rosterCanvas, now);
@@ -207,14 +219,7 @@ export function mountBombArena(instance, manager) {
           if (before === 'countdown' && game.phase === 'playing') goUntil = time + 450;
           if (before === 'countdown' && game.phase === 'playing' && game.round === 1)
             instance.onBombArenaEvent?.({ type: 'match-started', difficulty: game.difficulty });
-          if (before !== 'match-end' && game.phase === 'match-end' && !completionReported) {
-            completionReported = true;
-            const winner = game.players.find((player) => player.id === game.matchWinnerId);
-            if (winner) instance.onBombArenaEvent?.({
-              type: 'match-completed', matchId, difficulty: game.difficulty, winnerId: winner.id,
-              scores: { ...game.wins }, roundsPlayed: game.round,
-            });
-          }
+          if (before !== 'match-end') reportMatchCompletion();
         }
         chat.advance(step);
       }
@@ -269,6 +274,18 @@ export function mountBombArena(instance, manager) {
     renderHud();
   }
   resizeCanvas(); frameId = RAF(animate); renderArena();
-  return { dispose: instance.disposeGame, get game() { return game; } };
+  const runtime = {
+    dispose: instance.disposeGame,
+    get game() { return game; },
+  };
+  if (DEV_BUILD) runtime.finishForDevelopment = () => {
+    if (disposed || !finishMatchForDevelopment(game)) return false;
+    consumeEvents();
+    reportMatchCompletion();
+    renderHud();
+    renderArena();
+    return true;
+  };
+  return runtime;
 }
 

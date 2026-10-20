@@ -1267,7 +1267,9 @@ export class DesktopApplications {
         roundsPlayed: savedMatch.firstGameRoundsPlayed,
       };
     instance.onBombArenaEvent({ type: 'launched' });
-    mountBombArena(instance, this.manager);
+    const arenaRuntime = mountBombArena(instance, this.manager);
+    if (import.meta.env?.DEV && arenaRuntime?.finishForDevelopment)
+      this.manager.setDevelopmentContent?.(instance.element, arenaRuntime);
     this.restore(instance);
     return instance;
   }

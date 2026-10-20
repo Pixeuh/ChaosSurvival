@@ -147,6 +147,20 @@ function setup(t) {
   return { manager, makeWindow, pointer, field, fieldRect, surface, taskbarRect, observerCallback };
 }
 
+test('development game discovery follows the foreground window capability only', (t) => {
+  const { manager, makeWindow } = setup(t);
+  const first = makeWindow();
+  const second = makeWindow();
+  const firstGame = { finishForDevelopment() { return true; } };
+  const secondGame = { finish() {} };
+  assert.equal(manager.setDevelopmentContent(first.element, firstGame), true);
+  assert.equal(manager.activeDevelopmentContent(), null, 'a background game is not selected');
+  assert.equal(manager.setDevelopmentContent(second.element, secondGame), true);
+  assert.equal(manager.activeDevelopmentContent(), secondGame);
+  manager.minimize(second.element);
+  assert.equal(manager.activeDevelopmentContent(), firstGame, 'minimized content is not selected');
+});
+
 test('taskbar clicks toggle an active window, activate an inactive one, and restore minimized maximized windows', (t) => {
   const { manager, makeWindow } = setup(t);
   const tabs = [];

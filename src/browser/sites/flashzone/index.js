@@ -82,6 +82,11 @@ export const flashPages = [
           Object.defineProperty(root, 'finished', { get: () => gameView.finished });
           Object.defineProperty(root, 'running', { get: () => gameView.running });
         }
+        if (import.meta.env?.DEV) {
+          const finishForDevelopment = gameView.finishForDevelopment ?? gameView.finish;
+          if (typeof finishForDevelopment === 'function')
+            root.finishForDevelopment = () => finishForDevelopment.call(gameView);
+        }
         return root;
       },
     };

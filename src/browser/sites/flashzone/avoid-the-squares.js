@@ -80,6 +80,12 @@ export function renderAvoidSquares({ progression, onDispose }, game) {
     record.textContent = `Meilleur temps : ${formatted(saveBestTime(progression, game.id, round.elapsed))}`;
     result.scrollIntoView?.({ block: 'nearest' });
   }
+  function finishForDevelopment() {
+    if (disposed || !round.active || !result.hidden) return false;
+    round.active = false;
+    finish();
+    return !result.hidden;
+  }
   function abandon() {
     music.stop();
     cancelAnimationFrame(frame);
@@ -153,6 +159,7 @@ export function renderAvoidSquares({ progression, onDispose }, game) {
   play.addEventListener('click', start);
   replay.addEventListener('click', start);
   onDispose(dispose);
+  if (import.meta.env?.DEV) root.finishForDevelopment = finishForDevelopment;
   welcome();
   return root;
 }

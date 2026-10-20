@@ -1404,13 +1404,9 @@ if (import.meta.env.DEV) {
     };
     installDevelopmentVictoryShortcut(document, () => {
       if (rules.active) return null;
-      if (foregroundGroupConversation()) return null;
-      if (['playing', 'paused'].includes(phase)) return { finish: () => finishGame(true) };
-      const game = miniGameLauncher.active;
-      if (phase === 'desktop' && game?.element?.isConnected && !game.finished) return game;
-      const flashGame = browser.currentPage?.node;
-      if (phase === 'desktop' && flashGame?.running && !flashGame.finished) return flashGame;
-      return null;
+      if (['playing', 'paused'].includes(phase))
+        return { finishForDevelopment: () => finishGame(true) };
+      return phase === 'desktop' ? manager.activeDevelopmentContent?.() ?? null : null;
     });
     installDevelopmentConversationShortcut(document, () => {
       const topWindow = [...manager.windows.values()]

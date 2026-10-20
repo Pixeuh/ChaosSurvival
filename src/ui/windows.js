@@ -138,6 +138,20 @@ export class WindowManager {
   isActive(element) {
     return Boolean(element?.isConnected && !element.hidden && this.activeWindow() === element);
   }
+  setDevelopmentContent(element, getContent) {
+    const item = this.itemFor(element);
+    if (!item) return false;
+    item.developmentContent = getContent;
+    return true;
+  }
+  activeDevelopmentContent() {
+    const active = this.activeWindow();
+    const item = active && this.itemFor(active);
+    if (!item || !item.developmentContent) return null;
+    return typeof item.developmentContent === 'function'
+      ? item.developmentContent()
+      : item.developmentContent;
+  }
   syncTaskbarButtons() {
     const active = this.activeWindow();
     for (const { element, taskButton } of this.windows.values()) {

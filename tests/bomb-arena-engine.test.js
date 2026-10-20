@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARENA_HEIGHT, ARENA_WIDTH, PLAYER_COLLISION_RADIUS, arenaCellAt, createGame, getCollisionDebugData, placeBomb, setPlayerControls, startRound, togglePause, updateGame } from '../src/minigames/bomb-arena/engine.js';
+import { ARENA_HEIGHT, ARENA_WIDTH, PLAYER_COLLISION_RADIUS, arenaCellAt, createGame, drainGameEvents, finishMatchForDevelopment, getCollisionDebugData, placeBomb, setPlayerControls, startRound, togglePause, updateGame } from '../src/minigames/bomb-arena/engine.js';
 
 function gameInPlay() {
   const state = createGame({ rng: () => 0.9 });
@@ -23,6 +23,37 @@ function advanceRound(state) {
   tick(state, 50, 50);
   state.phase = 'playing';
 }
+
+test('development completion simulates remaining BombArena rounds and preserves prior scores', () => {
+  const state = createGame();
+  state.phase = 'playing';
+  state.wins.turbo = 2;
+  state.wins.justme = 1;
+  assert.equal(finishMatchForDevelopment(state), true);
+  assert.equal(state.phase, 'match-end');
+  assert.equal(state.round, 8);
+  assert.equal(state.matchWinnerId, 'turbo');
+  assert.equal(state.wins.turbo, 10);
+  assert.equal(state.wins.justme, 1);
+  const events = drainGameEvents(state);
+  assert.equal(events.filter(({ type }) => type === 'round_completed').length, 8);
+  assert.deepEqual(events.at(-1), {
+    type: 'match_won', playerId: 'turbo', scores: { justme: 1, pixelgirl: 0, turbo: 10, luna: 0 },
+    roundsPlayed: 8, id: events.at(-1).id, round: 8,
+  });
+});
+
+test('development completion settles a tie only through an additional tiebreak round', () => {
+  const state = createGame();
+  state.round = 8;
+  state.phase = 'round-end';
+  state.wins.justme = 4;
+  state.wins.pixelgirl = 4;
+  assert.equal(finishMatchForDevelopment(state), true);
+  assert.equal(state.round, 9);
+  assert.equal(state.matchWinnerId, 'justme');
+  assert.equal(drainGameEvents(state).filter(({ type }) => type === 'round_completed').length, 1);
+});
 
 function prepareActorMove(state, actor, x, y, direction, destination = null) {
   state.phase = 'playing'; state.roundTime = 0; state.suddenClock = 0; state.suddenIndex = 0;

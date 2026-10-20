@@ -76,6 +76,8 @@ export class InternetAdventurer {
     });
     this.instance = this.applications.attachWindow('browser', id, title, 'browser');
     const element = this.instance.element;
+    if (import.meta.env?.DEV)
+      this.manager.setDevelopmentContent?.(element, () => this.currentPage?.node ?? null);
     element.classList.add('internet-adventurer');
     element.querySelector('.browser-address').addEventListener('submit', (event) => {
       event.preventDefault();

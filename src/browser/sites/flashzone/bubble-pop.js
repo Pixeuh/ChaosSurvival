@@ -180,6 +180,20 @@ export function renderBubblePop({ progression, onDispose }, game) {
     showFinalResult(false);
   }
 
+  function finishForDevelopment() {
+    if (disposed || finished || !round.active || campaign.state !== 'playing') return false;
+    // Complete the campaign through its normal level result path, then display
+    // its ordinary final victory screen. This is only exposed in DEV builds.
+    campaign.level = 3;
+    round.board.clear();
+    round.projectile = null;
+    round.status = 'won';
+    round.active = false;
+    phase = 'playing';
+    finish();
+    return finished;
+  }
+
   function renderFrame(now) {
     if (disposed) return;
     if (!root.isConnected) {
@@ -301,6 +315,7 @@ export function renderBubblePop({ progression, onDispose }, game) {
     if (phase === 'ended') startCampaign();
   });
   onDispose(dispose);
+  if (import.meta.env?.DEV) root.finishForDevelopment = finishForDevelopment;
   startCampaign();
   return root;
 }

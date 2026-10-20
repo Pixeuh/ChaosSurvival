@@ -109,6 +109,12 @@ export function renderPixelRunner({ progression, onDispose, onResume }, game) {
     best.textContent = `Meilleure distance : ${Math.floor(saveBestDistance(progression, game.id, round.distance))} m`;
     result.scrollIntoView?.({ block: 'nearest' });
   }
+  function finishForDevelopment() {
+    if (disposed || paused || !round.active || !result.hidden) return false;
+    round.active = false;
+    finish();
+    return !result.hidden;
+  }
   function loop(now) {
     if (disposed || paused) return;
     if (!root.isConnected) {
@@ -180,5 +186,6 @@ export function renderPixelRunner({ progression, onDispose, onResume }, game) {
   replay.addEventListener('click', start);
   onDispose(dispose);
   onResume?.(resume);
+  if (import.meta.env?.DEV) root.finishForDevelopment = finishForDevelopment;
   return root;
 }
