@@ -2118,6 +2118,13 @@ button.messenger-contact-row:hover {
 .ba-subtitle { margin-left: 10px; color: #99b7bd; font-size: 9px; letter-spacing: 1px; }
 .ba-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 225px); min-height: 0; gap: 8px; padding: 9px; }
 .ba-stage { position: relative; display: grid; min-width: 0; min-height: 0; place-items: center; overflow: hidden; border: 1px solid #34515b; background: #081522; }
+.ba-unavailable-stage { display: grid; min-width: 0; min-height: 0; place-items: center; overflow: auto; padding: 18px; background: radial-gradient(ellipse at 50% 42%, #1d3b48 0%, #0d1c27 72%); border: 2px ridge #668781; box-shadow: inset 0 0 12px #06121a; text-align: center; }
+.ba-unavailable-panel { width: min(100%, 620px); padding: clamp(18px, 4vw, 36px); color: #d5e6e8; background: linear-gradient(145deg, #1d3540, #10212b); border: 2px ridge #496b6d; box-shadow: inset 0 1px rgba(228, 239, 217, .11), 0 6px 18px #030b10a8; }
+.ba-offline-icon { width: 62px; height: 48px; fill: #718b8e; stroke: #b8cdca; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ba-offline-icon .ba-offline-slash { stroke: #efb85a; stroke-width: 5; }
+.ba-unavailable-panel h1 { margin: 12px 0; color: #fff1a0; font: 900 clamp(22px, 4vw, 34px) Impact, 'Arial Black', sans-serif; letter-spacing: 2px; text-shadow: 2px 3px #6b2937; }
+.ba-unavailable-panel p { margin: 8px 0; color: #c1d4d5; line-height: 1.5; }
+.ba-unavailable-panel .ba-unavailable-lead { color: #f0d77c; font-weight: bold; }
 .ba-canvas { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; outline: none; }
 .ba-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 18px; background: #07111ddb; text-align: center; }
 .ba-overlay[hidden] { display: none; }

@@ -9,7 +9,7 @@ import { attachNotepad } from './notepad.js';
 import { executableAssociation } from './executable-registry.js';
 import { isMediaTrack } from './media-library.js';
 import { fileTypeForName, getDisplayFileName, setHideKnownExtensions } from './file-names.js';
-import { mountBombArena } from '../minigames/bomb-arena/view.js';
+import { mountBombArena, mountBombArenaUnavailable } from '../minigames/bomb-arena/view.js';
 
 export const desktopApps = definitions;
 
@@ -1254,13 +1254,12 @@ export class DesktopApplications {
     instance.onBombArenaEvent = (event) => this.onBombArenaEvent?.(event);
     const savedMatch = this.virtualFilesystem?.progression?.data?.bombArena;
     instance.bombArenaProgress = savedMatch;
-    if (savedMatch?.status === 'RESULTS_READY')
-      instance.savedMatchResult = {
-        winnerId: savedMatch.sessionWinner,
-        scores: savedMatch.sessionScores,
-        roundsPlayed: savedMatch.sessionRoundsPlayed,
-      };
-    else if (savedMatch?.expectedAt === null && savedMatch?.firstGameCompletedAt !== null && savedMatch?.firstGameCompletedAt !== undefined)
+    if (['RESULTS_READY', 'COMPLETED'].includes(savedMatch?.status)) {
+      mountBombArenaUnavailable(instance);
+      this.restore(instance);
+      return instance;
+    }
+    if (savedMatch?.expectedAt === null && savedMatch?.firstGameCompletedAt !== null && savedMatch?.firstGameCompletedAt !== undefined)
       instance.savedMatchResult = {
         winnerId: savedMatch.firstGameWinner,
         scores: savedMatch.firstGameScores,

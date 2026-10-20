@@ -15,6 +15,25 @@ export function isArenaTextEntryTarget(target) {
   return Boolean(target?.closest?.('input,select,textarea,[contenteditable="true"]'));
 }
 
+export function mountBombArenaUnavailable(instance) {
+  const host = instance?.element?.querySelector?.('.window-body');
+  if (!host) return false;
+  host.innerHTML = `<section class="bomb-arena-app ba-unavailable-app" aria-label="BombArena">
+    <header class="ba-topbar"><div><b>BombArena</b><span class="ba-subtitle">ARCADE BATTLE · 2009</span></div></header>
+    <main class="ba-unavailable-stage">
+      <div class="ba-unavailable-panel" role="status" aria-live="polite">
+        <svg class="ba-offline-icon" viewBox="0 0 64 48" aria-hidden="true"><circle cx="22" cy="14" r="8"/><circle cx="43" cy="14" r="8"/><path d="M7 39c0-10 6-16 15-16s15 6 15 16M28 39c0-10 6-16 15-16s15 6 15 16"/><path d="m10 5 44 38" class="ba-offline-slash"/></svg>
+        <h1>PARTIE INDISPONIBLE</h1>
+        <p class="ba-unavailable-lead">Impossible de démarrer une partie multijoueur.</p>
+        <p>Aucun autre joueur n'est actuellement connecté à BombArena.</p>
+        <p>Veuillez réessayer lorsque d'autres joueurs seront en ligne.</p>
+      </div>
+    </main>
+    <footer class="ba-status"><span>BombArena.exe · joueurs hors ligne</span></footer>
+  </section>`;
+  return true;
+}
+
 function formatTime(ms) {
   const seconds = Math.floor(ms / 1000);
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;

@@ -386,7 +386,7 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
   Object.assign(app, {
     manager,
     instances: new Map(),
-    virtualFilesystem: { exists: () => true, progression: { data: { bombArena: { status: 'COMPLETED' } } } },
+    virtualFilesystem: { exists: () => true, progression: { data: { bombArena: { status: 'IN_PROGRESS' } } } },
     attachWindow(key, id, title, iconName) {
       attached = { key, id, title, iconName };
       const instance = { id, element: manager.windows.get(id).element, task: { remove() {} } };
@@ -426,7 +426,79 @@ test('BombArena.exe is the executable shortcut, window title and taskbar label w
   const reopened = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
   assert.notEqual(reopened, instance);
   assert.equal(spawnCount, 2, 'a closed window can be opened again');
-  assert.equal(bombArenaEvents.length, 2, 'each fresh application instance reports its launch');
+  assert.deepEqual(
+    bombArenaEvents.map((event) => event.type),
+    ['launched', 'interrupted', 'launched'],
+    'an incomplete first run is interrupted, then the executable opens a resumable session',
+  );
+});
+
+test('completed BombArena sessions reopen on an unavailable screen inside the normal app window', () => {
+  for (const status of ['RESULTS_READY', 'COMPLETED']) {
+    let spawnCount = 0;
+    let mountedBody = null;
+    const progress = {
+      status,
+      sessionWinner: 'justme',
+      sessionScores: { justme: 8, pixelgirl: 0, turbo: 0, luna: 0 },
+      sessionRoundsPlayed: 8,
+    };
+    const events = [];
+    const manager = {
+      windows: new Map(),
+      spawn(type, options) {
+        const id = ++spawnCount;
+        const body = { innerHTML: '' };
+        const element = {
+          isConnected: true,
+          querySelector(selector) { return selector === '.window-body' ? body : null; },
+        };
+        this.windows.set(id, { element, body, type, options });
+        return id;
+      },
+      close(id) {
+        const item = this.windows.get(id);
+        if (!item) return;
+        item.element.isConnected = false;
+        this.windows.delete(id);
+        item.options.onDismiss({ reason: 'close' });
+      },
+    };
+    const app = Object.assign(Object.create(DesktopApplications.prototype), {
+      manager,
+      instances: new Map(),
+      virtualFilesystem: { exists: () => true, progression: { data: { bombArena: progress } } },
+      attachWindow(key, id) {
+        const window = manager.windows.get(id);
+        mountedBody = window.body;
+        const instance = { id, element: window.element, task: { remove() {} } };
+        this.instances.set(key, instance);
+        return instance;
+      },
+      restore() {},
+      onWindowState() {},
+      onBombArenaEvent(event) { events.push(event); },
+      setDevelopmentContent() { assert.fail('unavailable screen must not expose a playable game runtime'); },
+    });
+    const before = JSON.stringify(progress);
+
+    const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+
+    assert.equal(spawnCount, 1);
+    assert.equal(manager.windows.get(instance.id).type, 'desktopapp', 'the regular BombArena window is used');
+    assert.deepEqual(events, [], 'a completed session is not reported as a new launch');
+    assert.equal(JSON.stringify(progress), before, 'reopening does not mutate the saved result');
+    assert.equal(instance.savedMatchResult, undefined);
+    assert.match(mountedBody.innerHTML, /PARTIE INDISPONIBLE/);
+    assert.match(mountedBody.innerHTML, /Impossible de démarrer une partie multijoueur\./);
+    assert.match(mountedBody.innerHTML, /Aucun autre joueur n'est actuellement connecté à BombArena\./);
+    assert.match(mountedBody.innerHTML, /Veuillez réessayer lorsque d'autres joueurs seront en ligne\./);
+    assert.doesNotMatch(mountedBody.innerHTML, /<canvas|COMMENCER|ba-start|ba-scoreboard|ba-overlay/);
+    assert.equal(manager.windows.has(instance.id), true, 'the ordinary app window stays open until manually closed');
+    manager.close(instance.id);
+    assert.equal(manager.windows.has(instance.id), false, 'the ordinary window close action remains available');
+    assert.equal(JSON.stringify(progress), before, 'closing the unavailable screen does not alter saved results');
+  }
 });
 
 test('closing BombArena results only closes the game and never triggers the narrative handoff', () => {
@@ -447,7 +519,7 @@ test('closing BombArena results only closes the game and never triggers the narr
   };
   const progress = {
     expectedAt: 123,
-    status: 'RESULTS_READY',
+    status: 'IN_PROGRESS',
     sessionWinner: 'justme',
     sessionScores: { justme: 8, pixelgirl: 0, turbo: 0, luna: 0 },
     sessionRoundsPlayed: 8,
@@ -471,6 +543,7 @@ test('closing BombArena results only closes the game and never triggers the narr
   });
 
   const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  progress.status = 'RESULTS_READY';
   manager.close(instance.id); // the player's ordinary window close button
   manager.close(instance.id);
   assert.deepEqual(events, [{ type: 'launched' }]);
@@ -493,7 +566,7 @@ test('closing BombArena while a Messenger handoff is pending does not consume th
   };
   const progress = {
     expectedAt: 123,
-    status: 'RESULTS_READY',
+    status: 'IN_PROGRESS',
     sessionWinner: 'justme',
     sessionScores: { justme: 8, pixelgirl: 0, turbo: 0, luna: 0 },
     sessionRoundsPlayed: 8,
@@ -517,6 +590,7 @@ test('closing BombArena while a Messenger handoff is pending does not consume th
   });
 
   const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  progress.status = 'RESULTS_READY';
   manager.close(instance.id);
   assert.equal(progress.status, 'RESULTS_READY');
   assert.deepEqual(events, [{ type: 'launched' }], 'closing does not start or acknowledge the handoff');
@@ -541,7 +615,7 @@ test('BombArena results stay open until closed and closing them does not affect 
   };
   const progress = {
     expectedAt: 123,
-    status: 'RESULTS_READY',
+    status: 'IN_PROGRESS',
     sessionWinner: 'justme',
     sessionScores: { justme: 8, pixelgirl: 0, turbo: 0, luna: 0 },
     sessionRoundsPlayed: 8,
@@ -564,6 +638,9 @@ test('BombArena results stay open until closed and closing them does not affect 
     },
   });
   const instance = app.openBombArena({}, 'bomb-arena-folder/bombarena.exe');
+  progress.status = 'RESULTS_READY';
+  assert.equal(app.openBombArena({}, 'bomb-arena-folder/bombarena.exe'), instance, 'an open results window is restored as-is');
+  assert.equal(app.instances.get('virtual-app:bomb-arena'), instance, 'the open results window is reused without remounting');
   assert.equal(manager.windows.has(instance.id), true);
   assert.equal(progress.status, 'RESULTS_READY', 'the final result remains saved while it is displayed');
   assert.equal(progress.status, 'RESULTS_READY', 'no timeout returns to Messenger');
