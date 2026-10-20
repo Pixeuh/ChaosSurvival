@@ -335,16 +335,31 @@ export class Messenger {
     const message = view.thread.appendWizz(speaker, sender.nickname, eventId, now);
     if (!message) return false;
     if (speaker === 'contact') view = this.ensureBackground(contact) ?? view;
+    this.triggerWizz(view);
     view.refresh();
+    if (speaker === 'contact') this.receiveIncoming(contact, [], [message], view);
+    return true;
+  }
+  triggerWizz(view) {
+    // Each accepted Wizz gets an independent voice; the sound is queued before
+    // touching the window so a visual/DOM issue cannot suppress its playback.
+    let unlocked;
+    try {
+      // Start resume synchronously so a player-initiated Wizz remains within
+      // the browser's user-activation window.
+      unlocked = this.sounds.unlock();
+    } catch (error) {
+      console.error('Impossible de déverrouiller le son Wizz de Messenger.', error);
+    }
+    Promise.resolve(unlocked)
+      .then(() => this.sounds.play('wizz'))
+      .catch((error) => console.error('Impossible de jouer le son Wizz de Messenger.', error));
     const element = view.element;
     if (element?.isConnected) {
       element.classList.remove('messenger-wizz');
       void element.offsetWidth;
       element.classList.add('messenger-wizz');
     }
-    this.sounds.unlock().then(() => this.sounds.play('wizz'));
-    if (speaker === 'contact') this.receiveIncoming(contact, [], [message], view);
-    return true;
   }
   receiveWizz(contactId, eventId) {
     return this.sendWizz(contactId, { speaker: 'contact', eventId });

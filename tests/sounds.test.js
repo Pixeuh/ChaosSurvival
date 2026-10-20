@@ -49,3 +49,58 @@ test('Wizz sound is a short original Web Audio buzz with a vibrating frequency s
   assert.ok(calls.some(([name, kind, value]) => name === 'gain' && kind === 'exponential' && value === 0.001));
   assert.ok(calls.some(([name, time]) => name === 'stop' && Math.abs(time - 4.4) < 1e-9));
 });
+
+test('successive Wizz calls create independent voices without cutting off the previous one', () => {
+  const oscillators = [];
+  const parameter = {
+    setValueAtTime() {},
+    linearRampToValueAtTime() {},
+    exponentialRampToValueAtTime() {},
+  };
+  const context = {
+    state: 'running',
+    currentTime: 4,
+    destination: {},
+    createOscillator() {
+      const oscillator = {
+        frequency: parameter,
+        connect() {},
+        start(time) { this.startedAt = time; },
+        stop(time) { this.stoppedAt = time; },
+        disconnect() {},
+      };
+      oscillators.push(oscillator);
+      return oscillator;
+    },
+    createBiquadFilter: () => ({ frequency: parameter, Q: parameter, connect() {}, disconnect() {} }),
+    createGain: () => ({ gain: parameter, connect() {}, disconnect() {} }),
+  };
+  const sounds = new DesktopSounds(() => 0.7, () => context);
+
+  sounds.play('wizz');
+  sounds.play('wizz');
+
+  assert.equal(oscillators.length, 2);
+  assert.deepEqual(oscillators.map(({ startedAt, stoppedAt }) => [startedAt, stoppedAt]), [
+    [4, 4.4],
+    [4, 4.4],
+  ]);
+});
+
+test('sound unlock resumes an existing context and supports the WebKit constructor fallback', async (t) => {
+  const previousWindow = globalThis.window;
+  t.after(() => {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  });
+  const context = {
+    state: 'suspended',
+    async resume() { this.state = 'running'; },
+  };
+  globalThis.window = { webkitAudioContext: class { constructor() { return context; } } };
+  const sounds = new DesktopSounds(() => 0.7, () => null);
+
+  assert.equal(await sounds.unlock(), true);
+  assert.equal(sounds.context, context);
+  assert.equal(context.state, 'running');
+});

@@ -6,10 +6,17 @@ export class DesktopSounds {
   }
   async unlock() {
     try {
-      this.context = this.getContext() ?? this.context ?? new window.AudioContext();
+      this.context = this.getContext() ?? this.context;
+      if (!this.context) {
+        const AudioContextClass = globalThis.window?.AudioContext ?? globalThis.window?.webkitAudioContext;
+        if (AudioContextClass) this.context = new AudioContextClass();
+      }
+      if (!this.context) return false;
       if (this.context.state !== 'running') await this.context.resume();
+      return this.context.state === 'running';
     } catch {
       /* Sound effects are optional. */
+      return false;
     }
   }
   play(kind) {

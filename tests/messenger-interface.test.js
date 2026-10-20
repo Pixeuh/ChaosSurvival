@@ -89,6 +89,7 @@ test('Wizz send events persist one chronological system entry for each sender wi
   let refreshes = 0,
     notifications = 0;
   const sounds = [];
+  let unlocks = 0;
   const incomingWizzes = [];
   const view = {
     thread,
@@ -104,8 +105,17 @@ test('Wizz send events persist one chronological system entry for each sender wi
     manager: { windows: new Map() },
     progression,
     primary: () => view,
-    definitions: () => ({ [intro.id]: intro }),
-    sounds: { unlock: () => Promise.resolve(), play: (kind) => sounds.push(kind) },
+    definitions: () => ({
+      [intro.id]: intro,
+      'pixelgirl-super-plombier-group': {
+        id: 'pixelgirl-super-plombier-group',
+        contact: { nickname: 'PixelGirl, Turb0 et Luna' },
+      },
+    }),
+    sounds: {
+      unlock: () => { unlocks++; return Promise.resolve(true); },
+      play: (kind) => sounds.push(kind),
+    },
     onMessage: (...args) => {
       notifications++;
       incomingWizzes.push(args);
@@ -124,6 +134,7 @@ test('Wizz send events persist one chronological system entry for each sender wi
   assert.ok(classes.has('messenger-wizz'));
   assert.equal(refreshes, 3);
   assert.deepEqual(sounds, ['wizz', 'wizz', 'wizz']);
+  assert.equal(unlocks, 3, 'each accepted send or receive unlocks audio exactly once');
   assert.equal(notifications, 1);
   assert.equal(incomingWizzes[0][2][0].type, 'wizz');
   assert.equal(incomingWizzes[0][2][0].speaker, 'contact');
@@ -147,6 +158,26 @@ test('Wizz send events persist one chronological system entry for each sender wi
   restored.markRead();
   assert.equal(restored.state.unread.length, 0);
   assert.equal(restored.state.history.length, 4);
+
+  progression.data.flags.superPlombierGroupCreated = true;
+  const groupContact = messenger.contacts().find((contact) => contact.id === 'plumber-group');
+  assert.ok(groupContact?.available);
+  const groupThread = new ConversationThread('plumber-group', progression, () => []);
+  const groupView = {
+    thread: groupThread,
+    refresh: () => refreshes++,
+    element: {
+      isConnected: true,
+      classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
+    },
+  };
+  messenger.conversations.set('plumber-group', groupView);
+  assert.equal(messenger.sendWizz('plumber-group', { eventId: 'group-1' }), true);
+  assert.equal(messenger.sendWizz('plumber-group', { eventId: 'group-2' }), true);
+  await Promise.resolve();
+  assert.deepEqual(sounds, ['wizz', 'wizz', 'wizz', 'wizz', 'wizz']);
+  assert.equal(unlocks, 5);
+  assert.equal(groupThread.state.history.filter((entry) => entry.type === 'wizz').length, 2);
 });
 
 test('Wizz button cooldown lasts five seconds per conversation and is cleaned up on close', (t) => {
