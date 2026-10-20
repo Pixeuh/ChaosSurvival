@@ -7,7 +7,6 @@ import { NarrativeOrchestrator } from '../src/story/narrative-orchestrator.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
 import { VirtualFilesystem } from '../src/story/virtual-filesystem.js';
 import { createGame, drainGameEvents, updateGame } from '../src/minigames/bomb-arena/engine.js';
-import { createDevelopmentProgressionSandbox, installDevelopmentBombArenaShortcut } from '../src/dev/finish-shortcut.js';
 import { bombArenaHandoffPending, createBombArenaHandoffRetrier, dispatchBombArenaEvent } from '../src/story/bomb-arena-handoff.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
@@ -89,34 +88,29 @@ test('a tied eight-round result never starts the post-match handoff before a uni
   assert.equal(bombArenaHandoffPending(progression), true);
 });
 
-test('Ctrl+Shift+B isolated save advances the real group offer, immediately starts the handoff, retries Messenger, and sends the postmatch branch', () => {
-  const normalValues = new Map();
-  const normalStorage = {
-    getItem: (key) => normalValues.get(key) ?? null,
-    setItem: (key, value) => normalValues.set(key, value),
+test('a saved group-intro checkpoint advances the real offer, retries Messenger, and sends the postmatch branch', () => {
+  const values = new Map();
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
   };
-  const progression = new Progression(story, normalStorage);
+  const progression = new Progression(story, storage);
   progression.begin();
   progression.data.flags.keepNormalRun = 'intact';
-  progression.save();
-  const originalSave = normalStorage.getItem('chaos-survival-story-v1');
-  const sandbox = createDevelopmentProgressionSandbox(progression);
-  let onKey;
-  const shortcutCleanup = installDevelopmentBombArenaShortcut({
-    addEventListener: (_type, callback) => { onKey = callback; },
-    removeEventListener: () => {},
-  }, () => sandbox.enter(group));
-  let prevented = false;
-  onKey({ key: 'B', ctrlKey: true, shiftKey: true, altKey: false, metaKey: false, repeat: false,
-    target: { closest: () => null }, preventDefault: () => { prevented = true; } });
-  shortcutCleanup();
-  assert.equal(prevented, true, 'the real Ctrl+Shift+B handler enters the development sandbox');
-  assert.equal(sandbox.active, true);
-  const devStorage = progression.storage;
   let now = Date.now();
+  progression.data.flags.superPlombierGroupCreated = true;
+  progression.data.flags.superPlombierPostStarted = true;
+  progression.data.flags.superPlombierGroupCreatedAt = now;
+  progression.data.flags.superPlombierGroupNotified = true;
+  progression.data.unlockedConversations = [group.id];
+  progression.data.dialogues[group.id] = {
+    node: 'bomb-arena-intro', cursor: 0, transcript: [], finished: false,
+    revision: group.revision ?? 1,
+  };
+  progression.save();
   const firstStory = createStoryHarness(progression, () => now);
 
-  // Run the normal orchestrator and thread from the actual shortcut's intro node.
+  // Resume the usual orchestrator from a saved group intro checkpoint.
   firstStory.orchestrator.updateGroup(now);
   now += 60_000;
   firstStory.orchestrator.updateGroup(now);
@@ -166,10 +160,10 @@ test('Ctrl+Shift+B isolated save advances the real group offer, immediately star
   assert.equal(firstAttempts, 1);
   assert.equal(firstRetrier.scheduled, true, 'a transient Messenger failure remains retryable');
   assert.equal(bombArenaWindowOpen, true, 'the handoff does not close BombArena');
-  assert.equal(normalStorage.getItem('chaos-survival-story-v1'), originalSave, 'the real save remains untouched');
+  assert.equal(progression.data.flags.keepNormalRun, 'intact', 'unrelated saved progression remains intact');
 
-  // Reload the actual isolated save while the immediate result handoff is pending.
-  const resumed = new Progression(story, devStorage);
+  // Reload the saved run while the immediate result handoff is pending.
+  const resumed = new Progression(story, storage);
   const resumedStory = createStoryHarness(resumed, () => now);
   let attempts = 0;
   const retrier = createBombArenaHandoffRetrier({
@@ -194,14 +188,12 @@ test('Ctrl+Shift+B isolated save advances the real group offer, immediately star
   const postmatchHistoryCount = resumedStory.thread.state.history.filter((message) => message.eventId === postmatch.id).length;
   assert.ok(postmatchHistoryCount > 0, 'the branch is written to the existing group conversation history');
 
-  const reloadedAgain = new Progression(story, devStorage);
+  const reloadedAgain = new Progression(story, storage);
   const againStory = createStoryHarness(reloadedAgain, () => now + 30_000);
   assert.equal(againStory.orchestrator.bombArenaPostMatchAvailable(), true);
   const restoredHistory = againStory.thread.state.history;
   assert.equal(restoredHistory.filter((message) => message.eventId === postmatch.id).length, postmatchHistoryCount,
     'reloading restores the same transcript without adding duplicate messages');
   assert.equal(reloadedAgain.data.dialogues[postmatch.id].transcript[0].text, 'AAAAAA');
-  assert.equal(sandbox.restore(), true);
-  assert.equal(progression.data.flags.keepNormalRun, 'intact');
-  assert.equal(normalStorage.getItem('chaos-survival-story-v1'), originalSave);
+  assert.equal(reloadedAgain.data.flags.keepNormalRun, 'intact');
 });

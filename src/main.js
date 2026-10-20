@@ -1390,8 +1390,6 @@ if (import.meta.env.DEV) {
     const {
       installDevelopmentVictoryShortcut,
       installDevelopmentConversationShortcut,
-      installDevelopmentBombArenaShortcut,
-      createDevelopmentProgressionSandbox,
       prepareBombArenaForDevelopment,
     } = shortcuts;
     const foregroundGroupConversation = () => {
@@ -1439,22 +1437,6 @@ if (import.meta.env.DEV) {
       },
       'd',
     );
-    const bombArenaSandbox = createDevelopmentProgressionSandbox(progression);
-    installDevelopmentBombArenaShortcut(document, () => {
-      const dialogue = dialogues['pixelgirl-super-plombier-group'];
-      if (!bombArenaSandbox.enter(dialogue)) return;
-      notifications.clear({ resetHandled: true });
-      menu.hide();
-      menuMusic.stop();
-      ui.desktop.inert = false;
-      // Dispose existing windows while the isolated in-memory save is active.
-      showStoryDesktop(false, { connectPixelGirl: false });
-      if (!bombArenaSandbox.enter(dialogue)) return;
-      desktopIcons.refresh();
-      renderDesktopFiles();
-      const contact = messenger.contacts().find((item) => item.id === 'plumber-group');
-      if (contact?.available) messenger.openContact(contact);
-    });
   });
 }
 
