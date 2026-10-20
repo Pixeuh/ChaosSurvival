@@ -1283,12 +1283,16 @@ button.messenger-contact-row:hover {
   flex-direction: column;
   align-items: center;
   gap: 5px;
+  max-width: 100cqi;
+  min-width: 0;
 }
 .msn-webcam-placeholder {
   display: flex;
   align-items: center;
   gap: 4px;
   width: 88px;
+  max-width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   padding: 5px 3px;
   border: 1px solid #a5b8c6;

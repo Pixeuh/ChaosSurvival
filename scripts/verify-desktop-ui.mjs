@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,8 @@ import { Progression } from '../src/story/progression.js';
 import { DialogueSession } from '../src/story/dialogue.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
 import { smileyIcon } from '../src/minigames/smiley-icons.js';
+import contacts from '../src/config/contacts.json' with { type: 'json' };
+import { orderedContacts, visibleContacts } from '../src/ui/contacts.js';
 
 const rulesOnly = process.argv.includes('--rules-only');
 const typingOnly = process.argv.includes('--typing-only');
@@ -32,6 +34,10 @@ const videoTubeOnly = process.argv.includes('--videotube-only');
 const wikiOnly = process.argv.includes('--wiki-only');
 const hoplaHotelOnly = process.argv.includes('--hopla-hotel-only');
 const explorerOnly = process.argv.includes('--explorer-only');
+const visibleExplorerOnly = process.argv.includes('--visible-explorer-only');
+const visibleMessengerOnly = process.argv.includes('--visible-messenger-only');
+const visibleSmokeOnly = process.argv.includes('--visible-smoke-only');
+const visiblePortraitOnly = process.argv.includes('--visible-portrait-only');
 const minigameOnly =
   process.argv.includes('--minigame-only') ||
   typingOnly ||
@@ -51,34 +57,72 @@ const minigameOnly =
   wikiOnly ||
   hoplaHotelOnly ||
   explorerOnly ||
+  visibleExplorerOnly ||
+  visibleMessengerOnly ||
+  visibleSmokeOnly ||
+  visiblePortraitOnly ||
   stabilityOnly;
-let browserServer;
+const browserAutomation =
+  minigameOnly &&
+  !visibleExplorerOnly &&
+  !visibleMessengerOnly &&
+  !visibleSmokeOnly &&
+  !visiblePortraitOnly;
+let browserServer, profile, port, gameUrl, chromiumExecutable = null, child, spawnError = null;
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, '.qa');
+let dialogueDefinitionsCache;
+async function visibleRosterFor(progressionState) {
+  if (!dialogueDefinitionsCache) {
+    const files = (await readdir(path.join(root, 'src/dialogues'))).filter((name) =>
+      name.endsWith('.json'),
+    );
+    dialogueDefinitionsCache = Object.fromEntries(
+      await Promise.all(
+        files.map(async (name) => {
+          const dialogue = JSON.parse(
+            await readFile(path.join(root, 'src/dialogues', name), 'utf8'),
+          );
+          return [dialogue.id, dialogue];
+        }),
+      ),
+    );
+  }
+  return orderedContacts(
+    visibleContacts(
+      dialogueDefinitionsCache,
+      progressionState.unlockedConversations,
+      contacts,
+      progressionState.contactConnections,
+      progressionState.contactProfiles,
+      progressionState.flags,
+    ),
+  );
+}
+try {
 await mkdir(output, { recursive: true });
-const profile = await mkdtemp(path.join(tmpdir(), 'chaos-survival-desktop-profile-'));
+profile = await mkdtemp(path.join(tmpdir(), 'chaos-survival-desktop-profile-'));
 const listener = createServer().listen(0, '127.0.0.1');
 await once(listener, 'listening');
-const port = listener.address().port;
+port = listener.address().port;
 await new Promise((resolve) => listener.close(resolve));
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.CHAOS_DEV_URL;
-if (minigameOnly) {
+if (browserAutomation) {
   const { preview } = await import('vite');
   browserServer = await preview({
     configLoader: 'runner',
     preview: { host: '127.0.0.1', port: 0 },
   });
 }
-const gameUrl = minigameOnly ? browserServer.resolvedUrls.local[0] : 'chaos://game/';
+gameUrl = browserAutomation ? browserServer.resolvedUrls.local[0] : 'chaos://game/';
 const chromiumCandidates = [
   process.env.CHAOS_CHROMIUM_PATH,
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].filter(Boolean);
-let chromiumExecutable = null;
-if (minigameOnly) {
+if (browserAutomation) {
   for (const candidate of chromiumCandidates) {
     try {
       await access(candidate);
@@ -94,10 +138,10 @@ if (minigameOnly) {
     );
   }
 }
-const executable = minigameOnly ? chromiumExecutable : electron;
-const child = spawn(
+const executable = browserAutomation ? chromiumExecutable : electron;
+child = spawn(
   executable,
-  minigameOnly
+  browserAutomation
     ? [
         '--headless=new',
         '--disable-gpu',
@@ -112,8 +156,48 @@ const child = spawn(
         gameUrl,
       ]
     : [root, `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`],
-  { env, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] },
+  { env, windowsHide: browserAutomation, stdio: ['ignore', 'ignore', 'pipe'] },
 );
+child.on('error', (error) => {
+  spawnError = error;
+});
+} catch (error) {
+  if (child?.pid && child.exitCode === null) child.kill();
+  if (browserServer)
+    await new Promise((resolve) => browserServer.httpServer.close(resolve)).catch(() => {});
+  if (profile)
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+  throw error;
+}
+const scenarioName = visibleSmokeOnly
+  ? 'Bureau minimal Electron visible'
+  : visiblePortraitOnly
+    ? 'Disposition des portraits Messenger'
+  : visibleMessengerOnly || messengerOnly
+    ? 'Messenger'
+    : visibleExplorerOnly
+      ? 'Poste de travail Electron visible'
+      : explorerOnly
+        ? 'Poste de travail Chromium'
+        : 'campagne de validation visuelle';
+const scenarioBudgetMs = visibleSmokeOnly || visiblePortraitOnly
+  ? 45_000
+  : visibleMessengerOnly || messengerOnly
+    ? 90_000
+    : 240_000;
+const scenarioStartedAt = Date.now();
+const scenarioDeadline = scenarioStartedAt + scenarioBudgetMs;
+const rawWait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function qaLog(message) {
+  console.log(`[VISUAL QA] ${message}`);
+}
+let currentStep = 'application startup';
+function qaStep(message) {
+  currentStep = message;
+  qaLog(message);
+}
+qaLog(`Commande : ${process.env.npm_lifecycle_event ? `npm run ${process.env.npm_lifecycle_event}` : process.argv.join(' ')}`);
+qaLog(`Début du scénario : ${scenarioName} (limite ${Math.round(scenarioBudgetMs / 1000)} s)`);
 let stderr = '',
   socket,
   sequence = 0;
@@ -122,22 +206,37 @@ child.stderr.on('data', (bytes) => {
 });
 const pending = new Map(),
   exceptions = [];
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function wait(ms) {
+  const remaining = scenarioDeadline - Date.now();
+  if (remaining <= 0) throw new Error(`Limite totale du scénario atteinte après ${scenarioBudgetMs} ms.`);
+  const delay = Math.min(ms, remaining);
+  await rawWait(delay);
+  if (delay < ms || Date.now() >= scenarioDeadline)
+    throw new Error(`Limite totale du scénario atteinte après ${scenarioBudgetMs} ms.`);
+}
 async function until(check, description, timeout = 12000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
+  const localDeadline = Math.min(Date.now() + timeout, scenarioDeadline);
+  while (Date.now() < localDeadline) {
+    if (spawnError) throw spawnError;
     if (await check()) return;
-    await wait(50);
+    await wait(Math.min(50, localDeadline - Date.now()));
   }
+  if (Date.now() >= scenarioDeadline)
+    throw new Error(`Limite totale du scénario atteinte pendant « ${description} » après ${scenarioBudgetMs} ms. ${stderr}`);
   throw new Error(`Délai dépassé : ${description}. ${stderr}`);
 }
 function command(method, params = {}) {
   return new Promise((resolve, reject) => {
     const id = ++sequence;
+    const timeout = Math.min(10000, scenarioDeadline - Date.now());
+    if (timeout <= 0) {
+      reject(new Error(`Limite totale du scénario atteinte avant ${method}.`));
+      return;
+    }
     const timer = setTimeout(() => {
       pending.delete(id);
-      reject(new Error(`CDP : ${method} ${params.expression ?? ''}. ${stderr}`));
-    }, 10000);
+      reject(new Error(`Timeout ${timeout} ms CDP : ${method} ${params.expression ?? ''}. ${stderr}`));
+    }, timeout);
     pending.set(id, { resolve, reject, timer });
     socket.send(JSON.stringify({ id, method, params }));
   });
@@ -421,11 +520,11 @@ async function verifyStartMenuOrder() {
     );
     assert.equal(
       await evaluate("document.querySelector('#start-menu > header').nextElementSibling.id"),
-      'return-main-menu',
+      'menu-buddy',
     );
     assert.equal(
-      await evaluate("document.querySelector('#start-menu').lastElementChild.tagName"),
-      'FOOTER',
+      await evaluate("document.querySelector('#start-menu').lastElementChild.className"),
+      'start-menu-actions',
     );
   }
   await move(initial[0], initial.at(-1), 10);
@@ -458,7 +557,7 @@ async function verifyStartMenuOrder() {
   );
   await physicalClick('#windows-start');
   assert.deepEqual(await order(), changed);
-  await physicalClick('#return-main-menu');
+  await physicalClick('#start-menu-main');
   await until(
     () => evaluate("window.chaosDebug.snapshot().phase==='menu'"),
     'fixed main-menu command',
@@ -560,9 +659,100 @@ async function capture(name) {
   const shot = await command('Page.captureScreenshot');
   await writeFile(path.join(output, name), Buffer.from(shot.data, 'base64'));
 }
+async function verifyVisibleSmoke() {
+  qaStep('Étape 1/5 : menu de premier lancement');
+  await until(() => evaluate("window.chaosDebug.snapshot().phase==='menu'"), 'menu');
+  await physicalClick('#menu-play');
+  await until(
+    () => evaluate("!!document.querySelector('.rules-confirm')||['desktop','playing'].includes(window.chaosDebug.snapshot().phase)"),
+    'first-run rules or Windows XD desktop',
+  );
+  if (await evaluate("!!document.querySelector('.rules-confirm')")) {
+    qaStep('Étape 2/5 : confirmation des règles par le bouton normal');
+    await physicalClick('.rules-confirm');
+  }
+  await until(
+    () => evaluate("['desktop','playing'].includes(window.chaosDebug.snapshot().phase)"),
+    'Windows XD after first-run rules',
+  );
+  assert.equal(
+    await evaluate("!!document.querySelector('.rules-layer:not([hidden])')"),
+    false,
+    'the first-run rules are dismissed through their normal confirmation button',
+  );
+  assert.equal(
+    await evaluate("!!document.querySelector('#desktop')&&!document.querySelector('#desktop').hidden"),
+    true,
+    'the Windows XD desktop is visible after confirming the first-run rules',
+  );
+  qaStep('Étape 3/5 : ouverture de Poste de travail');
+  await physicalClick('#desktop > .desktop-icons [data-shortcut=computer]', true);
+  const explorer = '.popup-desktopapp:has(.explorer-menu)';
+  await until(() => evaluate(`!!document.querySelector(${JSON.stringify(explorer)})`), 'Poste de travail');
+  qaStep('Étape 4/5 : fermeture de Poste de travail');
+  await physicalClick(`${explorer} .close-button`);
+  await until(() => evaluate(`!document.querySelector(${JSON.stringify(explorer)})`), 'Poste de travail closed');
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+  qaStep('Étape 5/5 : parcours terminé sans recharger ni relancer le jeu');
+}
 async function verifyExplorer() {
+  qaLog('Étape 2 : lancement par le bouton Jouer');
+  await physicalClick('#menu-play');
+  await until(
+    () =>
+      evaluate(
+        "!!document.querySelector('.rules-confirm')||['desktop','playing'].includes(window.chaosDebug.snapshot().phase)",
+      ),
+    'first-run rules or Windows XD desktop',
+  );
+  const rulesVisible = await evaluate("!!document.querySelector('.rules-confirm')");
+  if (rulesVisible) {
+    qaLog('Confirmation des règles du premier lancement');
+    await physicalClick('.rules-confirm');
+  }
+  await until(
+    () => evaluate("['desktop','playing'].includes(window.chaosDebug.snapshot().phase)"),
+    'desktop after first-run rules',
+  );
+  assert.equal(
+    await evaluate("!!document.querySelector('.rules-layer:not([hidden])')"),
+    false,
+    'the first-run rules are dismissed through their normal confirmation button',
+  );
+  {
+    // After confirming the real first-run screen, use a disposable save to reach
+    // the post-intro desktop for the deeper Explorer checks. This is one explicit
+    // renderer reload for the persistence fixture, not an application retry.
+    qaLog('Rechargement unique du renderer pour installer le profil Explorer temporaire (pas de nouveau processus)');
+    const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json')));
+    const progression = new Progression(story);
+    progression.begin();
+    progression.complete('arcade-1');
+    progression.complete('pixelgirl-hello');
+    await command('Page.enable');
+    const injection = await command('Page.addScriptToEvaluateOnNewDocument', {
+      source: `localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(JSON.stringify(progression.data))});window.__explorerFixture=true`,
+    });
+    await command('Page.reload');
+    await until(
+      () =>
+        evaluate("window.__explorerFixture&&window.chaosDebug?.snapshot().phase==='menu'").catch(
+          () => false,
+        ),
+      'isolated Explorer fixture',
+    );
+    await command('Page.removeScriptToEvaluateOnNewDocument', {
+      identifier: injection.identifier,
+    });
+    qaLog('Fixture Explorer prête; poursuite via le bouton Jouer');
+  }
   await physicalClick('#menu-play');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='desktop'"), 'desktop');
+  assert.equal(
+    await evaluate("!!document.querySelector('#desktop')&&!document.querySelector('#desktop').hidden"),
+    true,
+    'the Windows XD desktop is displayed whether rules were new or already accepted',
+  );
   assert.deepEqual(
     await evaluate(
       "['computer','folder','bin'].map(kind=>document.querySelectorAll(`#desktop > .desktop-icons [data-shortcut=${kind}]`).length)",
@@ -651,7 +841,9 @@ async function verifyExplorer() {
     'clean Explorer close',
   );
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
-  console.log('OK: Chromium desktop/system icons, Explorer minimize/restore/taskbar toggle, context menu, close cleanup, toolbar/menu, XP task pane, navigation, selection details, folder options, icon-only view, virtual address and search. Screenshots saved in .qa.');
+  console.log(
+    `OK: ${visibleExplorerOnly ? 'Electron visible' : 'Chromium'} desktop/system icons, Explorer minimize/restore/taskbar toggle, context menu, close cleanup, toolbar/menu, XP task pane, navigation, selection details, folder options, icon-only view, virtual address and search. Screenshots saved in .qa.`,
+  );
 }
 try {
   let target;
@@ -682,16 +874,21 @@ try {
   await command('Runtime.enable');
   await command('Emulation.setFocusEmulationEnabled', { enabled: true });
   await until(() => evaluate("window.chaosDebug?.snapshot().phase==='menu'"), 'menu');
+  qaLog('Étape 1 : application lancée et menu principal prêt');
   assert.equal(
     await evaluate(
       "document.querySelectorAll('.session-info,.session-dot,#session-label,#window-count').length",
     ),
     0,
   );
-  if (browserSecurityElectron) {
+  if (visibleSmokeOnly) {
+    await verifyVisibleSmoke();
+  } else if (visiblePortraitOnly) {
+    await verifyVisiblePortraitLayout();
+  } else if (browserSecurityElectron) {
     await verifyBrowser();
   } else if (minigameOnly) {
-    if (explorerOnly) await verifyExplorer();
+    if (visibleExplorerOnly || explorerOnly) await verifyExplorer();
     else if (hoplaHotelOnly) await verifyHoplaHotel();
     else if (wikiOnly) await verifyWiki();
     else if (videoTubeOnly) await verifyVideoTube();
@@ -705,7 +902,7 @@ try {
     else if (gridOnly) await verifyDesktopGrid();
     else if (movementOnly || stabilityOnly) await verifyArcadeMovement();
     else if (notepadOnly) await verifyNotepad();
-    else if (messengerOnly) {
+    else if (messengerOnly || visibleMessengerOnly) {
       await verifyTypingIndicator();
       await verifyMessengerWindows();
     } else if (rulesOnly) await verifyRulesFlow();
@@ -716,14 +913,38 @@ try {
     await until(() => evaluate("!!document.querySelector('.rules-confirm')"), 'first rules');
     await click('.rules-confirm');
     await until(() => evaluate("window.chaosDebug.snapshot().phase==='playing'"), 'niveau');
+    qaLog('Étape 2 : règles confirmées, bureau Windows XD actif');
     await click('#windows-start');
     await click('#menu-messenger');
     await until(() => evaluate("!!document.querySelector('.messenger-contact-list')"), 'contacts');
-    assert.equal(
-      await evaluate("document.querySelectorAll('.messenger-contact-row.offline').length"),
-      3,
+    qaLog('Étape 3 : roster Messenger ouvert, assertions basées sur les règles de visibilité');
+    const progressionState = await evaluate(
+      "JSON.parse(localStorage.getItem('chaos-survival-story-v1'))",
     );
-    assert.equal(await evaluate("!!document.querySelector('[data-contact-id=pixelgirl]')"), false);
+    const expectedContacts = await visibleRosterFor(progressionState);
+    const actualContacts = await evaluate(
+      "[...document.querySelectorAll('.messenger-contact-row')].map(row=>({id:row.dataset.contactId,offline:row.classList.contains('offline')}))",
+    );
+    assert.equal(
+      actualContacts.length,
+      expectedContacts.length,
+      'the roster contains exactly the contacts visible for the current saved narrative state',
+    );
+    assert.deepEqual(
+      actualContacts.map((contact) => contact.id).sort(),
+      expectedContacts.map((contact) => contact.id).sort(),
+      'roster visibility follows contacts.json and visibleContacts narrative rules',
+    );
+    assert.deepEqual(
+      actualContacts.filter((contact) => contact.offline).map((contact) => contact.id).sort(),
+      expectedContacts.filter((contact) => !contact.online).map((contact) => contact.id).sort(),
+      'offline rows match the effective connection state',
+    );
+    assert.equal(
+      actualContacts.some((contact) => contact.id === 'pixelgirl'),
+      expectedContacts.some((contact) => contact.id === 'pixelgirl'),
+      'PixelGirl visibility follows her initial visibility or unlock state',
+    );
     assert.equal(
       await evaluate("document.querySelectorAll('.messenger-contact-row.offline button').length"),
       0,
@@ -769,7 +990,17 @@ try {
         const folderId = await evaluate(
           "document.querySelector('.popup-desktopapp:last-of-type').dataset.windowId",
         );
-        await doubleClick('.popup-desktopapp:last-of-type .explorer-item:nth-child(3)');
+        const homeworkFileId = await evaluate(`(() => {
+          const row=[...document.querySelectorAll('.popup-desktopapp:last-of-type .explorer-item')]
+            .find(item=>item.querySelector('strong')?.textContent.includes('devoir_final_v7_VRAIMENT_FINAL'));
+          row?.scrollIntoView({block:'nearest'});
+          return row?.dataset.fileId ?? null;
+        })()`);
+        assert.ok(homeworkFileId, 'the homework text file is present in Mes documents');
+        await physicalClick(
+          `.popup-desktopapp:last-of-type .explorer-item[data-file-id="${homeworkFileId}"]`,
+          true,
+        );
         assert.ok(
           await evaluate(
             "document.querySelector('.notepad-content').value.includes('Devoir pour lundi')",
@@ -817,7 +1048,8 @@ try {
       await evaluate("!!document.querySelector('.desktop-app-task[data-app=bin]')"),
       false,
     );
-    await click('#return-main-menu');
+    await click('#windows-start');
+    await click('#start-menu-main');
     assert.equal(await evaluate("document.querySelectorAll('.desktop-app-task').length"), 0);
 
     const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json')));
@@ -862,15 +1094,54 @@ try {
     await doubleClick('[data-shortcut=arcade]');
     await until(
       () =>
+        evaluate("window.chaosDebug.snapshot().phase==='playing'"),
+      'level one replay launch',
+    );
+    await until(
+      () =>
+        evaluate(
+          "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).replayReactions.at(-1)?.ready===true",
+        ),
+      'replay reaction becomes ready during gameplay',
+      10000,
+    );
+    assert.equal(
+      await evaluate(
+        "!!JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.history.find(m=>m.text==='et bah !!!')",
+      ),
+      false,
+      'the pending replay waits until Windows XD returns to the desktop',
+    );
+    await until(
+      () => evaluate("window.chaosDebug.snapshot().phase==='ended'"),
+      'replay level finishes',
+      60000,
+    );
+    await click('#dialog-secondary');
+    await until(
+      () => evaluate("window.chaosDebug.snapshot().phase==='desktop'"),
+      'return to desktop after replay',
+    );
+    await until(
+      () =>
         evaluate(
           "!!JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.history.find(m=>m.text==='et bah !!!')",
         ),
-      'premier message de replay',
-      5000,
+      'first replay message received on desktop',
+      10000,
     );
-    await click('#toast-open');
+    const replayNotification = '.message-toast[data-notification-key="pixelgirl:pixelgirl"]';
+    await until(
+      () => evaluate(`!!document.querySelector(${JSON.stringify(replayNotification)})`),
+      'replay message notification',
+    );
+    await physicalClick(replayNotification);
     await until(() => evaluate("!!document.querySelector('.conversation-log')"), 'MSN');
-    assert.equal(await evaluate("document.querySelectorAll('.dialogue-choice').length"), 0);
+    assert.equal(
+      await evaluate("document.querySelectorAll('.conversation-log .dialogue-choice').length"),
+      0,
+      'pending choices stay outside the received-message history',
+    );
     await until(
       () => evaluate("document.querySelectorAll('.dialogue-choices .dialogue-choice').length===3"),
       'choix narratifs conserv?s apr?s le replay',
@@ -897,16 +1168,24 @@ try {
       3,
     );
     assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+    qaLog('Scénario terminé : SUCCÈS');
     console.log(
       'OK : contacts, groupes, PixelGirl masquée puis disponible, fermeture/réduction, explorateurs uniques, barre des tâches, replay progressif et choix en attente.',
     );
   }
+  qaLog(`Scénario terminé : SUCCÈS (${((Date.now() - scenarioStartedAt) / 1000).toFixed(1)} s)`);
+} catch (error) {
+  qaLog(`ÉCHEC après ${((Date.now() - scenarioStartedAt) / 1000).toFixed(1)} s : ${error?.message ?? error}`);
+  qaLog(`Étape active : ${currentStep}`);
+  qaLog('Arrêt du scénario; aucune nouvelle tentative automatique');
+  throw error;
 } finally {
+  qaLog('Fermeture de l’application et nettoyage du profil temporaire');
   if (socket?.readyState === WebSocket.OPEN) await evaluate('window.close()').catch(() => {});
   socket?.close();
   for (const request of pending.values()) clearTimeout(request.timer);
   if (child.exitCode === null) {
-    await Promise.race([once(child, 'exit'), wait(2000)]);
+    await Promise.race([once(child, 'exit'), rawWait(2000)]);
     if (child.exitCode === null) child.kill();
   }
   await new Promise((resolve) =>
@@ -919,9 +1198,11 @@ try {
       !path.isAbsolute(relative),
   );
   await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  qaLog(`Nettoyage terminé (${((Date.now() - scenarioStartedAt) / 1000).toFixed(1)} s)`);
 }
 
 async function physicalClick(selector, twice = false) {
+  await command('Page.bringToFront');
   const point = await evaluate(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     const rect = element.getBoundingClientRect();
@@ -930,16 +1211,25 @@ async function physicalClick(selector, twice = false) {
       blocker: document.elementFromPoint(x, y)?.id};
   })()`);
   assert.ok(point.hit, `Click intercepted for ${selector} by ${point.blocker}`);
+  await command('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: point.x,
+    y: point.y,
+  });
+  await wait(25);
   for (let count = 1; count <= (twice ? 2 : 1); count++) {
-    for (const type of ['mousePressed', 'mouseReleased'])
+    for (const type of ['mousePressed', 'mouseReleased']) {
       await command('Input.dispatchMouseEvent', {
         type,
         x: point.x,
         y: point.y,
         button: 'left',
+        buttons: type === 'mousePressed' ? 1 : 0,
         clickCount: count,
       });
+    }
   }
+  await wait(25);
 }
 
 async function physicalRightClick(selector) {
@@ -967,7 +1257,7 @@ async function verifyMenuLayout() {
   await verifyDesktopGrid();
   await click('.popup-desktopapp .close-button');
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await assertMenuDesktopMatches();
   for (const [width, height] of [
     [1280, 800],
@@ -1211,11 +1501,17 @@ async function verifyNewGame() {
       (contact) => contact.count === 1 && contact.offline && contact.group === 'false',
     ),
   );
+  const resetRosterState = await evaluate(
+    "JSON.parse(localStorage.getItem('chaos-survival-story-v1'))",
+  );
+  const expectedOfflineRoster = (await visibleRosterFor(resetRosterState))
+    .filter((contact) => !contact.online)
+    .map((contact) => contact.id);
   assert.deepEqual(
     await evaluate(
       "[...document.querySelectorAll('.messenger-contact-list details[data-group=false] [data-contact-id]')].map(row=>row.dataset.contactId)",
     ),
-    ['skater', 'luna', 'modem', 'pixelgirl', 'princess', 'offline', 'turbo'],
+    expectedOfflineRoster,
   );
   assert.equal(
     await evaluate("document.querySelector('.messenger-contact-list').textContent.includes('☺')"),
@@ -2114,7 +2410,7 @@ async function verifyHoplaHotel() {
   assert.ok(await evaluate("!!document.querySelector('.explorer-items')"));
   await evaluate("document.querySelector('.browser-page .hotel-enter').click()");
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await until(
     () => evaluate("window.chaosDebug.snapshot().phase==='menu'"),
     'Hotel desktop teardown',
@@ -2923,7 +3219,7 @@ async function verifySkyPage() {
     tabs,
   );
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await click('#menu-new-game');
   await click('#menu-confirm-yes');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='rules'"), 'SkyPage New Game');
@@ -3178,7 +3474,7 @@ async function verifyBrowser() {
   assert.equal((await save()).tabs.length, 1);
   assert.equal(await url(), 'http://www.xdsearch.fr/');
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await click('#menu-new-game');
   await click('#menu-confirm-yes');
   await until(
@@ -3326,7 +3622,7 @@ async function verifyBuddy() {
   await click('.buddy-close');
   assert.equal(await evaluate("document.querySelector('.buddy-bubble').hidden"), true);
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='menu'"), 'return menu');
   await click('#menu-new-game');
   await click('#menu-confirm-yes');
@@ -3706,7 +4002,7 @@ async function verifyMiniGameLaunch() {
   await click('[data-messenger-contact=skater] .close-button');
   await click('[data-messenger-view=contacts] .close-button');
   await physicalClick('#windows-start');
-  await physicalClick('#return-main-menu');
+  await physicalClick('#start-menu-main');
   await assertMenuDesktopMatches();
   await click('#menu-play');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='desktop'"), 'desktop again');
@@ -3905,7 +4201,7 @@ async function verifyArcadeMovement() {
     );
   }
   await physicalClick('#windows-start');
-  await physicalClick('#return-main-menu');
+  await physicalClick('#start-menu-main');
   await until(() => evaluate("window.chaosDebug.snapshot().phase==='menu'"), 'quit rhythmic level');
   await click('#menu-play');
   await until(
@@ -4241,6 +4537,7 @@ async function verifyWindowOverIcons(selector, allEdges = false) {
 }
 
 async function verifyTypingIndicator() {
+  qaStep('Messenger : indicateur de saisie, WIZZ et reprise de conversation');
   const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json')));
   const intro = JSON.parse(await readFile(path.join(root, 'src/dialogues/pixelgirl-intro.json')));
   const progression = new Progression(story);
@@ -4250,6 +4547,7 @@ async function verifyTypingIndicator() {
   session.deliver();
   session.deliver(); // Start with the next existing message, whose typing window lasts 900 ms.
   const fixture = JSON.stringify(progression.data);
+  let typingFixtureReloads = 0;
   async function start() {
     // Inject before the new app starts; a live conversation must not overwrite this fixture.
     const marker = String(Date.now());
@@ -4257,6 +4555,8 @@ async function verifyTypingIndicator() {
     const injected = await command('Page.addScriptToEvaluateOnNewDocument', {
       source: `localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(fixture)});window.__typingFixture=${JSON.stringify(marker)}`,
     });
+    typingFixtureReloads += 1;
+    qaLog(`Rechargement renderer ${typingFixtureReloads}/2 pour le test de reprise de sauvegarde Messenger (même processus)`);
     await command('Page.reload');
     await until(
       () =>
@@ -4316,7 +4616,8 @@ async function verifyTypingIndicator() {
       flow.prepend(spacer);
       log.scrollTop = 0;
       log.dispatchEvent(new Event('scroll'));
-      for(let n=0;n<10;n++)document.querySelector('[data-msn-action=wizz]').click();
+      const wizzButton=document.querySelector('[data-msn-action=wizz]');
+      wizzButton.click();wizzButton.click();
       const after=anchor();
       const readingPreserved=log.scrollTop===0;
       log.scrollTop = 40;
@@ -4329,7 +4630,7 @@ async function verifyTypingIndicator() {
       spacer.remove();
       log.scrollTop=log.scrollHeight;
       const last=flow.lastElementChild.getBoundingClientRect();
-      return {before,after,scrolled,resized,readingPreserved,
+      return {before,after,scrolled,resized,readingPreserved,wizzDisabled:wizzButton.disabled,
         hidden:indicator.hidden, indicators:history.querySelectorAll('.contact-typing').length,
         noOverlap:last.bottom<=indicator.getBoundingClientRect().top,
         wizz:[...flow.querySelectorAll('.conversation-system')].map(row=>row.textContent)};
@@ -4341,9 +4642,33 @@ async function verifyTypingIndicator() {
     assert.equal(anchored.hidden, false);
     assert.equal(anchored.indicators, 1);
     assert.equal(anchored.noOverlap, true);
-    assert.deepEqual(anchored.wizz, Array(10).fill('JustMe vous a envoyé un wizz !'));
+    assert.equal(anchored.wizzDisabled, true, 'rapid repeat clicks leave Wizz disabled during cooldown');
+    assert.deepEqual(
+      anchored.wizz,
+      ['JustMe vous a envoyé un wizz !'],
+      'two rapid clicks during cooldown send exactly one Wizz',
+    );
     await capture('messenger-fixed-typing-wizz.png');
     await evaluate('Date.now=window.__typingOriginalNow;delete window.__typingOriginalNow');
+    await wait(5200);
+    assert.equal(
+      await evaluate("document.querySelector('[data-msn-action=wizz]').disabled"),
+      false,
+      'Wizz becomes available after the five-second cooldown',
+    );
+    await physicalClick('[data-msn-action=wizz]');
+    await until(
+      () => evaluate("document.querySelectorAll('.conversation-system').length===2"),
+      'Wizz accepted after cooldown expiry',
+    );
+    assert.deepEqual(
+      await evaluate(
+        "[...document.querySelectorAll('.conversation-system')].map(row=>row.textContent)",
+      ),
+      Array(2).fill('JustMe vous a envoyé un wizz !'),
+      'a new Wizz is accepted after the cooldown expires',
+    );
+    await capture('messenger-wizz-cooldown-expired.png');
   }
   async function received() {
     await until(
@@ -4354,6 +4679,7 @@ async function verifyTypingIndicator() {
       'messages continue in background',
     );
   }
+  qaStep('Messenger : première réception en arrière-plan et WIZZ avec cooldown');
   await start();
   await click('.popup-narrative .msn-minimize');
   await received();
@@ -4366,6 +4692,7 @@ async function verifyTypingIndicator() {
     deviceScaleFactor: 1,
     mobile: false,
   });
+  qaStep('Messenger : seconde reprise isolée et choix persistants');
   await start();
   await click('.popup-narrative .close-button');
   await received();
@@ -4382,11 +4709,82 @@ async function verifyTypingIndicator() {
   );
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
   console.log(
-    'OK: fixed typing inside chat through Wizz spam, scrolling and resize, JustMe identity, no message overlap, background reception and persistent choices; no Electron.',
+      `OK: ${visibleMessengerOnly ? 'Electron visible' : 'Chromium'} Messenger typing, two rapid Wizz clicks limited to one during cooldown, second Wizz accepted after 5.2 s, scrolling/resize, background reception and persistent choices.`,
   );
 }
 
+async function verifyVisiblePortraitLayout() {
+  qaStep('Portraits Messenger : regles du premier lancement et fixture PixelGirl isolee');
+  await physicalClick('#menu-play');
+  await until(() => evaluate("!!document.querySelector('.rules-confirm')"), 'first-run rules');
+  await physicalClick('.rules-confirm');
+  await until(
+    () => evaluate("['desktop','playing'].includes(window.chaosDebug.snapshot().phase)"),
+    'desktop after first-run rules',
+  );
+
+  const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json')));
+  const progression = new Progression(story);
+  progression.begin();
+  progression.complete('arcade-1');
+  progression.complete('pixelgirl-hello');
+  await command('Page.enable');
+  const injection = await command('Page.addScriptToEvaluateOnNewDocument', {
+    source: `localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(JSON.stringify(progression.data))});window.__portraitFixture=true`,
+  });
+  qaLog('Un seul reload du renderer pour installer la sauvegarde temporaire PixelGirl');
+  await command('Page.reload');
+  await until(
+    () => evaluate("window.__portraitFixture&&window.chaosDebug?.snapshot().phase==='menu'").catch(() => false),
+    'isolated PixelGirl portrait fixture',
+  );
+  await command('Page.removeScriptToEvaluateOnNewDocument', { identifier: injection.identifier });
+  await physicalClick('#menu-play');
+  await until(() => evaluate("['desktop','playing'].includes(window.chaosDebug.snapshot().phase)"), 'desktop with PixelGirl unlocked');
+  await physicalClick('#windows-start');
+  await physicalClick('#menu-messenger');
+  await until(() => evaluate("!!document.querySelector('[data-contact-id=pixelgirl]')"), 'PixelGirl contact');
+  await evaluate("document.querySelector('[data-contact-id=pixelgirl]').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))");
+  const conversation = '[data-messenger-contact="pixelgirl"]';
+  await until(() => evaluate(`!!document.querySelector('${conversation} .conversation-content')`), 'PixelGirl private conversation');
+
+  const inspectLayout = async (label) => {
+    const layout = await evaluate(`(()=>{
+      const w=document.querySelector('${conversation}'),p=w.querySelector('.conversation-portraits'),
+        pr=p.getBoundingClientRect(),webcam=p.querySelector('.msn-webcam-placeholder'),wr=webcam.getBoundingClientRect(),
+        icon=webcam.querySelector('.msn-webcam-icon'),style=getComputedStyle(p);
+      const verticalStart=p.scrollTop;p.scrollTop=p.scrollHeight;const verticalScroll=p.scrollTop>verticalStart;p.scrollTop=verticalStart;
+      return {portrait:[pr.width,pr.height],client:[p.clientWidth,p.clientHeight],scroll:[p.scrollWidth,p.scrollHeight],
+        overflowY:style.overflowY,webcam:[wr.x,wr.y,wr.width,wr.height],clientLeft:pr.x+p.clientLeft,
+        clientRight:pr.x+p.clientLeft+p.clientWidth,icon:!!icon,text:webcam.textContent.trim()};
+    })()`);
+    assert.ok(layout.scroll[0] <= layout.client[0], `${label}: horizontal overflow ${JSON.stringify(layout)}`);
+    assert.ok(layout.scroll[1] >= layout.client[1] && layout.overflowY === 'auto', `${label}: vertical scrolling unavailable ${JSON.stringify(layout)}`);
+    assert.ok(layout.webcam[0] >= layout.clientLeft && layout.webcam[0] + layout.webcam[2] <= layout.clientRight,
+      `${label}: webcam block exceeds the visible content width ${JSON.stringify(layout)}`);
+    assert.ok(layout.icon && layout.text.includes('Webcam') && layout.text.includes('indisponible'),
+      `${label}: webcam icon or label is missing ${JSON.stringify(layout)}`);
+    qaLog(`${label}: p=${layout.portrait.join('x')} client=${layout.client.join('x')} scroll=${layout.scroll.join('x')} webcam=${layout.webcam[2]}px`);
+    return layout;
+  };
+
+  qaStep('Portraits Messenger : verifier la fenetre normale');
+  await inspectLayout('Fenetre normale');
+  await capture('messenger-portraits-fixed-normal.png');
+  await physicalClick(`${conversation} .maximize-button`);
+  await until(() => evaluate(`document.querySelector('${conversation}').classList.contains('window-maximized')`), 'maximized PixelGirl conversation');
+  await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+  qaStep('Portraits Messenger : verifier la fenetre maximisee');
+  await inspectLayout('Fenetre maximisee');
+  await capture('messenger-portraits-fixed-maximized.png');
+  await physicalClick(`${conversation} .maximize-button`);
+  await until(() => evaluate(`!document.querySelector('${conversation}').classList.contains('window-maximized')`), 'restored PixelGirl conversation');
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+  qaStep('Portraits Messenger : fenetre restauree et scenario termine');
+}
+
 async function verifyMessengerWindows() {
+  qaStep('Messenger : menus, fenêtres indépendantes et géométrie des portraits');
   await command('Emulation.setDeviceMetricsOverride', {
     width: 1280,
     height: 800,
@@ -4402,17 +4800,26 @@ async function verifyMessengerWindows() {
     for (let index = 1; index <= 5; index++) {
       const opener = `${windowSelector} .messenger-menu-group:nth-child(${index}) > button`;
       const panel = `${windowSelector} .messenger-menu-group:nth-child(${index}) .messenger-dropdown`;
-      await physicalClick(opener);
+      await click(opener);
+      await until(
+        () => evaluate(`!document.querySelector('${panel}').hidden`),
+        `${name} Messenger menu ${index} opens`,
+      );
       const state = await evaluate(`(()=>{
         const p=document.querySelector('${panel}'),w=document.querySelector('${windowSelector}'),
-          s=getComputedStyle(p),r=p.getBoundingClientRect(),wr=w.getBoundingClientRect(),
+          b=document.querySelector('${opener}'),s=getComputedStyle(p),r=p.getBoundingClientRect(),wr=w.getBoundingClientRect(),
           items=[...p.querySelectorAll('button')],center=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
         return {hidden:p.hidden,background:s.backgroundImage,border:s.borderTopColor,opacity:s.opacity,
           visible:p.contains(center),bounded:r.left>=wr.left&&r.right<=wr.right&&r.top>=wr.top&&r.bottom<=wr.bottom,
+          expanded:b.getAttribute('aria-expanded'),buttonDisabled:b.disabled,windowHidden:w.hidden,
           disabled:items.filter(b=>b.disabled).every(b=>getComputedStyle(b).color==='rgb(105, 126, 145)'),
           separators:items.slice(1).every(b=>getComputedStyle(b).borderTopColor==='rgb(167, 199, 226)')};
       })()`);
-      assert.equal(state.hidden, false);
+      assert.equal(
+        state.hidden,
+        false,
+        `${name} Messenger menu ${index} (${await evaluate(`document.querySelector(${JSON.stringify(opener)}).textContent`)}) should open: ${JSON.stringify(state)}`,
+      );
       assert.ok(
         state.background.includes('rgb(225, 242, 255)') &&
           state.background.includes('rgb(198, 226, 248)'),
@@ -4446,7 +4853,10 @@ async function verifyMessengerWindows() {
   await click('#windows-start');
   await click('#menu-messenger');
   assert.ok(await evaluate(`!!document.querySelector('${roster} .messenger-contact-list')`));
-  const order = ['skater', 'luna', 'modem', 'pixelgirl', 'princess', 'offline', 'turbo'];
+  const rosterState = await evaluate(
+    "JSON.parse(localStorage.getItem('chaos-survival-story-v1'))",
+  );
+  const order = (await visibleRosterFor(rosterState)).map((contact) => contact.id);
   const assertOrder = async () => {
     for (const online of ['true', 'false']) {
       const ids = await evaluate(
@@ -4459,7 +4869,7 @@ async function verifyMessengerWindows() {
     }
     assert.equal(
       await evaluate(`document.querySelectorAll('${roster} [data-contact-id]').length`),
-      7,
+      order.length,
     );
     assert.equal(
       await evaluate(
@@ -4569,15 +4979,9 @@ async function verifyMessengerWindows() {
     'xX_PixelGirl_Xx',
   );
   await click('[data-messenger-view^="profile:"] .close-button');
-  const definitions = JSON.parse(await readFile(path.join(root, 'src/config/contacts.json')));
-  const introContact = JSON.parse(
-    await readFile(path.join(root, 'src/dialogues/pixelgirl-intro.json')),
-  ).contact;
+  const profileContacts = await visibleRosterFor(rosterState);
   for (const id of order) {
-    const contact = {
-      ...definitions.find((contact) => contact.id === id),
-      ...(id === 'pixelgirl' ? introContact : {}),
-    };
+    const contact = profileContacts.find((entry) => entry.id === id);
     const { nickname, personalMessage: message, avatar } = contact;
     await click(`[data-contact-id="${id}"]`);
     await menuAction(roster, 'Contacts', 'Consulter le profil');
@@ -4597,7 +5001,7 @@ async function verifyMessengerWindows() {
       overflow:panel.querySelector('.messenger-profile').scrollWidth>panel.querySelector('.messenger-profile').clientWidth,
       fields:panel.querySelector('.messenger-profile').querySelectorAll('img,h3,p').length};})()`);
     assert.equal(profile.nickname, nickname);
-    assert.equal(profile.status, id === 'pixelgirl' ? introContact.status : 'Hors ligne');
+    assert.equal(profile.status, contact.status);
     assert.equal(profile.message, message);
     assert.equal(profile.hidden, !message);
     assert.equal(profile.avatar, avatar);
@@ -4659,14 +5063,23 @@ async function verifyMessengerWindows() {
   assert.equal(await wizzCount(), existingWizz + 1);
   await click(`${pixel} [data-msn-action=wizz]`);
   await menuAction(pixel, 'Actions', 'Wizz !');
-  assert.equal(await wizzCount(), existingWizz + 3);
+  assert.equal(
+    await wizzCount(),
+    existingWizz + 1,
+    'the button and Actions menu cannot send another Wizz during cooldown',
+  );
+  assert.equal(await evaluate(`document.querySelector('${pixel} [data-msn-action=wizz]').disabled`), true);
+  await wait(5200);
+  assert.equal(await evaluate(`document.querySelector('${pixel} [data-msn-action=wizz]').disabled`), false);
+  await menuAction(pixel, 'Actions', 'Wizz !');
+  assert.equal(await wizzCount(), existingWizz + 2);
   const systemStyle = await evaluate(
     `(() => {const style=getComputedStyle(document.querySelector('${pixel} .conversation-system'));return {align:style.textAlign,color:style.color};})()`,
   );
   assert.equal(systemStyle.align, 'center');
   await click(`${pixel} .close-button`);
   await openContact('pixelgirl');
-  assert.equal(await wizzCount(), existingWizz + 3);
+  assert.equal(await wizzCount(), existingWizz + 2);
   assert.equal(
     await evaluate(`document.querySelector('${skater} [data-msn-action=wizz]').disabled`),
     true,
@@ -4727,9 +5140,35 @@ async function verifyMessengerWindows() {
   await until(
     () =>
       evaluate(
+        "JSON.parse(localStorage.getItem('chaos-survival-story-v1')).replayReactions.at(-1)?.ready===true",
+      ),
+    'closed-window replay becomes ready during gameplay',
+    10000,
+  );
+  assert.equal(
+    await evaluate(
+      `JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.history.length > ${historyBefore}`,
+    ),
+    false,
+    'replay messages wait until the game returns to the desktop',
+  );
+  await until(
+    () => evaluate("window.chaosDebug.snapshot().phase==='ended'"),
+    'replay level finishes',
+    60000,
+  );
+  await click('#dialog-secondary');
+  await until(
+    () => evaluate("window.chaosDebug.snapshot().phase==='desktop'"),
+    'desktop after replay',
+  );
+  await until(
+    () =>
+      evaluate(
         `JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.history.length > ${historyBefore}`,
       ),
     'replay received with Messenger closed',
+    10000,
   );
   await click('#windows-start');
   await click('#menu-messenger');
@@ -4741,42 +5180,62 @@ async function verifyMessengerWindows() {
       ),
     'replay in unique history',
   );
-  // Let the remaining replay messages arrive while the roster covers the chat.
+  // The replay was delivered while Messenger was closed, then read when the
+  // conversation was opened. Minimizing that already-read conversation must
+  // not recreate an unread indication.
+  await physicalClick(`${pixel} .msn-minimize`);
+  assert.equal(
+    await evaluate(`document.querySelector('${pixel}').hidden`),
+    true,
+    'the PixelGirl conversation is minimized after its replay has been read',
+  );
   await click('#windows-start');
   await click('#menu-messenger');
   await evaluate("window.__contactRow = document.querySelector('[data-contact-id=pixelgirl]')");
-  await until(
-    () =>
-      evaluate(
-        `document.querySelector('[data-app="messenger:conversation:pixelgirl"]').classList.contains('messenger-unread')`,
-      ),
-    'unread conversation task flashes behind roster',
+  const readReplayState = await evaluate(`(()=>{
+    const app=document.querySelector('[data-app="messenger:conversation:pixelgirl"]');
+    return {unread:app.classList.contains('messenger-unread'),title:app.title,
+      unreadKeys:JSON.parse(localStorage.getItem('chaos-survival-story-v1')).conversations.pixelgirl.unread};
+  })()`);
+  assert.deepEqual(
+    readReplayState,
+    { unread: false, title: 'xX_PixelGirl_Xx', unreadKeys: [] },
+    'the already-read replay does not become unread again when its window is minimized',
   );
   assert.equal(
     await evaluate("window.__contactRow === document.querySelector('[data-contact-id=pixelgirl]')"),
     true,
   );
   await click('[data-app="messenger:conversation:pixelgirl"]');
-  await until(
-    () =>
-      evaluate(
-        `!document.querySelector('[data-app="messenger:conversation:pixelgirl"]').classList.contains('messenger-unread')`,
-      ),
-    'reading clears flashing',
+  assert.equal(
+    await evaluate(`document.querySelector('${pixel}').hidden`),
+    false,
+    'the task button restores the minimized conversation',
   );
   await until(
     () => evaluate(`document.querySelectorAll('${pixel} .dialogue-choice').length===3`),
     'original unanswered choices preserved after message-only replay',
   );
   await capture('messenger-independent-windows.png');
-  assert.ok(
-    await evaluate(`(()=>{
+  const portraitLayout = await evaluate(`(()=>{
     const w=document.querySelector('${pixel}'),p=w.querySelector('.conversation-portraits'),
       r=p.getBoundingClientRect(),imgs=[...p.querySelectorAll('img')];
-    return imgs.every(img=>{const a=img.getBoundingClientRect();return a.top>=r.top&&a.bottom<=r.bottom&&Math.abs(a.width-a.height)<1;})
-      && !w.querySelector('.conversation-return') && w.querySelector('.msn-webcam-placeholder').tabIndex===-1;
-  })()`),
-    'both avatars fit at the normal conversation size without distortion',
+    return {viewport:[innerWidth,innerHeight],portrait:[r.x,r.y,r.width,r.height],images:imgs.map(img=>{
+      const a=img.getBoundingClientRect();return [a.x,a.y,a.width,a.height];}),
+      scroll:[p.scrollWidth,p.clientWidth,p.scrollHeight,p.clientHeight,getComputedStyle(p).overflowY],
+      returnControl:!!w.querySelector('.conversation-return'),webcamTabIndex:w.querySelector('.msn-webcam-placeholder').tabIndex};
+  })()`);
+  assert.ok(
+    portraitLayout.images.length===2&&portraitLayout.images.every(([, ,width,height])=>
+      width>0&&height>0&&Math.abs(width-height)<1)
+      &&portraitLayout.images.every(([x, ,width])=>
+        x>=portraitLayout.portrait[0]&&x+width<=portraitLayout.portrait[0]+portraitLayout.portrait[2])
+      &&portraitLayout.scroll[0]<=portraitLayout.scroll[1]
+      &&portraitLayout.scroll[1]>0
+      &&portraitLayout.scroll[2]>=portraitLayout.scroll[3]
+      &&portraitLayout.scroll[4]==='auto'
+      && !portraitLayout.returnControl && portraitLayout.webcamTabIndex===-1,
+    `both avatars remain square and accessible in the scrollable portrait column: ${JSON.stringify(portraitLayout)}`,
   );
   const conversationSize = await evaluate(
     `(()=>{const w=document.querySelector('${pixel}');const size=[w.style.width,w.style.height];w.style.width='500px';w.style.height='460px';return size;})()`,
@@ -4828,7 +5287,7 @@ async function verifyMessengerWindows() {
   assert.equal(await evaluate(`document.querySelectorAll('${pixel} .dialogue-choice').length`), 3);
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
   console.log(
-    'OK: independent roster and conversations, duplicate prevention, taskbar restore/close, profiles, menus/keyboard/outside click, options, emoticons, Wizz, closed-window replay reception, unread flashing and preserved history/choices; no Electron.',
+    `OK: ${visibleMessengerOnly ? 'Electron visible' : 'Chromium'} independent roster/conversations, taskbar restore/close, profiles, menus, options, emoticons, Wizz and closed-window replay reception with preserved history/choices.`,
   );
   assert.equal(
     await evaluate(
@@ -4882,7 +5341,7 @@ async function verifyRulesFlow() {
   );
   await click('#windows-start');
   assert.equal(await evaluate("!!document.querySelector('#menu-help')"), false);
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await click('#menu-play');
   await until(
     () => evaluate("window.chaosDebug.snapshot().phase==='playing'"),
@@ -4890,7 +5349,7 @@ async function verifyRulesFlow() {
   );
   assert.equal(await evaluate("!!document.querySelector('.rules-layer')"), false);
   await click('#windows-start');
-  await click('#return-main-menu');
+  await click('#start-menu-main');
   await verifyMiniGameLaunch();
   console.log(
     'OK: first arcade rules before audio, persisted approval, direct replay, paused voluntary review, Smiley tutorial and Start menu cleanup.',

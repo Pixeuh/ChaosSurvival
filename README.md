@@ -120,6 +120,15 @@ conserve leur bouton dans la barre des tâches ; fermer le retire. La corbeille
 est vide. Les contenus fictifs se configurent dans `src/config/desktop-apps.json`.
 `npm run verify:desktop` effectue une vérification ciblée de ces interfaces dans
 Electron avec un profil isolé, après `npm run build`, sans produire de portable.
+La fenêtre Electron reste visible pendant ce parcours. Pour le parcours court du
+bureau et de Poste de travail (ouverture, réduction, restauration et fermeture),
+lancer `npm run verify:desktop:visible` ; sa sauvegarde de départ est créée dans
+le profil temporaire du test puis supprimée avec celui-ci.
+Pour vérifier uniquement le premier lancement, la confirmation des règles et
+l’ouverture/fermeture de Poste de travail sans rechargement de page, lancer
+`npm run verify:desktop:smoke`.
+Le scénario Messenger (réception progressive, WIZZ et fenêtres) peut aussi être
+observé dans Electron avec `npm run verify:messenger:visible`.
 
 Pour le parcours réel du bureau et de Poste de travail dans Chromium, lancer
 `npm run verify:desktop:browser` après le build. Chrome est cherché avant Edge ;

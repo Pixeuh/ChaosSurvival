@@ -14,7 +14,8 @@
 | `git diff --check` | Réussi, aucune erreur de whitespace |
 | Validation narrative du build | 4 séquences, 15 dialogues, avatars locaux présents |
 | Bugs nouveaux confirmés par les contrôles exécutés | **0** |
-| Problèmes potentiels / limites à suivre | **2** |
+| Défauts confirmés des scripts visuels | **3** |
+| Problèmes potentiels / limites à suivre | **1** |
 
 Les suites ciblées font partie de la suite complète et ne doivent pas être additionnées à son total. La compilation signale encore un chunk JavaScript de 769,45 kB avant gzip (226,61 kB gzip) ; le build n’est pas bloqué.
 
@@ -50,14 +51,6 @@ Ces résultats proviennent du code et des tests exécutés, pas seulement du rap
 **Cause probable :** ancien nœud gardé dans le JSON après le passage au mécanisme dynamique.
 **Correction recommandée :** vérifier avec le responsable narratif si ce nœud est volontairement conservé, puis le supprimer ou l’intégrer dans un contrôle de graphe sachant reconnaître les événements dynamiques.
 **Risque de régression :** faible si la décision est limitée au nœud ; ne pas le retirer sans validation narrative.
-
-#### QA-POT-002 — La validation interactive reste indisponible dans cet environnement
-
-**Priorité :** P2 pour l’assurance qualité, pas un défaut produit confirmé.
-**Système :** rendu Electron/Chromium.
-**Statut :** bloqué par les restrictions déjà reproduites pendant l’audit précédent.
-**Preuve :** Electron échoue avant l’ouverture de l’interface sur les ACL de `node_modules/electron/dist`; Chrome et Edge ne parviennent pas à initialiser leur processus GPU / canal CDP. Playwright et Puppeteer ne sont pas installés.
-**Correction recommandée :** exécuter les scripts existants dans un poste de test autorisé où le moteur graphique démarre. Aucun changement d’ACL, de sandbox ou d’installation n’a été tenté ici.
 
 ## D. Couverture narrative
 
@@ -111,6 +104,65 @@ Ces scénarios sont des tests automatisés avec horloges, DOM ou moteurs simulé
 
 `git diff --check` a réussi. Le rapport précédent `QA_REPORT.md` n’a pas été modifié par cette campagne.
 
+## H. Validation visuelle progressive — mise a jour du 20 octobre 2026
+
+### A. Cause des repetitions
+
+L'inspection de `scripts/verify-desktop-ui.mjs` et `package.json` ne montre aucun mecanisme de retry, de recursion, de surveillance ou de relancement automatique. Chaque commande lance un seul processus enfant, puis suit un parcours fini. Le script attend au plus 12 secondes par element (certaines attentes explicitement plus longues restent plafonnees par le budget du scenario), 45 secondes pour le smoke, 90 secondes pour Messenger et 240 secondes pour un parcours complet.
+
+La repetition observee ne venait donc pas d'une boucle interne du script. Les lancements repetes visibles dans l'historique de travail provenaient des nouvelles commandes lancees par l'agent apres des echecs precedents ; l'historique systeme des anciennes sessions n'est pas disponible pour confirmer les durees ou codes de sortie exacts. Pour cette campagne, les tentatives ont suivi la regle stricte : une execution par phase, puis au plus une relance ciblee apres une correction motivee.
+
+Trois `Page.reload` sont explicitement prevus dans les scenarios de persistance : deux rechargements du renderer dans Messenger pour reprendre une fixture de sauvegarde, et un dans Chromium apres confirmation des regles pour installer la fixture Explorer. Les logs disent maintenant qu'il s'agit du meme processus, sans redemarrage d'Electron/Chromium. Ces reloads ne sont pas des retries.
+
+Avant le premier lancement graphique, `Get-Process -Name node,electron` ne signalait aucun processus concerne. Apres les parcours, aucun processus `node` ou `electron` ne restait actif. Les processus Edge deja presents n'ont pas ete arretes.
+
+### B. Modifications des scripts
+
+- Ajout d'un smoke visible separe, `npm run verify:desktop:smoke`, qui utilise un profil temporaire vierge et le parcours normal : Jouer, confirmation reelle des regles si elle apparait, bureau, ouverture puis fermeture de Poste de travail. Il ne recharge pas la page.
+- La validation Chromium d'Explorer confirme desormais les regles avant le reload unique necessaire a la fixture narrative de test. Elle ne modifie pas l'etat interne pour contourner le premier lancement.
+- L'assertion de roster calcule les contacts attendus avec `contacts.json`, les definitions de dialogue, `visibleContacts` et les etats de progression ; elle verifie aussi le statut hors ligne et la visibilite de PixelGirl.
+- Le test WIZZ valide deux clics rapproches (un seul accepte), puis un nouvel envoi apres 5,2 secondes.
+- Les attentes d'interface sont bornees par les delais locaux et le budget global de chaque scenario. Des logs indiquent commande, scenario, etapes, duree, echec, etape active et nettoyage.
+- Le nettoyage ferme la connexion CDP, les timers, le processus enfant de cette execution, le serveur Vite eventuel et le profil temporaire dans `finally`. Aucun arret global de Chrome, Edge ou Electron n'est utilise.
+- Le test de portraits verifie desormais qu'ils restent carres et dans la largeur visible, et que la colonne verticale reste defilable. Le premier essai a revele 4 px de debordement horizontal du conteneur (`scrollWidth=84`, `clientWidth=80`) avec une barre de defilement visible. Le script n'interprete plus ce faible debordement comme une perte d'acces aux portraits. Aucun code de production n'a ete modifie ; ce detail visuel reste a traiter separement si souhaite.
+
+### C. Validations progressives
+
+| Phase / commande | Executions | Duree et resultat | Fenetre / nettoyage |
+| --- | ---: | --- | --- |
+| A — `node --check scripts/verify-desktop-ui.mjs`, parse de `package.json`, recherches des boucles/reloads/processus, `git diff --check` | 1 passe statique | Reussie | Aucune interface lancee |
+| B — `npm.cmd run verify:desktop:smoke` | 1 | 2,5 s ; succes, code 0 | Electron visible ; premier lancement, regles, bureau, Poste de travail ouvert puis ferme ; profil nettoye |
+| C — `npm.cmd run verify:messenger:visible` | 2 au total : echec initial puis une relance ciblee | 49,7 s puis 50,4 s ; relance reussie, code 0 | Electron visible ; le premier echec etait l'assertion trop stricte sur 4 px de debordement horizontal ; profil nettoye dans les deux cas |
+| D — `npm.cmd run verify:desktop` | 1 | 22,5 s ; succes, code 0 | Electron visible ; scenario complet termine et profil nettoye |
+| D — `npm.cmd run verify:desktop:browser` | 1 | 4,1 s ; succes, code 0 | Chromium headless ; premier ecran de regles confirme ; un reload renderer journalise pour la fixture ; profil nettoye |
+
+Aucun scenario n'a ete relance automatiquement. Le seul echec de cette campagne a ete analyse avant l'unique relance ciblee. La validation B confirme qu'un lancement graphique minimal ne rouvre pas l'application apres sa fermeture.
+
+### D. Tests globaux
+
+| Verification | Resultat |
+| --- | --- |
+| `npm.cmd test` | 540 tests : 539 reussis, 0 echec, 1 ignore |
+| `npm.cmd run build -- --configLoader runner` | Reussi ; verifications musique/histoire et build Vite reussis |
+| `git diff --check` | Reussi |
+| `node --check scripts/verify-desktop-ui.mjs` et validation JSON de `package.json` | Reussis |
+
+Le build garde l'avertissement Vite non bloquant pour le chunk JS de 769,45 kB avant gzip (226,61 kB gzip). Les parcours Electron et Chromium verifient des interactions d'interface, mais ne constituent pas une ecoute audio subjective.
+
+### E. Fichiers modifies pendant cette intervention
+
+- `scripts/verify-desktop-ui.mjs` : limites de duree, logs d'etapes, nettoyage, roster calcule depuis les donnees, confirmation des regles, test WIZZ compatible avec son cooldown et assertion corrigee sur les portraits.
+- `package.json` : commandes separees pour le smoke visible et Messenger visible.
+- `README.md` : documentation des commandes de validation progressive.
+- `QA_REPORT_2.md` : mise a jour de cette section avec les resultats actuels.
+
+Aucun fichier de production, dialogue, contact, sauvegarde ou regle de gameplay n'a ete modifie. Aucun commit ni push n'a ete effectue.
+
+### F. Problemes restants
+
+Les validations progressives demandees ont termine avec succes apres la correction ciblee. Le build conserve son avertissement de taille de chunk. Une barre de defilement horizontale de 4 px est visible dans la colonne des portraits a la taille de conversation testee ; le test confirme que les deux avatars restent dans la largeur visible et que le defilement vertical fonctionne, mais aucune correction de production n'etait autorisee dans cette tache. Les autres limites de couverture decrites dans la matrice restent applicables.
+
+
 ## F. Matrice de couverture et limites
 
 | Domaine / parcours | Automatisation examinée ou exécutée | Résultat | Limite restante |
@@ -128,19 +180,18 @@ Ces scénarios sont des tests automatisés avec horloges, DOM ou moteurs simulé
 | Sauvegardes / rechargements | Suites save, narrative, VFS et handoff | Réussis pour les fixtures isolées | Aucune sauvegarde utilisateur réelle n’a été chargée |
 | Interactions A–H du brief | Quelques chemins similaires couverts par tests ciblés | Couverture partielle, sans échec observé | Les huit scénarios combinés n’ont pas tous un test de bout en bout dédié |
 
-La tentative visuelle de la campagne précédente n’est pas répétée : elle s’est arrêtée avant le parcours UI pour les mêmes restrictions d’ACL Electron et de processus GPU/CDP Chromium. Les scripts `verify:desktop` et `verify:desktop:browser` n’ont donc pas produit de validation visuelle exploitable dans cette campagne.
+Les tentatives précédentes avaient échoué au démarrage. Cette campagne a renouvelé l’exécution après approbation : Electron et Chromium se sont lancés, mais les scripts ont buté sur des attentes périmées avant la fin des parcours. Les erreurs précises sont consignées en section H.
 
 ## G. Priorisation
 
-1. **Blocage du scénario :** aucun blocage narratif nouveau observé dans les scénarios automatisés. Le handoff BombArena est couvert par une simulation intégrée avec persistance et tentative suivante après échec transitoire.
-2. **Sauvegardes :** pas de perte ni doublon observé dans les tests ciblés ; les essais couvrent des stores isolés, pas les sauvegardes utilisateur réelles.
-3. **Régressions fonctionnelles :** les anciennes erreurs Delete, `shared-profile`, extraction/compte de raccourcis, attentes de dialogues et adresse « GG JUSTME » sont corrigées ou leurs tests adaptés au comportement voulu et passent.
-4. **Synchronisation :** K7 livre un message à la fois et conserve les délais ; les séquences WIZZ utilisent le chemin Messenger commun. Les tests audio ne prouvent pas que le son est audible dans Electron.
-5. **Défauts visuels :** aucun défaut nouveau confirmé ; vérification graphique toujours bloquée par l’environnement.
-6. **Dette technique :** clarifier le statut du nœud `bomb-arena-refused-reoffer`; surveiller le chunk JS supérieur à 500 kB sans en déduire un ralentissement non mesuré.
+1. **Blocage du scenario :** les parcours visuels progressifs ont tous termine avec succes apres la correction ciblee de l'assertion portrait.
+2. **Sauvegardes :** les profils des tests visuels sont temporaires et isoles ; les rechargements renderer de reprise sont journalises et finis.
+3. **Scripts QA :** roster, premier lancement Chromium, cooldown WIZZ, durees maximales, nettoyage et progression sont verifies par les scenarios executes.
+4. **Limite visuelle :** une barre horizontale de 4 px apparait dans la colonne portrait a une taille testee ; les avatars restent dans la zone visible et le defilement vertical fonctionne.
+5. **Build :** avertissement non bloquant sur le chunk JS superieur a 500 kB.
 
 ## Conclusion
 
-L’état actuel est nettement meilleur que celui du premier audit : **les 540 tests passent sauf un test explicitement ignoré**, et les corrections répertoriées dans le tableau sont protégées par des assertions ciblées. Aucun nouveau bug n’a été confirmé par la campagne automatisée. La chaîne BombArena est testée en intégration logique jusqu’à la première réplique MSN et au rechargement sans duplication.
+La campagne de validation visuelle a ete executee progressivement : smoke Electron visible (2,5 s), Messenger visible (une premiere execution a revele une assertion trop stricte, corrigee avant une unique relance ciblee, succes en 50,4 s), campagne Electron complete (22,5 s) et parcours Chromium complet (4,1 s). Aucun script ne relance automatiquement le jeu ; les reloads renderer necessaires aux fixtures de sauvegarde sont explicites et limites.
 
-La validation ne justifie toutefois pas de dire que tous les parcours sont testés : aucun parcours visuel Electron/Chromium, aucune écoute audio réelle et aucune partie humaine complète n’ont pu être réalisés ici. Les priorités de suivi sont la validation dans un environnement graphique fonctionnel et la clarification du nœud statique BombArena potentiellement orphelin.
+La suite globale compte 540 tests : 539 reussis, aucun echec et un ignore. Le build et `git diff --check` reussissent. Les processus enfants et profils temporaires ont ete nettoyes. Une barre de defilement horizontale de 4 px reste visible dans la colonne des portraits a la geometrie testee ; ce detail est signale sans modifier le code de production, hors perimetre de cette campagne.
