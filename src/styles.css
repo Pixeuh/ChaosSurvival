@@ -1511,7 +1511,7 @@ h1 .title-star {
   white-space: nowrap;
   overflow: hidden;
 }
-.task-tab:first-of-type {
+.task-tab[aria-pressed='true'] {
   background: #184caa;
   box-shadow: inset 1px 1px 2px #103984;
   border-color: #113c91;

@@ -193,6 +193,8 @@ export class DesktopApplications {
     task.append(label);
     task.title = title;
     this.taskbar.insertBefore(task, this.taskbar.querySelector('.tray'));
+    const managedWindow = this.manager.windows.get(id);
+    if (managedWindow) managedWindow.taskButton = task;
     const instance = { id, kind, element, task, history: [], forwardHistory: [], sortBy: 'default', searchResults: null };
     this.instances.set(kind, instance);
     const minimize = document.createElement('button');
@@ -200,8 +202,12 @@ export class DesktopApplications {
     minimize.textContent = '−';
     minimize.setAttribute('aria-label', `Réduire ${title}`);
     minimize.addEventListener('click', () => {
-      element.hidden = true;
-      task.setAttribute('aria-pressed', 'false');
+      const minimized = this.manager.minimize?.(element);
+      if (minimized === false) return;
+      if (!this.manager.minimize) {
+        element.hidden = true;
+        task.setAttribute('aria-pressed', 'false');
+      }
       instance.onMinimize?.();
       this.onWindowState();
     });
@@ -211,7 +217,17 @@ export class DesktopApplications {
         minimize,
         element.querySelector('.maximize-button') ?? element.querySelector('.close-button'),
       );
-    task.addEventListener('click', () => this.restore(instance));
+    task.addEventListener('click', () => {
+      const action = this.manager.toggleTaskbarWindow?.(element);
+      if (action) {
+        if (action === 'minimized') instance.onMinimize?.();
+        else instance.onRestore?.();
+        this.onWindowState();
+        return;
+      }
+      this.restore(instance);
+    });
+    this.manager.syncTaskbarButtons?.();
     return instance;
   }
   attachExistingWindow(kind, id, title, iconName) {
@@ -394,9 +410,12 @@ export class DesktopApplications {
     return instance;
   }
   restore(instance) {
-    instance.element.hidden = false;
-    instance.element.style.zIndex = ++this.manager.z;
-    instance.task.setAttribute('aria-pressed', 'true');
+    if (this.manager.activate) this.manager.activate(instance.element);
+    else {
+      instance.element.hidden = false;
+      instance.element.style.zIndex = ++this.manager.z;
+      instance.task.setAttribute('aria-pressed', 'true');
+    }
     instance.onRestore?.();
     this.onWindowState();
   }

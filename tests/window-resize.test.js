@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WindowManager } from '../src/ui/windows.js';
+import { DesktopApplications } from '../src/ui/desktop-apps.js';
 
 class FakeClassList {
   constructor(element) { this.element = element; this.values = new Set(); }
@@ -145,6 +146,110 @@ function setup(t) {
   });
   return { manager, makeWindow, pointer, field, fieldRect, surface, taskbarRect, observerCallback };
 }
+
+test('taskbar clicks toggle an active window, activate an inactive one, and restore minimized maximized windows', (t) => {
+  const { manager, makeWindow } = setup(t);
+  const tabs = [];
+  const taskbar = {
+    insertBefore(tab) { tabs.push(tab); },
+    querySelector: () => null,
+  };
+  const stateChanges = [];
+  const applications = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    taskbar,
+    instances: new Map(),
+    onWindowState: () => stateChanges.push('changed'),
+  });
+  const attach = (kind, title) => {
+    const { id, element } = makeWindow({ maximizable: true });
+    const instance = applications.attachWindow(kind, id, title, 'msn');
+    return { instance, element };
+  };
+
+  const first = attach('first', 'First');
+  const second = attach('second', 'Second');
+  assert.equal(manager.isActive(second.element), true);
+  assert.equal(first.instance.task.getAttribute?.('aria-pressed') ?? first.instance.task.attributes['aria-pressed'], 'false');
+  assert.equal(second.instance.task.attributes['aria-pressed'], 'true');
+
+  first.instance.task.dispatch('click');
+  assert.equal(manager.isActive(first.element), true, 'clicking a background task activates it');
+  assert.notEqual(first.element.hidden, true);
+  assert.equal(first.instance.task.attributes['aria-pressed'], 'true');
+  assert.equal(second.instance.task.attributes['aria-pressed'], 'false');
+
+  first.instance.task.dispatch('click');
+  assert.equal(first.element.hidden, true, 'clicking the active task minimizes its window');
+  assert.equal(first.instance.task.attributes['aria-pressed'], 'false');
+  assert.equal(manager.isActive(second.element), true, 'the previously active visible window becomes active');
+
+  first.instance.task.dispatch('click');
+  assert.equal(first.element.hidden, false, 'clicking a minimized task restores it');
+  assert.equal(manager.isActive(first.element), true);
+
+  assert.equal(manager.maximize(first.instance.id), true);
+  const maximizedBounds = {
+    width: first.element.style.width,
+    height: first.element.style.height,
+    left: first.element.style.left,
+    top: first.element.style.top,
+  };
+  first.instance.task.dispatch('click');
+  assert.equal(first.element.hidden, true, 'an active maximized window minimizes');
+  first.instance.task.dispatch('click');
+  assert.equal(first.element.hidden, false, 'a minimized maximized window restores');
+  assert.equal(manager.windows.get(first.instance.id).maximized, true);
+  assert.deepEqual({
+    width: first.element.style.width,
+    height: first.element.style.height,
+    left: first.element.style.left,
+    top: first.element.style.top,
+  }, maximizedBounds, 'restoration preserves maximized geometry');
+  assert.equal(first.instance.task.attributes['aria-pressed'], 'true');
+  assert.equal(stateChanges.length, 5);
+  assert.equal(tabs.length, 2, 'the taskbar retains a button for each open window');
+});
+
+test('rapid taskbar clicks produce one consistent window state per click', (t) => {
+  const { manager, makeWindow } = setup(t);
+  const { id, element } = makeWindow();
+  const item = manager.windows.get(id);
+  const tab = new FakeElement('button');
+  item.taskButton = tab;
+  const actions = Array.from({ length: 6 }, () => manager.toggleTaskbarWindow(element));
+  assert.deepEqual(actions, ['minimized', 'restored', 'minimized', 'restored', 'minimized', 'restored']);
+  assert.equal(element.hidden, false);
+  assert.equal(manager.isActive(element), true);
+  assert.equal(tab.attributes['aria-pressed'], 'true');
+});
+
+test('minimizing a BombArena taskbar tab never dismisses the window or runs close callbacks', (t) => {
+  const { manager, makeWindow } = setup(t);
+  let dismissals = 0;
+  const { id, item, element } = makeWindow({
+    type: 'arcade-game',
+    onDismiss: () => dismissals++,
+  });
+  const taskbar = { insertBefore() {}, querySelector: () => null };
+  const applications = Object.assign(Object.create(DesktopApplications.prototype), {
+    manager,
+    taskbar,
+    instances: new Map(),
+    onWindowState() {},
+  });
+  const instance = applications.attachWindow('BombArena.exe', id, 'BombArena.exe', 'arcade-game');
+  let minimized = 0;
+  instance.onMinimize = () => minimized++;
+
+  instance.task.dispatch('click');
+
+  assert.equal(element.hidden, true);
+  assert.equal(manager.windows.get(id), item, 'the managed BombArena window remains registered');
+  assert.equal(manager.isActive(element), false);
+  assert.equal(minimized, 1);
+  assert.equal(dismissals, 0, 'a taskbar minimize is not a close event');
+});
 
 function handle(element, direction) {
   return element.querySelectorAll('.window-resize-handle')

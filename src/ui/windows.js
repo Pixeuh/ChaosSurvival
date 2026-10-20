@@ -122,6 +122,7 @@ export class WindowManager {
     item.cleanupDrag?.();
     item.cleanupResize?.();
     item.element.remove();
+    this.syncTaskbarButtons();
     item.onDismiss?.({ reason: 'close' });
     this.onClose({ preview: item.preview, openedAt: item.openedAt, x, y });
   }
@@ -136,6 +137,37 @@ export class WindowManager {
   }
   isActive(element) {
     return Boolean(element?.isConnected && !element.hidden && this.activeWindow() === element);
+  }
+  syncTaskbarButtons() {
+    const active = this.activeWindow();
+    for (const { element, taskButton } of this.windows.values()) {
+      taskButton?.setAttribute('aria-pressed', String(element === active));
+    }
+  }
+  minimize(element) {
+    const item = this.itemFor(element);
+    if (!item || !element.isConnected || element.hidden) return false;
+    element.hidden = true;
+    this.syncTaskbarButtons();
+    return true;
+  }
+  activate(element) {
+    if (!this.itemFor(element) || !element.isConnected) return false;
+    element.hidden = false;
+    return this.bringToFront(element);
+  }
+  toggleTaskbarWindow(element) {
+    if (!this.itemFor(element) || !element.isConnected) return null;
+    if (element.hidden) {
+      this.activate(element);
+      return 'restored';
+    }
+    if (this.isActive(element)) {
+      this.minimize(element);
+      return 'minimized';
+    }
+    this.bringToFront(element);
+    return 'activated';
   }
   clear() {
     for (const { element, onDismiss, cleanupDrag, cleanupResize } of this.windows.values()) {
@@ -407,7 +439,10 @@ export class WindowManager {
     return [...this.windows.values()].find((item) => item.element === element);
   }
   bringToFront(element) {
+    if (!element?.isConnected) return false;
     element.style.zIndex = ++this.z;
+    this.syncTaskbarButtons();
+    return true;
   }
   preserveOuterSize(element) {
     const width = element.offsetWidth;
