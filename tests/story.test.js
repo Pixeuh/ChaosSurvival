@@ -27,6 +27,9 @@ function drain(session) {
 }
 function setup(storage = memory()) {
   const progression = new Progression(story, storage);
+  progression.data.playerIdentity = {
+    nickname: 'JustMe', identityGender: 'boy', grammaticalGender: 'male', completed: true,
+  };
   progression.complete('arcade-1');
   return { storage, progression, session: new DialogueSession(dialogue, progression) };
 }

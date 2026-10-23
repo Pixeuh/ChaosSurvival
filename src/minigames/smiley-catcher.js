@@ -1,5 +1,7 @@
 import { smileyIcon } from './smiley-icons.js';
 import { createGameMusic } from '../audio/game-music.js';
+import { resolvePlayerText } from '../story/player-identity.js';
+import { playerIdentity } from '../ui/player-identity.js';
 
 const smileyMusicUrl = new URL(
   '../../assets/djartmusic-i-love-my-8-bit-game-console-301272.mp3',
@@ -44,7 +46,7 @@ export class SmileyCatcher {
           <div class="flash-result" hidden>
             <h3>YOU ARE AWESOME !!!</h3>
             <strong></strong>
-            <p>★★★★★ MEGA CHAMPION ★★★★★</p>
+            <p>${resolvePlayerText('★★★★★ MEGA {player.grammaticalGender:CHAMPION|CHAMPIONNE} ★★★★★', playerIdentity)}</p>
             <button class="xp-button flash-return">Retour au bureau</button
             ><button class="xp-button flash-replay">Encore !!!</button>
           </div>

@@ -177,7 +177,7 @@ export function mountDesktop(root, best) {
       </section>
     </div>
     <div class="start-menu" id="start-menu" hidden>
-      <header>${icon('computer')} <strong>Joueur.exe</strong></header>
+      <header>${icon('computer')} <strong id="start-menu-player-name">Moi</strong></header>
       <button id="menu-buddy" data-start-app="buddy">${icon('buddy')} Buddy</button>
       <button id="menu-messenger">${icon('msn')} ${applicationName('messenger')}</button>
       <button id="menu-browser" data-start-app="browser">
@@ -251,6 +251,7 @@ export function mountDesktop(root, best) {
     menuMain: select('#start-menu-main'),
     menuQuit: select('#start-menu-quit'),
     menuMessenger: select('#menu-messenger'),
+    menuPlayerName: select('#start-menu-player-name'),
     clock: select('#clock'),
     shortcuts: root.querySelectorAll('[data-shortcut]'),
   };

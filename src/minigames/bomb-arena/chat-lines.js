@@ -37,8 +37,8 @@ export const REACTIONS = Object.freeze({
     luna: ['ah.', 'bon.'],
   },
   humanEliminated: {
-    turbo: ['ouh joli', 'rip JustMe'],
-    pixelgirl: ['NOOOON :(', 'ça va JustMe ?'],
+    turbo: ['ouh joli', 'rip {player.nickname}'],
+    pixelgirl: ['NOOOON :(', 'ça va {player.nickname} ?'],
     luna: ['ah.', 'bien joué quand même'],
   },
   chainReaction: {
@@ -52,5 +52,17 @@ export const REACTIONS = Object.freeze({
   },
   playerReply: {
     turbo: ['merci merci', 'normal'], pixelgirl: ['PTDRRR', 'hehe :3'], luna: [':) ', 'merci'],
+  },
+  humanRoundWon: {
+    turbo: ['gg {player.nickname}', 'ok joli'], pixelgirl: ['GGGG :DDD', 'bien jouééé'], luna: ['joli', 'gg'],
+  },
+  humanMatchWon: {
+    turbo: ['bon ok bien joué', 'j’étais pas prêt'], pixelgirl: ['GG {player.nickname} :DDD', 'quelle partie !!'], luna: ['mérité', 'gg'],
+  },
+  roundDraw: {
+    pixelgirl: ['match nul mdrr', 'on recommence ?'], turbo: ['personne gagne ?', 'ça compte pas'], luna: ['égalité', 'hm'],
+  },
+  matchLost: {
+    turbo: ['ouais bon ça va'], pixelgirl: ['bien jouééé'], luna: ['mérité'],
   },
 });

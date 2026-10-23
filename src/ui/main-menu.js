@@ -1,6 +1,7 @@
 import config from '../config/menu.json' with { type: 'json' };
 import { applications, applicationName, trackIdentity } from './identity.js';
 import { icon } from './icons.js';
+import { resolvePlayerText } from '../story/player-identity.js';
 export function menuPresentation(data, definition = config) {
   const variant = definition.variants.find(
     (item) => item.whenCompleted && data.completed.includes(item.whenCompleted),
@@ -70,7 +71,7 @@ export class MainMenu {
           <p class="menu-status" role="status"></p>
         </div>
         <footer class="menu-footer">
-          <span>✉ CONNECTÉ À LA BONNE HUMEUR</span><span>★ ★ ★ ★ ★</span>
+          <span class="menu-player-status"></span><span>★ ★ ★ ★ ★</span>
         </footer>
       </div>
       <p class="menu-music-credit"></p>
@@ -249,6 +250,10 @@ export class MainMenu {
   }
   render() {
     const view = menuPresentation(this.progression.data);
+    this.find('.menu-player-status').textContent = resolvePlayerText(
+      '✉ {player.grammaticalGender:CONNECTÉ|CONNECTÉE} À LA BONNE HUMEUR',
+      this.progression.data.playerIdentity,
+    );
     this.element.dataset.theme = view.theme;
     this.find('.menu-logo').setAttribute('aria-label', view.title);
     this.find('.menu-tagline').textContent = view.tagline;

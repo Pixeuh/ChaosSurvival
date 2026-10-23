@@ -24,6 +24,9 @@ function setup() {
     setItem: (key, value) => values.set(key, value),
   };
   const progression = new Progression(story, storage);
+  progression.data.playerIdentity = {
+    nickname: 'JustMe', identityGender: 'boy', grammaticalGender: 'male', completed: true,
+  };
   progression.begin();
   return { storage, progression, reactions: new ReplayReactions(progression, definitions, config) };
 }

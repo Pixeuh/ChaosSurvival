@@ -1,4 +1,7 @@
 {
-  "nickname": "JustMe",
+  "nickname": "Moi",
+  "identityGender": null,
+  "grammaticalGender": "male",
+  "completed": false,
   "avatar": "./avatars/player.svg"
 }

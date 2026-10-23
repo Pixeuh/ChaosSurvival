@@ -1,5 +1,11 @@
 import { replaceGameStorage } from './reset-game.js';
 import { normalizeVirtualFilesystemState } from './virtual-filesystem.js';
+import {
+  LEGACY_PLAYER_IDENTITY,
+  normalizePlayerIdentity,
+  normalizePlayerIdentityPatch,
+} from './player-identity.js';
+import playerProfile from '../config/player.json' with { type: 'json' };
 const TYPES = ['arcade', 'conversation', 'minigame'];
 const STORAGE_KEY = 'chaos-survival-story-v1';
 export const MINIGAME_REACTION_DELAY_MS = 2000;
@@ -61,6 +67,12 @@ function freshData(story) {
   return {
     version: 1,
     runId: runId(),
+    playerIdentity: {
+      nickname: playerProfile.nickname,
+      identityGender: playerProfile.identityGender ?? null,
+      grammaticalGender: playerProfile.grammaticalGender ?? 'male',
+      completed: false,
+    },
     started: false,
     current: story.start,
     completed: [],
@@ -160,6 +172,17 @@ function normalizeSaved(saved, story) {
     saved.started = Boolean(
       saved.completed.length || saved.choices.length || Object.keys(saved.dialogues).length,
     );
+  const savedPlayerIdentity = normalizePlayerIdentity(saved.playerIdentity);
+  if (savedPlayerIdentity) saved.playerIdentity = savedPlayerIdentity;
+  else if (saved.started || saved.completed.length || Object.keys(saved.dialogues).length)
+    saved.playerIdentity = { ...LEGACY_PLAYER_IDENTITY };
+  else saved.playerIdentity = {
+    nickname: playerProfile.nickname,
+    identityGender: playerProfile.identityGender ?? null,
+    grammaticalGender: playerProfile.grammaticalGender ?? 'male',
+    completed: false,
+  };
+  delete saved.identitySetupRequired;
   saved.choices = saved.choices.filter(
     (item) => record(item) && typeof item.key === 'string' && typeof item.choice === 'string',
   );
@@ -446,6 +469,18 @@ export class Progression {
     this.data.startedAt ??= new Date().toISOString();
     this.save();
   }
+  updatePlayerIdentity(identity) {
+    const patch = normalizePlayerIdentityPatch(identity);
+    if (!patch) return false;
+    this.data.playerIdentity = { ...this.data.playerIdentity, ...patch };
+    return true;
+  }
+  setPlayerIdentity(identity) {
+    const normalized = normalizePlayerIdentity(identity);
+    if (!normalized) return false;
+    this.data.playerIdentity = normalized;
+    return true;
+  }
   newGame() {
     const next = freshData(this.story);
     replaceGameStorage(this.storage, next);
@@ -520,11 +555,12 @@ export class Progression {
   offer(dialogue, node, choices) {
     const key = `${dialogue}:${node}`;
     if (!Object.hasOwn(this.data.choiceOffers, key)) {
-      this.data.choiceOffers[key] = choices.map(({ id, text, next, set }) => ({
+      this.data.choiceOffers[key] = choices.map(({ id, text, next, set, identity }) => ({
         id,
         text,
         next,
         set: { ...set },
+        ...(identity ? { identity: { ...identity } } : {}),
       }));
       this.save();
     }
@@ -542,6 +578,11 @@ export class Progression {
       )
         throw new Error('Valeur narrative invalide.');
       this.data.flags[flag] = value;
+    }
+    if (choice.identity) {
+      const patch = normalizePlayerIdentityPatch(choice.identity);
+      if (!patch) throw new Error('Identité du joueur invalide.');
+      this.data.playerIdentity = { ...this.data.playerIdentity, ...patch };
     }
     this.data.choices.push({
       key,

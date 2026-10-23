@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { Progression } from '../src/story/progression.js';
 import { resetGameToInitialState as resetSession } from '../src/story/reset-game.js';
 import { createMusicToggle } from '../src/ui/music-toggle.js';
+import { applyPlayerIdentity, playerIdentity, resetPlayerIdentity } from '../src/ui/player-identity.js';
 
 const story = JSON.parse(readFileSync(new URL('../src/config/story.json', import.meta.url)));
 const mainSource = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -29,6 +30,8 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
     key(index) { return [...this.values.keys()][index] ?? null; },
   };
   const progression = new Progression(story, storage);
+  progression.setPlayerIdentity({ nickname: 'StaleName', gender: 'female' });
+  applyPlayerIdentity(progression.data.playerIdentity);
   progression.begin();
   progression.complete('arcade-1', { score: 123 });
   let nativeFullscreen = true;
@@ -58,6 +61,7 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
     else globalThis.document = previousDocument;
   }
   const context = {
+    resetPlayerIdentity,
     resettingGame: false,
     resetSession,
     progression,
@@ -146,6 +150,8 @@ test('the complete New Game reset rebuilds systems and launches level 1 without 
   await vm.runInNewContext(`'use strict'; ${extractResetFunction()}\nresetGameToInitialState();`, context);
 
   assert.deepEqual(progression.data.completed, []);
+  assert.equal(progression.data.playerIdentity.nickname, 'Moi');
+  assert.equal(playerIdentity.nickname, 'Moi');
   assert.equal(progression.data.started, true);
   assert.equal(progression.current.id, 'arcade-1');
   assert.equal(context.phase, 'playing');

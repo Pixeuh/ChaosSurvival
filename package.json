@@ -22,6 +22,8 @@
     "verify:desktop:smoke": "node scripts/verify-desktop-ui.mjs --visible-smoke-only",
     "verify:desktop:visible": "node scripts/verify-desktop-ui.mjs --visible-explorer-only",
     "verify:messenger:visible": "node scripts/verify-desktop-ui.mjs --visible-messenger-only",
+    "verify:player-identity:visible": "node scripts/verify-desktop-ui.mjs --player-identity-only",
+    "verify:player-grammar:visible": "node scripts/verify-desktop-ui.mjs --player-grammar-only",
     "verify:desktop:browser": "node scripts/verify-desktop-ui.mjs --explorer-only"
   },
   "devDependencies": {

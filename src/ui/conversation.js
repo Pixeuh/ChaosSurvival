@@ -1,7 +1,7 @@
 import { DialogueSession } from '../story/dialogue.js';
 import { ConversationThread } from '../story/conversation-thread.js';
 import { applicationName } from './identity.js';
-import { playerIdentity } from './player-identity.js';
+import { applyPlayerIdentity, playerIdentity, subscribePlayerIdentity } from './player-identity.js';
 import { webcamPlaceholder } from './webcam-placeholder.js';
 import { createContactAvatar } from './contact-avatar.js';
 
@@ -34,6 +34,8 @@ export class ConversationWindow {
       manageWindow,
       onDispose,
       player = playerIdentity,
+      inputValidators = {},
+      inputActions = {},
     } = {},
   ) {
     this.onContactsRequested = onContactsRequested;
@@ -43,6 +45,8 @@ export class ConversationWindow {
     this.manageWindow = manageWindow;
     this.onDispose = onDispose;
     this.player = player;
+    this.inputValidators = inputValidators;
+    this.inputActions = inputActions;
     this.manager = manager;
     this.dialogue = dialogue;
     this.progression = progression;
@@ -76,6 +80,7 @@ export class ConversationWindow {
   chooseResponse(definition, session, choiceId) {
     const nodeId = session.state.node;
     const choice = session.choose(choiceId);
+    applyPlayerIdentity(this.progression.data.playerIdentity);
     this.onChoiceValidated?.(definition, { nodeId, choice });
     return choice;
   }
@@ -153,6 +158,11 @@ export class ConversationWindow {
           <div class="msn-tools">
             <button class="text-button" data-msn-action="wizz">Wizz !</button>
           </div>
+          <form class="dialogue-composer" hidden>
+            <input class="dialogue-input" type="text" autocomplete="off" aria-label="Votre réponse" />
+            <button class="xp-button dialogue-send" type="submit">Envoyer</button>
+          </form>
+          <small class="dialogue-input-status" role="status" aria-live="polite"></small>
           <div class="dialogue-choices" aria-label="Réponses possibles"></div>
           <div class="window-status dialogue-typing" role="status"></div>
         `,
@@ -230,9 +240,18 @@ export class ConversationWindow {
     this.history = this.element.querySelector('.conversation-history');
     this.flow = this.element.querySelector('.conversation-flow');
     this.choices = this.element.querySelector('.dialogue-choices');
+    this.composer = this.element.querySelector('.dialogue-composer');
+    this.inputField = this.element.querySelector('.dialogue-input');
+    this.inputStatus = this.element.querySelector('.dialogue-input-status');
+    this.composer.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.submitDialogueInput();
+    });
     this.typing = this.element.querySelector('.dialogue-typing');
     this.typingIndicator = this.element.querySelector('.contact-typing');
     this.followLatest = true;
+    this.unsubscribeIdentity?.();
+    this.unsubscribeIdentity = subscribePlayerIdentity(() => this.refreshPlayerLabels());
     const log = this.log;
     this.log.addEventListener('scroll', () => {
       if (this.log !== log || !log.isConnected) return;
@@ -292,6 +311,7 @@ export class ConversationWindow {
     if (!this.element?.isConnected || !this.log) return;
     this.appendHistory();
     this.renderResponses();
+    this.renderInput();
     this.renderTyping();
     const definition = this.thread.activeDefinition;
     if (this.dialogue.id === definition.id) {
@@ -323,6 +343,7 @@ export class ConversationWindow {
     const row = document.createElement('div');
     row.className = `conversation-message ${message.speaker === 'player' ? 'from-player' : 'from-contact'}`;
     if (message.key) row.dataset.messageKey = message.key;
+    if (message.speaker === 'player') row.dataset.playerSpeaker = 'true';
     if (message.type === 'wizz') {
       row.className = 'conversation-message conversation-system';
       row.textContent =
@@ -354,6 +375,49 @@ export class ConversationWindow {
     (this.flow ?? this.log).append(row);
     this.scrollLatest();
     return row;
+  }
+  refreshPlayerLabels() {
+    if (!this.element?.isConnected) return;
+    for (const row of this.element.querySelectorAll('[data-player-speaker="true"]')) {
+      if (row.classList.contains('conversation-system')) {
+        const message = this.thread.state.history.find((item) => item.key === row.dataset.messageKey);
+        if (message?.type === 'wizz') row.textContent = `${this.player.nickname} vous a envoyé un wizz !`;
+        continue;
+      }
+      const author = row.querySelector('small');
+      if (author) author.textContent = `${this.player.nickname} dit :`;
+    }
+    this.element.querySelector('.contact-status').textContent = this.contactStatus(this.dialogue);
+  }
+  renderInput() {
+    if (!this.composer) return;
+    const input = this.session?.input;
+    this.composer.hidden = !input;
+    if (!input) {
+      this.inputStatus.textContent = '';
+      return;
+    }
+    this.inputField.maxLength = input.maxLength ?? 64;
+    this.inputField.placeholder = input.placeholder ?? '';
+  }
+  submitDialogueInput() {
+    const input = this.session?.input;
+    if (!input) return false;
+    const accepted = this.session.submitInput(this.inputField.value, {
+      validators: this.inputValidators,
+      actions: this.inputActions,
+    });
+    if (!accepted) {
+      this.inputStatus.textContent = input.invalidMessage;
+      return false;
+    }
+    this.inputStatus.textContent = '';
+    this.inputField.value = '';
+    this.sounds.play('send');
+    this.appendHistory();
+    this.renderResponses();
+    this.pump();
+    return true;
   }
   scrollLatest() {
     if (this.followLatest && this.log?.isConnected) this.log.scrollTop = this.log.scrollHeight;
@@ -434,6 +498,7 @@ export class ConversationWindow {
       return;
     }
     this.renderResponses();
+    this.renderInput();
     this.renderTyping();
     this.receiving = this.thread.isReceiving(this.session.dialogue.id);
     if (this.receiving) {
@@ -454,6 +519,11 @@ export class ConversationWindow {
         return;
       }
       if (this.session.advance()) continue;
+      if (this.session.input) {
+        this.typing.textContent = '';
+        this.renderInput();
+        return;
+      }
       if (this.session.state.finished) {
         const stayOnline = this.dialogue.completion?.stayOnline;
         this.element.classList.toggle('contact-away', !stayOnline);
@@ -585,6 +655,8 @@ export class ConversationWindow {
         !this.thread.hasPendingMessages)
     )
       return false;
+
+    if (this.session.input) return false;
 
     this.devFastForwarding = true;
     const nickname = this.dialogue.contact.nickname;
@@ -750,6 +822,8 @@ export class ConversationWindow {
   }
   dispose(dismissal) {
     this.onDispose?.(this, dismissal);
+    this.unsubscribeIdentity?.();
+    this.unsubscribeIdentity = null;
     this.logObserver?.disconnect();
     cancelAnimationFrame(this.frame);
     document.removeEventListener('visibilitychange', this.onVisibility);
@@ -763,6 +837,9 @@ export class ConversationWindow {
     this.history = null;
     this.typingIndicator = null;
     this.choices = null;
+    this.composer = null;
+    this.inputField = null;
+    this.inputStatus = null;
     this.session = null;
     this.renderedKeys = null;
     this.responseSignature = null;

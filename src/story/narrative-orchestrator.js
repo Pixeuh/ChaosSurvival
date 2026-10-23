@@ -8,7 +8,7 @@ const PIXELGIRL_REPLY_REMINDER_DELAYS_MS = [20_000, 15_000, 10_000];
 const PIXELGIRL_HUMOR_WIZZ_DELAYS_MS = [20_000, 10_000, 8_000];
 export const BOMB_ARENA_REMINDERS = Object.freeze([
   { author: 'xX_PixelGirl_Xx', text: 'alleeez' },
-  { author: 'Turb0', text: "t'es nul" },
+  { author: 'Turb0', text: "t'es {player.grammaticalGender:nul|nulle}" },
   { author: 'xX_PixelGirl_Xx', text: 'viens on joue' },
 ]);
 export const BOMB_ARENA_REMINDER_SEQUENCES = Object.freeze([
@@ -25,15 +25,15 @@ export const BOMB_ARENA_REMINDER_SEQUENCES = Object.freeze([
   [
     { author: 'Turb0', text: 'bon' },
     { author: 'Turb0', text: 'on va finir par croire que t\'as peur' },
-    { author: 'xX_PixelGirl_Xx', text: 'mais nooon il va revenir :3' },
+    { author: 'xX_PixelGirl_Xx', text: 'mais nooon {player.grammaticalGender:il|elle} va revenir :3' },
     { author: 'Turb0', text: 'bah j\'attends de voir' },
     { author: '°•.LuNa.°•', text: 'moi aussi du coup' },
   ],
   [
     { author: 'xX_PixelGirl_Xx', text: 'T\'ES OÙÙÙ' },
     { author: 'xX_PixelGirl_Xx', text: 'on veut joueeeer' },
-    { author: 'Turb0', text: 'il est parti se cacher mdr' },
-    { author: 'xX_PixelGirl_Xx', text: 'mais arrête de le faire fuir toi xD' },
+    { author: 'Turb0', text: '{player.grammaticalGender:il est parti|elle est partie} se cacher mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'mais arrête de {player.grammaticalGender:le|la} faire fuir toi xD' },
     { author: 'Turb0', text: 'MDRRR' },
     { author: '°•.LuNa.°•', text: 'vous allez pas l\'aider comme ça' },
   ],
@@ -59,8 +59,8 @@ export const BOMB_ARENA_REMINDER_VARIANTS = Object.freeze([
     { author: 'Turb0', text: 'BON' },
     { author: 'Turb0', text: 't\'as peur de perdre ou quoi' },
     { author: 'xX_PixelGirl_Xx', text: 'PTDRRR' },
-    { author: 'xX_PixelGirl_Xx', text: 'laisse le tranquille' },
-    { author: 'Turb0', text: 'bah qu\'il revienne alors mdr' },
+    { author: 'xX_PixelGirl_Xx', text: 'laisse {player.grammaticalGender:le|la} tranquille' },
+    { author: 'Turb0', text: 'bah {player.grammaticalGender:qu\'il|qu\'elle} revienne alors mdr' },
   ],
   [
     { author: 'xX_PixelGirl_Xx', text: 'coucouuuu' },
@@ -70,10 +70,10 @@ export const BOMB_ARENA_REMINDER_VARIANTS = Object.freeze([
     { author: 'xX_PixelGirl_Xx', text: 'ALLEZ JUSTE VIENS' },
   ],
   [
-    { author: 'Turb0', text: 'il est encore parti ??' },
+    { author: 'Turb0', text: '{player.grammaticalGender:il est encore parti|elle est encore partie} ??' },
     { author: 'xX_PixelGirl_Xx', text: 'ouiiii :(' },
     { author: 'Turb0', text: 'incroyable' },
-    { author: '°•.LuNa.°•', text: 'il est peut-être occupé' },
+    { author: '°•.LuNa.°•', text: '{player.grammaticalGender:il est peut-être occupé|elle est peut-être occupée}' },
     { author: 'xX_PixelGirl_Xx', text: 'MAIS ON L\'ATTEND NOUS' },
   ],
   [
@@ -87,13 +87,13 @@ export const BOMB_ARENA_REMINDER_VARIANTS = Object.freeze([
     { author: 'Turb0', text: 'bon là c\'est abusé mdr' },
     { author: 'xX_PixelGirl_Xx', text: 'TURBO' },
     { author: 'Turb0', text: 'QUOI' },
-    { author: 'xX_PixelGirl_Xx', text: 'tu vas le faire revenir en lui criant dessus ???' },
+    { author: 'xX_PixelGirl_Xx', text: 'tu vas {player.grammaticalGender:le|la} faire revenir en lui criant dessus ???' },
     { author: 'Turb0', text: 'peut être' },
   ],
   [
     { author: '°•.LuNa.°•', text: 'bon' },
     { author: '°•.LuNa.°•', text: 'on reprend quand ?' },
-    { author: 'xX_PixelGirl_Xx', text: 'QUAND JUSTME REVIENT' },
+    { author: 'xX_PixelGirl_Xx', text: 'QUAND {player.nickname} REVIENT' },
     { author: 'Turb0', text: 'donc jamais mdr' },
     { author: 'xX_PixelGirl_Xx', text: 'MAIS SI' },
   ],

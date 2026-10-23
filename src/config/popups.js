@@ -32,7 +32,7 @@ export const popupContent = {
       status: 'Occupée · mais réponds quand même',
       messages: [
         'réponds stpppp',
-        'j’te vois connecté hein -_-',
+        'j’te vois {player.grammaticalGender:connecté|connectée} hein -_-',
         'ok je change mon pseudo. tu comprendras.',
       ],
     },
@@ -60,7 +60,7 @@ export const popupContent = {
       messages: [
         'TU AS FAIT TES DEVOIRS ?',
         'et arrête de télécharger des trucs',
-        'le téléphone ne marche plus depuis que tu es connecté',
+        'le téléphone ne marche plus depuis que tu es {player.grammaticalGender:connecté|connectée}',
       ],
     },
     {
@@ -203,7 +203,7 @@ export const popupContent = {
   ad: [
     {
       address: 'www.super-cadeau.biz',
-      eyebrow: '★ VOUS ÊTES LE 999 999ᵉ VISITEUR ★',
+      eyebrow: '★ VOUS ÊTES {player.grammaticalGender:LE 999 999ᵉ VISITEUR|LA 999 999ᵉ VISITEUSE} ★',
       heading: 'FÉLICITATIONS !',
       lead: 'TU AS GAGNÉ',
       prize: 'UN VIRUS ♡',

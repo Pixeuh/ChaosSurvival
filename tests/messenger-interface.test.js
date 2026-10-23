@@ -143,8 +143,8 @@ test('Wizz send events persist one chronological system entry for each sender wi
   assert.deepEqual(
     thread.state.history.slice(1).map((entry) => entry.text),
     [
-      'JustMe vous a envoyé un wizz !',
-      'JustMe vous a envoyé un wizz !',
+      'Moi vous a envoyé un wizz !',
+      'Moi vous a envoyé un wizz !',
       'xX_PixelGirl_Xx vous a envoyé un wizz !',
     ],
   );
@@ -410,7 +410,7 @@ test('Wizz rows use system presentation without an author or emoticon parsing', 
   assert.equal(scrolled, true);
   const legacy = { type: 'wizz', speaker: 'player', text: 'Moi vous a envoyé un wizz !' };
   ConversationWindow.prototype.appendMessage.call(view, legacy);
-  assert.equal(row.textContent, 'JustMe vous a envoyé un wizz !');
+  assert.equal(row.textContent, 'Moi vous a envoyé un wizz !');
   assert.equal(legacy.text, 'Moi vous a envoyé un wizz !', 'saved historical data is unchanged');
 });
 
@@ -418,7 +418,7 @@ test('Messenger and conversation views share the central player profile instead 
   const progression = new Progression(read('../src/config/story.json'));
   const messenger = new Messenger({});
   const conversation = new ConversationWindow({}, intro, progression, {});
-  assert.equal(playerIdentity.nickname, 'JustMe');
+  assert.equal(playerIdentity.nickname, 'Moi');
   assert.equal(messenger.player, playerIdentity);
   assert.equal(conversation.player, playerIdentity);
   assert.equal(intro.player.nickname, 'Moi', 'narrative JSON is not rewritten');

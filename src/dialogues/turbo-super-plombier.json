@@ -50,13 +50,13 @@
       "messages": [
         {
           "speaker": "contact",
-          "text": "ptdrrrr mauvais perdant",
+          "text": "ptdrrrr {player.grammaticalGender:mauvais perdant|mauvaise perdante}",
           "delayMs": 300,
           "typingMs": 450
         },
         {
           "speaker": "contact",
-          "text": "fallait juste etre bon",
+          "text": "fallait juste etre {player.grammaticalGender:bon|bonne}",
           "delayMs": 250,
           "typingMs": 400
         }
@@ -84,7 +84,7 @@
       "messages": [
         {
           "speaker": "contact",
-          "text": "rage pas parce que t'es nul mdr",
+          "text": "rage pas parce que t'es {player.gender:nul|nulle} mdr",
           "delayMs": 300,
           "typingMs": 500
         },
@@ -197,7 +197,7 @@
       "messages": [
         {
           "speaker": "contact",
-          "text": "jaloux de mon talent",
+          "text": "{player.grammaticalGender:jaloux|jalouse} de mon talent",
           "delayMs": 250,
           "typingMs": 400
         },

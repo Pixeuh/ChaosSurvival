@@ -5,6 +5,25 @@ import { createGame, drainGameEvents, updateGame } from '../src/minigames/bomb-a
 
 function advance(chat, ms) { for (let elapsed = 0; elapsed < ms; elapsed += 100) chat.advance(Math.min(100, ms - elapsed)); }
 
+test('human BombArena mentions resolve explicit nickname tokens through the live event queue', () => {
+  const draws = [0.99, 0.4, 0, 0.99, 0];
+  const chat = createBombArenaChat({ rng: () => draws.shift() ?? 0, playerNickname: 'PixelFan', grammaticalGender: 'female' });
+  chat.onGameEvent({ id: 1, round: 1, type: 'round_started' });
+  chat.onGameEvent({ id: 2, round: 1, type: 'player_eliminated', playerId: 'justme', cause: 'unknown' });
+  advance(chat, 2000);
+  assert.equal(chat.messages.at(-1).text, 'rip PixelFan');
+  assert.equal(chat.messages.at(-1).authorId, 'turbo');
+  draws.push(0.4, 0, 0, 0);
+  chat.onGameEvent({ id: 3, round: 1, type: 'round_won', playerId: 'justme', draw: false });
+  advance(chat, 2000);
+  assert.equal(chat.messages.at(-1).text, 'gg PixelFan');
+  assert.equal(chat.sendPlayerMessage('gg'), true);
+  assert.equal(chat.messages.at(-1).authorId, 'justme');
+  assert.equal(chat.messages.at(-1).author, 'PixelFan');
+  assert.equal(chat.messages.every(({ text }) => !text.includes('{player.')), true);
+  chat.dispose();
+});
+
 test('gameplay events drive correctly attributed, deduplicated reactions with a per-round cap', () => {
   const chat = createBombArenaChat({ rng: () => 0 });
   chat.onGameEvent({ id: 1, round: 1, type: 'round_started' });

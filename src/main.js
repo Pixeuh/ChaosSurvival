@@ -76,6 +76,8 @@ import {
 import { bombArenaHandoffPending, createBombArenaHandoffRetrier, dispatchBombArenaEvent } from './story/bomb-arena-handoff.js';
 import { resetGameToInitialState as resetSession, recoverGameReset } from './story/reset-game.js';
 import { applicationName, trackIdentity } from './ui/identity.js';
+import { applyPlayerIdentity, playerIdentity, resetPlayerIdentity, subscribePlayerIdentity } from './ui/player-identity.js';
+import { validatePlayerNickname } from './story/player-identity.js';
 import {
   NotificationCenter,
   ENTER_ANIMATION_MS,
@@ -121,6 +123,7 @@ const notifications = new NotificationCenter({
   getTime: (clock) => (clock === 'game' ? audio.time * 1000 : Date.now()),
 });
 const progression = new Progression(story, storyStorage);
+if (progression.data.playerIdentity) applyPlayerIdentity(progression.data.playerIdentity);
 setHideKnownExtensions(progression.data.explorerPreferences?.hideKnownExtensions !== false);
 const optionalConversations = new OptionalConversations(progression, dialogues);
 const virtualFilesystem = new VirtualFilesystem(progression);
@@ -201,6 +204,8 @@ const desktopApplications = new DesktopApplications(
   }),
   () => tryOpenBombArenaGroupConversation(),
 );
+desktopApplications.getPlayerNickname = () => playerIdentity.nickname;
+desktopApplications.getPlayerGrammaticalGender = () => playerIdentity.grammaticalGender;
 mediaPlayer = new WindowsMediaPlay(manager, desktopApplications, virtualFilesystem);
 const toolbarInstaller = new ToolbarInstaller(manager, desktopApplications);
 let narrativeOrchestrator;
@@ -484,6 +489,14 @@ function createConversation(dialogue, contactId = 'pixelgirl', thread = replayRe
       onContactsRequested: () => messenger.open(),
       onChoiceValidated: (definition, details) =>
         narrativeOrchestrator.onChoiceValidated(definition, details),
+      inputValidators: { playerNickname: (value) => validatePlayerNickname(value) },
+      inputActions: {
+        setPlayerNickname: (value, progress) => {
+          const updated = progress.updatePlayerIdentity({ nickname: value });
+          if (updated) applyPlayerIdentity(progress.data.playerIdentity);
+          return updated;
+        },
+      },
       onTransferDeclined: ({ file, dialogueId }) =>
         narrativeOrchestrator.onBombArenaTransferDeclined(file, dialogueId),
       onLink: (url) => {
@@ -683,6 +696,10 @@ const desktopContextMenus = new WindowsXdContextMenus({
   onFilesystemChange: renderDesktopFiles,
 });
 const startMenuOrder = new StartMenuOrder(ui.startMenu, settings);
+subscribePlayerIdentity((identity) => {
+  ui.menuPlayerName.textContent = identity.nickname;
+});
+ui.menuPlayerName.textContent = playerIdentity.nickname;
 const taskbarOrder = new TaskbarOrder(ui.desktop.querySelector('.taskbar'));
 async function resetGameToInitialState() {
   if (resettingGame) return;
@@ -708,6 +725,7 @@ async function resetGameToInitialState() {
         clearEffects();
       },
       rebuild: async () => {
+        resetPlayerIdentity();
         const fullscreen = window.chaosWindow
           ? await window.chaosWindow.getFullscreen()
           : Boolean(document.fullscreenElement);
@@ -1078,8 +1096,9 @@ function showArcadeVictory(result) {
   cancelVictory = celebrateVictory(ui.desktop, result, sounds, () => {
     try {
       const acknowledged = acknowledgeArcadeVictory(progression);
-      if (acknowledged?.firstCompletion && progression.current)
+      if (acknowledged?.firstCompletion && progression.current) {
         progression.enterCurrent().catch(showStoryError);
+      }
       else showStoryDesktop(false);
     } catch (error) {
       showStoryError(error);

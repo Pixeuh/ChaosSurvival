@@ -291,7 +291,7 @@ test('typing stays outside the scrolling messages through messages, Wizz spam, h
     speaker: 'player',
     text: 'another message',
   });
-  assert.equal(next.children[0].textContent, 'JustMe dit :');
+  assert.equal(next.children[0].textContent, 'Moi dit :');
   assert.deepEqual(log.children, [first, next]);
   ConversationWindow.prototype.renderTyping.call(view, 1);
   assert.deepEqual(log.children, [first, next]);

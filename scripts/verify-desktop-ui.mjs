@@ -11,9 +11,11 @@ import electron from 'electron';
 import { Progression } from '../src/story/progression.js';
 import { DialogueSession } from '../src/story/dialogue.js';
 import { ConversationThread } from '../src/story/conversation-thread.js';
+import pixelgirlIntro from '../src/dialogues/pixelgirl-intro.json' with { type: 'json' };
 import { smileyIcon } from '../src/minigames/smiley-icons.js';
 import contacts from '../src/config/contacts.json' with { type: 'json' };
 import { orderedContacts, visibleContacts } from '../src/ui/contacts.js';
+import { NarrativeOrchestrator, BOMB_ARENA_REMINDER_SEQUENCES } from '../src/story/narrative-orchestrator.js';
 
 const rulesOnly = process.argv.includes('--rules-only');
 const typingOnly = process.argv.includes('--typing-only');
@@ -39,6 +41,8 @@ const visibleMessengerOnly = process.argv.includes('--visible-messenger-only');
 const visibleK7DeliveryOnly = process.argv.includes('--visible-k7-delivery-only');
 const visibleSmokeOnly = process.argv.includes('--visible-smoke-only');
 const visiblePortraitOnly = process.argv.includes('--visible-portrait-only');
+const playerIdentityOnly = process.argv.includes('--player-identity-only');
+const playerGrammarOnly = process.argv.includes('--player-grammar-only');
 const minigameOnly =
   process.argv.includes('--minigame-only') ||
   typingOnly ||
@@ -63,6 +67,8 @@ const minigameOnly =
   visibleK7DeliveryOnly ||
   visibleSmokeOnly ||
   visiblePortraitOnly ||
+  playerIdentityOnly ||
+  playerGrammarOnly ||
   stabilityOnly;
 const browserAutomation =
   minigameOnly &&
@@ -70,7 +76,9 @@ const browserAutomation =
   !visibleMessengerOnly &&
   !visibleK7DeliveryOnly &&
   !visibleSmokeOnly &&
-  !visiblePortraitOnly;
+  !visiblePortraitOnly &&
+  !playerIdentityOnly &&
+  !playerGrammarOnly;
 let browserServer, profile, port, gameUrl, chromiumExecutable = null, child, spawnError = null;
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, '.qa');
@@ -174,7 +182,11 @@ child.on('error', (error) => {
 }
 const scenarioName = visibleSmokeOnly
   ? 'Bureau minimal Electron visible'
-  : visiblePortraitOnly
+  : playerGrammarOnly
+    ? 'Accords du joueur Messenger (Electron visible, profil temporaire)'
+  : playerIdentityOnly
+    ? 'Identité joueur Messenger (Electron visible, profil temporaire)'
+    : visiblePortraitOnly
     ? 'Disposition des portraits Messenger'
     : visibleK7DeliveryOnly
       ? 'Réception K7 Messenger (Electron visible)'
@@ -187,6 +199,8 @@ const scenarioName = visibleSmokeOnly
         : 'campagne de validation visuelle';
 const scenarioBudgetMs = visibleK7DeliveryOnly
   ? 60_000
+  : playerIdentityOnly || playerGrammarOnly
+    ? 90_000
   : visibleSmokeOnly || visiblePortraitOnly
   ? 45_000
   : visibleMessengerOnly || messengerOnly
@@ -702,6 +716,213 @@ async function verifyVisibleSmoke() {
   assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
   qaStep('Étape 5/5 : parcours terminé sans recharger ni relancer le jeu');
 }
+
+async function verifyPlayerIdentity() {
+  const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json'), 'utf8'));
+  const installFixture = () => {
+    const progression = new Progression(story);
+    progression.begin();
+    progression.complete('arcade-1', { score: 5000 });
+    const opening = pixelgirlIntro.nodes.introduction.messages;
+    progression.data.dialogues[pixelgirlIntro.id] = {
+      node: 'introduction', cursor: opening.length,
+      transcript: [
+        { speaker: 'player', text: 'salut !!', receivedAt: 1 },
+        ...opening.map((message, index) => ({ speaker: 'contact', text: message.text, receivedAt: 2 + index })),
+      ],
+      finished: false, revision: pixelgirlIntro.revision ?? 1,
+    };
+    return progression.data;
+  };
+  const loadFixture = async () => {
+    const fixture = installFixture();
+    await evaluate(`localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(JSON.stringify(fixture))})`);
+    await command('Page.reload');
+    await until(() => evaluate("window.chaosDebug?.snapshot().phase==='menu'"), 'identity fixture reload');
+    await physicalClick('#menu-play');
+    await until(
+      () => evaluate("!!document.querySelector('.rules-confirm')||!!document.querySelector('.conversation-log')"),
+      'rules or conversation after identity fixture',
+    );
+    if (await evaluate("!!document.querySelector('.rules-confirm')")) {
+      await physicalClick('.rules-confirm');
+      await until(() => evaluate("!!document.querySelector('.conversation-log')"), 'PixelGirl conversation after rules');
+    }
+    await until(() => evaluate("!!document.querySelector('.conversation-log')"), 'PixelGirl conversation');
+  };
+  const choose = async (text) => {
+    const index = await evaluate(`[...document.querySelectorAll('.dialogue-choice')].findIndex(button=>button.textContent===${JSON.stringify(text)})`);
+    assert.ok(index >= 0, `Missing narrative choice: ${text}`);
+    await physicalClick(`.dialogue-choices .dialogue-choice:nth-child(${index + 1})`);
+  };
+  const typeNickname = async (nickname, mode) => {
+    await until(() => evaluate("!!document.querySelector('.dialogue-composer:not([hidden])')"), 'Messenger free text input');
+    await evaluate(`(()=>{const input=document.querySelector('.dialogue-input');input.focus();input.value=${JSON.stringify(nickname)};input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    if (mode === 'enter') {
+      await command('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+      await command('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 });
+    } else await physicalClick('.dialogue-send');
+    await until(() => evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).playerIdentity.nickname!=='Moi'"), 'nickname saved');
+    const log = await evaluate("document.querySelector('.conversation-log').textContent");
+    assert.ok(log.includes(`${nickname} dit :`), 'historical player messages update to the personalized display name');
+    assert.equal(log.includes('<script>'), false);
+    await physicalClick('#windows-start');
+    assert.equal(await evaluate("document.querySelector('#start-menu-player-name').textContent"), nickname);
+    await physicalClick('#windows-start');
+    await until(() => evaluate("[...document.querySelectorAll('.dialogue-choice')].some(button=>button.textContent==='un garçon')"), 'gender choices');
+  };
+  const scenario = async ({ nickname, genderChoice, grammatical, mode = 'button', xReply = false, invalid = false }) => {
+    await loadFixture();
+    assert.ok((await evaluate("document.querySelector('.conversation-log').textContent")).includes('Moi dit :'));
+    await physicalClick('#windows-start');
+    assert.equal(await evaluate("document.querySelector('#start-menu-player-name').textContent"), 'Moi');
+    await physicalClick('#windows-start');
+    await capture(`player-identity-${nickname}-before.png`);
+    await choose(xReply ? "t'avais plus de place pour mettre des X ?" : "moi j'aime bien :3");
+    await until(() => evaluate("!!document.querySelector('.dialogue-composer:not([hidden])')"), 'nickname prompt after introduction');
+    if (invalid) {
+      await evaluate("(()=>{const input=document.querySelector('.dialogue-input');input.value='<script>';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.dialogue-send').click()})()");
+      assert.equal(await evaluate("document.querySelector('.dialogue-input-status').textContent.includes('3 à 16')"), true);
+      assert.equal(await evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).playerIdentity.nickname"), 'Moi');
+      assert.equal(await evaluate("document.querySelector('.conversation-log').textContent.includes('<script>')"), false);
+      assert.equal(await evaluate("document.querySelectorAll('.conversation-log script').length"), 0);
+    }
+    await capture(`player-identity-${nickname}-input.png`);
+    await typeNickname(nickname, mode);
+    await choose(genderChoice);
+    assert.ok(
+      (await evaluate("document.querySelector('.conversation-log').textContent")).includes(`${nickname} dit : ${genderChoice}`),
+      'selected gender choice is recorded as an ordinary Messenger reply',
+    );
+    if (genderChoice === 'aucun des deux') {
+      await until(() => evaluate("[...document.querySelectorAll('.dialogue-choice')].some(button=>button.textContent==='elle')"), 'pronoun prompt for neither');
+      await choose('elle');
+    } else {
+      await until(() => evaluate("document.querySelector('.conversation-log').textContent.includes('okiii :3')"), 'common identity convergence');
+      assert.equal(await evaluate("[...document.querySelectorAll('.dialogue-choice')].some(button=>button.textContent==='il'||button.textContent==='elle')"), false);
+    }
+    const identity = await evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).playerIdentity");
+    assert.equal(identity.nickname, nickname);
+    assert.equal(identity.grammaticalGender, grammatical);
+    assert.equal(identity.completed, true);
+    await until(() => evaluate("document.querySelector('.conversation-log').textContent.includes('okiii :3')"), 'common identity convergence');
+    await capture(`player-identity-${nickname}-converged.png`);
+  };
+  await scenario({ nickname: 'Pixe', genderChoice: 'une fille', grammatical: 'female', xReply: true });
+  await command('Page.reload');
+  await until(() => evaluate("window.chaosDebug?.snapshot().phase==='menu'"), 'saved identity reload');
+  await physicalClick('#menu-play');
+  await until(() => evaluate("!!document.querySelector('.conversation-log')"), 'resumed PixelGirl conversation');
+  const resumed = await evaluate("document.querySelector('.conversation-log').textContent");
+  assert.equal((resumed.match(/Pixe dit : salut !!/g) ?? []).length, 1, 'saved history stays unique after reload');
+  await scenario({ nickname: 'Alex2009', genderChoice: 'un garçon', grammatical: 'male', mode: 'enter' });
+  await scenario({ nickname: 'DarkKiller59', genderChoice: 'aucun des deux', grammatical: 'female' });
+  await scenario({ nickname: 'PixelFan', genderChoice: 'un garçon', grammatical: 'male', invalid: true });
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+  console.log('OK: Messenger nickname entry, invalid input rejection, retroactive labels, Start menu update, all gender routes, save resume and isolated Electron profile. Screenshots saved in .qa.');
+}
+async function verifyPlayerGrammar() {
+  await command('Page.enable');
+  const story = JSON.parse(await readFile(path.join(root, 'src/config/story.json'), 'utf8'));
+  const files = (await readdir(path.join(root, 'src/dialogues'))).filter((name) => name.endsWith('.json'));
+  const definitions = Object.fromEntries(await Promise.all(files.map(async (file) => {
+    const definition = JSON.parse(await readFile(path.join(root, 'src/dialogues', file), 'utf8'));
+    return [definition.id, definition];
+  })));
+  const profiles = [
+    { nickname: 'Alex2009', identityGender: 'boy', grammaticalGender: 'male', completed: true },
+    { nickname: 'Pixe', identityGender: 'girl', grammaticalGender: 'female', completed: true },
+    { nickname: 'PixelFan', identityGender: 'neither', grammaticalGender: 'female', completed: true },
+  ];
+  const fixture = (profile, group = false) => {
+    const values = new Map();
+    const progression = new Progression(story, { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) });
+    progression.updatePlayerIdentity(profile);
+    progression.begin();
+    progression.complete('arcade-1'); progression.complete('pixelgirl-hello'); progression.complete('super-mega-game');
+    const intro = new DialogueSession(definitions['pixelgirl-intro'], progression);
+    Object.assign(intro.state, { node: 'good-luck', cursor: 0 });
+    while (intro.nextMessage()) intro.deliver(); intro.advance();
+    const privateChat = new DialogueSession(definitions['pixelgirl-smiley-victory'], progression);
+    for (const node of ['s1-q1-a', 's3', 's5-common-1']) {
+      Object.assign(privateChat.state, { node, cursor: 0 });
+      while (privateChat.nextMessage()) privateChat.deliver();
+    }
+    progression.consumeMiniGameReaction(privateChat.dialogue.id);
+    if (group) {
+      progression.data.current = null;
+      progression.data.completed = story.sequences.map(({ id }) => id);
+      privateChat.state.finished = true;
+      Object.assign(progression.data.flags, {
+        superPlombierPostStarted: true, superPlombierGroupCreated: true, superPlombierGroupNotified: true,
+      });
+      const session = new DialogueSession(definitions['pixelgirl-super-plombier-group'], progression);
+      Object.assign(session.state, { node: 'g', cursor: 0 });
+      while (session.nextMessage()) session.deliver();
+      const factory = Object.assign(Object.create(NarrativeOrchestrator.prototype), { definitions });
+      const reminder = factory.bombArenaReminderDefinition('bomb-arena-reminder-salvo-1-3-3', BOMB_ARENA_REMINDER_SEQUENCES[3][2]);
+      const reminderSession = new DialogueSession(reminder, progression);
+      reminderSession.deliver(); reminderSession.advance();
+    }
+    progression.save(); return progression.data;
+  };
+  let fixtureNumber = 0;
+  const load = async (data, group = false) => {
+    const number = ++fixtureNumber;
+    // Install after navigation, before the app starts. The previous renderer
+    // may still save its next scheduled message while Page.reload is pending.
+    const injection = await command('Page.addScriptToEvaluateOnNewDocument', {
+      source: `localStorage.setItem('chaos-survival-story-v1',${JSON.stringify(JSON.stringify(data))});window.__grammarFixture=${number}`,
+    });
+    qaLog('Rechargement du renderer dans le même processus : sauvegarde grammaticale temporaire.');
+    await command('Page.reload');
+    await until(() => evaluate(`window.__grammarFixture===${number}&&window.chaosDebug?.snapshot().phase==='menu'`).catch(() => false), 'grammar fixture menu');
+    await command('Page.removeScriptToEvaluateOnNewDocument', { identifier: injection.identifier });
+    if (group) assert.equal(await evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1')).flags.superPlombierGroupCreated"), true, 'the saved group fixture survives navigation');
+    await physicalClick('#menu-play');
+    await until(() => evaluate("window.chaosDebug?.snapshot().phase==='desktop'"), 'grammar desktop');
+    if (group) {
+      await physicalClick('#windows-start'); await physicalClick('#menu-messenger');
+      await until(() => evaluate("!!document.querySelector('[data-contact-id=plumber-group]')"), 'existing group contact');
+      await physicalClick('[data-contact-id=plumber-group]', true);
+    }
+    await until(() => evaluate(group ? "!!document.querySelector('.group-conversation .conversation-log')" : "!!document.querySelector('.conversation-log')"), 'grammar conversation');
+  };
+  for (const profile of profiles) {
+    qaStep(`Accords ${profile.nickname} : conversation privée, choix et historique`);
+    const female = profile.grammaticalGender === 'female';
+    await load(fixture(profile));
+    const log = await evaluate("document.querySelector('.conversation-log').textContent");
+    assert.ok(log.includes(female ? 'madame est une professionnelle apparemment' : 'monsieur est un professionnel apparemment'));
+    assert.ok(log.includes('je suis tombée sur un dossier'), 'PixelGirl keeps her own agreements');
+    const choice = `bah montre quand même, je suis ${female ? 'curieuse' : 'curieux'}`;
+    await until(() => evaluate(`[...document.querySelectorAll('.dialogue-choice')].some(button=>button.textContent===${JSON.stringify(choice)})`), 'grammatical reply');
+    await evaluate("(()=>{const log=document.querySelector('.conversation-log');log.scrollTop=0})()");
+    await capture(`player-grammar-${profile.nickname}-private.png`);
+    await evaluate("(()=>{const log=document.querySelector('.conversation-log');log.scrollTop=log.scrollHeight})()");
+    await capture(`player-grammar-${profile.nickname}-choices.png`);
+    const index = await evaluate(`[...document.querySelectorAll('.dialogue-choice')].findIndex(button=>button.textContent===${JSON.stringify(choice)})`);
+    await physicalClick(`.dialogue-choices .dialogue-choice:nth-child(${index + 1})`);
+    const sentReplyCount = () => evaluate(`[...document.querySelectorAll('.conversation-log .conversation-message')].filter(row=>row.querySelector('small')?.textContent===${JSON.stringify(profile.nickname + ' dit :')}&&row.querySelector('p')?.textContent===${JSON.stringify(choice)}).length`);
+    await until(async () => await sentReplyCount() === 1, 'sent reply agrees with offered choice');
+    const saved = await evaluate("JSON.parse(localStorage.getItem('chaos-survival-story-v1'))");
+    assert.equal(saved.playerIdentity.identityGender, profile.identityGender);
+    assert.equal(saved.playerIdentity.grammaticalGender, profile.grammaticalGender);
+    await load(saved);
+    assert.equal(await sentReplyCount(), 1);
+    await capture(`player-grammar-${profile.nickname}-restored.png`);
+    qaStep(`Accords ${profile.nickname} : groupe, pronom du joueur et accords de Turbo`);
+    await load(fixture(profile, true), true);
+    const groupLog = await evaluate("document.querySelector('.group-conversation .conversation-log').textContent");
+    assert.ok(groupLog.includes(female ? 'elle est partie se cacher mdr' : 'il est parti se cacher mdr'));
+    assert.ok(groupLog.includes("toi t'es méchant"), 'the remark about Turbo never uses the human gender');
+    assert.doesNotMatch(groupLog, /\{player\.|\[object Object\]/);
+    await capture(`player-grammar-${profile.nickname}-group.png`);
+    console.log(`OK ${profile.nickname}: ${profile.identityGender}/${profile.grammaticalGender}, réplique, choix, envoi, reprise et groupe.`);
+  }
+  assert.equal(exceptions.length, 0, JSON.stringify(exceptions));
+}
+
 async function verifyExplorer() {
   qaLog('Étape 2 : lancement par le bouton Jouer');
   await physicalClick('#menu-play');
@@ -888,7 +1109,11 @@ try {
     ),
     0,
   );
-  if (visibleSmokeOnly) {
+  if (playerGrammarOnly) {
+    await verifyPlayerGrammar();
+  } else if (playerIdentityOnly) {
+    await verifyPlayerIdentity();
+  } else if (visibleSmokeOnly) {
     await verifyVisibleSmoke();
   } else if (visiblePortraitOnly) {
     await verifyVisiblePortraitLayout();

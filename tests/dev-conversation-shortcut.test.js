@@ -60,6 +60,9 @@ function createView(dialogue = turbo, events = [dialogue]) {
     setItem: (key, value) => values.set(key, value),
   });
   progression.begin();
+  progression.data.playerIdentity = {
+    nickname: 'JustMe', identityGender: 'boy', grammaticalGender: 'male', completed: true,
+  };
   const thread = new ConversationThread(dialogue.contact.id ?? 'turbo', progression, () => events);
   const view = Object.assign(Object.create(ConversationWindow.prototype), {
     dialogue,

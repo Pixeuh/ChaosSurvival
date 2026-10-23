@@ -1,6 +1,8 @@
 import { popupContent } from '../config/popups.js';
 import { icon } from './icons.js';
 import { applicationName, brandedText } from './identity.js';
+import { resolvePlayerText } from '../story/player-identity.js';
+import { playerIdentity } from './player-identity.js';
 
 function escapeHtml(value) {
   const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -140,9 +142,13 @@ const renderers = {
   },
 };
 
-export function createPopupContent(type, random = Math.random) {
+export function createPopupContent(type, random = Math.random, player = playerIdentity) {
   if (!Object.hasOwn(popupContent, type)) throw new Error(`Type de fenêtre inconnu : ${type}`);
   const variants = popupContent[type];
-  const content = renderers[type](variants[Math.floor(random() * variants.length)]);
+  const variant = variants[Math.floor(random() * variants.length)];
+  const resolve = (value) => typeof value === 'string' ? resolvePlayerText(value, player) : value;
+  const resolved = Object.fromEntries(Object.entries(variant).map(([key, value]) =>
+    [key, Array.isArray(value) ? value.map(resolve) : resolve(value)]));
+  const content = renderers[type](resolved);
   return { ...content, title: escapeHtml(content.title) };
 }

@@ -46,7 +46,8 @@
       { "speaker": "contact", "text": "aaah je me suis trompé de conv dsl", "delayMs": 1500, "typingMs": 950 }
     ], "next": "opening-common" },
     "opening-common": { "messages": [
-      { "speaker": "contact", "text": "mais... sinon......", "delayMs": 650, "typingMs": 380 }
+      { "speaker": "contact", "text": "mais... ", "delayMs": 650, "typingMs": 380 }
+      { "speaker": "contact", "text": "sinon......", "delayMs": 650, "typingMs": 410 }
     ], "next": "player-activity" },
     "player-activity": {
       "messages": [

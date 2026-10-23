@@ -6,6 +6,7 @@ import { DesktopFiles } from '../src/ui/desktop-files.js';
 import { MiniGameLauncher } from '../src/ui/minigame-launcher.js';
 import { installDevelopmentVictoryShortcut } from '../src/dev/finish-shortcut.js';
 import { Progression } from '../src/story/progression.js';
+import { applyPlayerIdentity, playerIdentity } from '../src/ui/player-identity.js';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const story = JSON.parse(read('../src/config/story.json'));
@@ -212,6 +213,25 @@ test('received mini-game launches only after transfer, closes and restarts from 
   assert.equal(second.score, 0);
   assert.equal(second.finished, false);
   assert.equal(manager.windows.size, 1);
+});
+
+test('SmileyCatcher result agrees with the restored human profile without changing its gameplay', (t) => {
+  const original = { ...playerIdentity };
+  t.after(() => applyPlayerIdentity(original));
+  for (const [grammaticalGender, caption] of [['male', 'MEGA CHAMPION'], ['female', 'MEGA CHAMPIONNE']]) {
+    applyPlayerIdentity({ nickname: 'PixelFan', identityGender: 'neither', grammaticalGender, completed: true });
+    const { progression, file } = savedRun();
+    progression.finishTransfer(file.key);
+    const { context, manager } = setup(progression, t);
+    context.openDesktopFile(file);
+    const window = [...manager.windows.values()][0];
+    assert.ok(window.options.content.body.includes(`★★★★★ ${caption} ★★★★★`));
+    assert.doesNotMatch(window.options.content.body, /\{player\./);
+    finish(context.game());
+    assert.equal(context.game().finished, true);
+    assert.equal(progression.current.id, 'pixelgirl-smiley-win');
+    manager.close([...manager.windows.keys()][0]);
+  }
 });
 
 test('SmileyCatcher music follows the round, pause, replay, victory and application cleanup', (t) => {

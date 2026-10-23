@@ -14,6 +14,7 @@ import { createContactAvatar } from '../src/ui/contact-avatar.js';
 import { DesktopApplications } from '../src/ui/desktop-apps.js';
 import { VirtualFilesystem, virtualFileId } from '../src/story/virtual-filesystem.js';
 import { bombArenaHandoffPending, completeBombArenaHandoff } from '../src/story/bomb-arena-handoff.js';
+import { resolvePlayerText } from '../src/story/player-identity.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 const story = read('../src/config/story.json');
@@ -214,7 +215,10 @@ test('BombArena offer starts persistent unlimited Messenger reminders, suspends 
     assert.equal(progression.data.bombArena.reminderCount, count);
     if (count >= 2 && count <= 5) {
       assert.equal(sequenceIndex, count, 'each remaining fixed conversation is selected in order');
-      assert.deepEqual(delivered.map(({ author, text }) => ({ author, text })), BOMB_ARENA_REMINDER_SEQUENCES[sequenceIndex]);
+      assert.deepEqual(delivered.map(({ author, text }) => ({ author, text })),
+        BOMB_ARENA_REMINDER_SEQUENCES[sequenceIndex].map((line) => ({
+          ...line, text: resolvePlayerText(line.text, progression.data.playerIdentity),
+        })));
     }
     if (count === 6) assert.equal(sequenceIndex, 6 + 1, 'the seventh salvo moves to the variant library');
     if (count === 7) assert.equal(sequenceIndex, 6 + 2, 'a variant is not repeated immediately');
@@ -1694,7 +1698,7 @@ test('group transcript color IDs follow saved authors, while private conversatio
     ['contact', 'xX_PixelGirl_Xx', 'pixelgirl', 'xX_PixelGirl_Xx dit :'],
     ['contact', 'Turb0', 'turbo', 'Turb0 dit :'],
     ['contact', '°•.LuNa.°•', 'luna', '°•.LuNa.°• dit :'],
-    ['player', undefined, 'player', 'JustMe dit :'],
+    ['player', undefined, 'player', 'Moi dit :'],
   ]) {
     ConversationWindow.prototype.appendMessage.call(groupView, {
       speaker, author, text: 'message de test',

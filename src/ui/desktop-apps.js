@@ -1273,7 +1273,8 @@ export class DesktopApplications {
         roundsPlayed: savedMatch.firstGameRoundsPlayed,
       };
     instance.onBombArenaEvent({ type: 'launched' });
-    const arenaRuntime = mountBombArena(instance, this.manager);
+    const arenaRuntime = mountBombArena(instance, this.manager,
+      this.getPlayerNickname?.() ?? 'JustMe', this.getPlayerGrammaticalGender?.() ?? 'male');
     if (import.meta.env?.DEV && arenaRuntime?.finishForDevelopment)
       this.manager.setDevelopmentContent?.(instance.element, arenaRuntime);
     this.restore(instance);

@@ -32,7 +32,7 @@
         },
         {
           "speaker": "contact",
-          "text": "t'as décidé de devenir champion du monde de fermeture de fenêtres ou quoi xD",
+          "text": "t'as décidé de devenir {player.gender:champion|championne} du monde de fermeture de fenêtres ou quoi xD",
           "delayMs": 250,
           "typingMs": 500
         }

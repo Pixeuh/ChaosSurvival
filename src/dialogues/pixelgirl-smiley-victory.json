@@ -72,7 +72,7 @@
         },
         {
           "speaker": "contact",
-          "text": "monsieur est un professionnel apparemment",
+          "text": "{player.grammaticalGender:monsieur est un professionnel|madame est une professionnelle} apparemment",
           "delayMs": 250,
           "typingMs": 574
         },
@@ -477,7 +477,7 @@
         },
         {
           "id": "smiley-s4-q1-c",
-          "text": "je suis sûr que t'as du Evanescence là-dedans",
+          "text": "je suis {player.grammaticalGender:sûr|sûre} que t'as du Evanescence là-dedans",
           "next": "s4-q1-c"
         }
       ]
@@ -589,7 +589,7 @@
         },
         {
           "id": "smiley-s5-q1-b",
-          "text": "non je suis nul",
+          "text": "non je suis {player.gender:nul|nulle}",
           "next": "s5-q1-b",
           "set": {
             "pixelgirlDrawingHabit": "smiley-s5-q1-b"
@@ -722,7 +722,7 @@
       "choices": [
         {
           "id": "smiley-s5-q2-a",
-          "text": "bah montre quand même, je suis curieux",
+          "text": "bah montre quand même, je suis {player.grammaticalGender:curieux|curieuse}",
           "next": "s5-q2-a",
           "set": {
             "pixelgirlDrawingReaction": "smiley-s5-q2-a"
@@ -945,7 +945,7 @@
         },
         {
           "speaker": "contact",
-          "text": "donc t'es un VILAIN",
+          "text": "donc t'es {player.grammaticalGender:un VILAIN|une VILAINE}",
           "delayMs": 250,
           "typingMs": 266
         },
@@ -1156,7 +1156,7 @@
         },
         {
           "id": "smiley-s7-q2-b",
-          "text": "moi aussi je suis content de t'avoir rencontrée",
+          "text": "moi aussi je suis {player.gender:content|contente} de t'avoir rencontrée",
           "next": "s7-q2-b",
           "set": {
             "pixelgirlMeetingReaction": "smiley-s7-q2-b"

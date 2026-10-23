@@ -1,7 +1,10 @@
+import { isValidPlayerText, normalizePlayerIdentityPatch, resolvePlayerText } from './player-identity.js';
+
 const validDelay = (value) => Number.isFinite(value) && value >= 0 && value <= 30000;
 const validCondition = (when) =>
   !when ||
   (typeof when.flag === 'string' && ['string', 'boolean', 'number'].includes(typeof when.equals)) ||
+  (when.identity && typeof when.identity.completed === 'boolean') ||
   (when.choice &&
     ['dialogue', 'node', 'id'].every((key) => typeof when.choice[key] === 'string') &&
     typeof when.choice.selected === 'boolean');
@@ -27,8 +30,9 @@ export function validateFile(file) {
   )
     throw new Error('Fichier fictif invalide.');
 }
-export function matches(condition, flags, choices = []) {
+export function matches(condition, flags, choices = [], identity = null) {
   if (!condition) return true;
+  if (condition.identity) return identity?.completed === condition.identity.completed;
   if (condition.choice) {
     const query = condition.choice;
     const record = choices.find(
@@ -80,13 +84,25 @@ export function validateDialogue(dialogue) {
     )
       throw new Error(`Transition de transfert invalide : ${id}`);
     if (
+      node.input &&
+      (typeof node.input.id !== 'string' ||
+        !/^[a-z][a-z0-9-]{0,49}$/i.test(node.input.id) ||
+        typeof node.input.validator !== 'string' ||
+        typeof node.input.action !== 'string' ||
+        !isValidPlayerText(node.input.invalidMessage) ||
+        !Object.hasOwn(dialogue.nodes, node.input.next) ||
+        (node.input.when && !validCondition(node.input.when)) ||
+        (node.input.skipNext !== undefined && !Object.hasOwn(dialogue.nodes, node.input.skipNext)))
+    )
+      throw new Error(`Saisie de dialogue invalide : ${id}`);
+    if (
       !Array.isArray(node.messages) ||
       node.messages.some(
         (message) =>
           !['contact', 'player'].includes(message.speaker) ||
           (message.author !== undefined &&
             (message.speaker !== 'contact' || typeof message.author !== 'string' || !message.author)) ||
-          (typeof message.text !== 'string' && message.type !== 'file') ||
+          (message.text === undefined ? message.type !== 'file' : !isValidPlayerText(message.text)) ||
           (message.type !== undefined && !['text', 'file', 'link'].includes(message.type)) ||
           (message.type === 'link' &&
             (typeof message.url !== 'string' ||
@@ -111,8 +127,9 @@ export function validateDialogue(dialogue) {
         node.choices.some(
           (choice) =>
             typeof choice.id !== 'string' ||
-            typeof choice.text !== 'string' ||
+            !isValidPlayerText(choice.text) ||
             (choice.action !== undefined && choice.action !== 'wizz') ||
+            (choice.identity !== undefined && !normalizePlayerIdentityPatch(choice.identity)) ||
             !Object.hasOwn(dialogue.nodes, choice.next) ||
             !validCondition(choice.when) ||
             !validSet(choice.set),
@@ -124,7 +141,8 @@ export function validateDialogue(dialogue) {
       Number(Boolean(node.end)) +
       Number(Boolean(node.next)) +
       Number(Boolean(node.choices)) +
-      Number(Boolean(node.transfer));
+      Number(Boolean(node.transfer)) +
+      Number(Boolean(node.input));
     if (exits !== 1 || (node.next && !Object.hasOwn(dialogue.nodes, node.next)))
       throw new Error(`Transition invalide : ${id}`);
   }
@@ -149,9 +167,12 @@ export function pendingChoices(dialogue, state, progression) {
   if (state?.expired) return [];
   const node = state && dialogue.nodes[state.node];
   if (!node || state.finished || state.cursor < node.messages.length) return [];
-  return (node.choices ?? []).filter((choice) =>
-    matches(choice.when, progression.data.flags, progression.data.choices),
-  );
+  return (node.choices ?? [])
+    .filter((choice) => matches(choice.when, progression.data.flags, progression.data.choices, progression.data.playerIdentity))
+    .map((choice) => ({
+      ...choice,
+      text: resolvePlayerText(choice.text, progression.data.playerIdentity),
+    }));
 }
 
 // Empty nodes and automatic joins do not end a contact's message sequence.
@@ -166,14 +187,15 @@ export function hasPendingMessages(dialogue, state, progression) {
     if (
       node.messages
         .slice(cursor)
-        .some((message) => matches(message.when, progression.data.flags, progression.data.choices))
+        .some((message) => matches(message.when, progression.data.flags, progression.data.choices, progression.data.playerIdentity))
     )
       return true;
     if (
       node.end ||
       node.transfer ||
+      node.input ||
       node.choices?.some((choice) =>
-        matches(choice.when, progression.data.flags, progression.data.choices),
+        matches(choice.when, progression.data.flags, progression.data.choices, progression.data.playerIdentity),
       ) ||
       !node.next
     )
@@ -244,7 +266,7 @@ export class DialogueSession {
     if (this.state.finished) return null;
     while (this.state.cursor < this.node.messages.length) {
       const message = this.node.messages[this.state.cursor];
-      if (matches(message.when, this.progression.data.flags, this.progression.data.choices))
+      if (matches(message.when, this.progression.data.flags, this.progression.data.choices, this.progression.data.playerIdentity))
         return message;
       this.state.cursor++;
       this.persist();
@@ -299,7 +321,7 @@ export class DialogueSession {
     }
     const entry = {
       speaker: message.speaker,
-      text: message.text ?? message.file.name,
+      text: resolvePlayerText(message.text ?? message.file.name, this.progression.data.playerIdentity),
       receivedAt: now,
     };
     if (message.author !== undefined) entry.author = message.author;
@@ -332,11 +354,39 @@ export class DialogueSession {
   get choices() {
     return pendingChoices(this.dialogue, this.state, this.progression);
   }
+  get input() {
+    return this.node?.input &&
+      matches(this.node.input.when, this.progression.data.flags, this.progression.data.choices, this.progression.data.playerIdentity) &&
+      this.state.cursor >= this.node.messages.length
+      ? this.node.input
+      : null;
+  }
+  submitInput(value, { validators = {}, actions = {} } = {}) {
+    const input = this.input;
+    if (!input || typeof value !== 'string') return false;
+    const validator = validators[input.validator];
+    if (typeof validator !== 'function' || !validator(value, this.progression)) return false;
+    const action = actions[input.action];
+    if (typeof action === 'function' && action(value, this.progression, input) === false) return false;
+    this.state.transcript.push({ speaker: 'player', text: value, receivedAt: Date.now() });
+    this.state.node = input.next;
+    this.state.cursor = 0;
+    this.persist();
+    return true;
+  }
   offerChoices() {
     return this.progression.offer(this.dialogue.id, this.state.node, this.choices);
   }
   advance() {
     if (this.nextMessage() || this.state.finished) return false;
+    if (this.node.input && !this.input) {
+      if (!this.node.input.skipNext) return false;
+      this.state.node = this.node.input.skipNext;
+      this.state.cursor = 0;
+      this.persist();
+      return true;
+    }
+    if (this.input) return false;
     if (this.node.end) {
       this.state.finished = true;
       this.persist();

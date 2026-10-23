@@ -3,10 +3,12 @@ import { readFile, readdir, access } from 'node:fs/promises';
 import { validateStory } from '../src/story/progression.js';
 import { validateDialogue } from '../src/story/dialogue.js';
 import { validateGameRules } from '../src/ui/game-rules.js';
+import { verifyPlayerTexts } from './verify-player-text.mjs';
 
 const root = new URL('../', import.meta.url);
 const story = JSON.parse(await readFile(new URL('src/config/story.json', root), 'utf8'));
 validateStory(story);
+await verifyPlayerTexts();
 const ids = new Set();
 const contacts = JSON.parse(await readFile(new URL('src/config/contacts.json', root), 'utf8'));
 for (const contact of contacts) {

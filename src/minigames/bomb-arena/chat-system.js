@@ -1,10 +1,12 @@
 import { PLAYER_COLORS, QUICK_MESSAGES, REACTIONS } from './chat-lines.js';
+import { resolvePlayerText } from '../../story/player-identity.js';
 
 const NPC_IDS = Object.freeze(['pixelgirl', 'turbo', 'luna']);
-const byId = Object.freeze({ justme: 'JustMe', pixelgirl: 'PixelGirl', turbo: 'Turbo', luna: 'Luna' });
 const randomIndex = (length, rng) => Math.min(length - 1, Math.floor(Math.max(0, Math.min(0.999999, rng())) * length));
 
-export function createBombArenaChat({ rng = Math.random, maxMessages = 120 } = {}) {
+export function createBombArenaChat({ rng = Math.random, maxMessages = 120, playerNickname = 'JustMe', grammaticalGender = 'male' } = {}) {
+  const player = { nickname: playerNickname, grammaticalGender };
+  const byId = { justme: playerNickname, pixelgirl: 'PixelGirl', turbo: 'Turbo', luna: 'Luna' };
   const messages = [];
   const pending = [];
   const seenEvents = new Set();
@@ -28,6 +30,7 @@ export function createBombArenaChat({ rng = Math.random, maxMessages = 120 } = {
 
   function enqueue(authorId, text, round, delay = 350 + rng() * 750) {
     if (disposed || !byId[authorId] || !text || !round) return false;
+    text = resolvePlayerText(text, player);
     const count = perRound.get(round) ?? 0;
     if (count >= 5) return false;
     const duplicate = pending.some((item) => item.round === round && item.authorId === authorId && item.text === text) ||
@@ -87,23 +90,21 @@ export function createBombArenaChat({ rng = Math.random, maxMessages = 120 } = {
     }
     if (event.type === 'round_won') {
       if (!event.draw && event.playerId === 'justme') {
-        const lines = { turbo: ['gg JustMe', 'ok joli'], pixelgirl: ['GGGG :DDD', 'bien jouééé'], luna: ['joli', 'gg'] };
-        chooseAndQueue(NPC_IDS[randomIndex(NPC_IDS.length, rng)], lines, round, 0.86);
+        chooseAndQueue(NPC_IDS[randomIndex(NPC_IDS.length, rng)], REACTIONS.humanRoundWon, round, 0.86);
       } else if (!event.draw && NPC_IDS.includes(event.playerId)) {
         chooseAndQueue(event.playerId, REACTIONS.roundWon, round, 0.82);
       } else if (event.draw) {
-        chooseAndQueue(NPC_IDS[randomIndex(NPC_IDS.length, rng)], { pixelgirl: ['match nul mdrr', 'on recommence ?'], turbo: ['personne gagne ?', 'ça compte pas'], luna: ['égalité', 'hm'] }, round, 0.48);
+        chooseAndQueue(NPC_IDS[randomIndex(NPC_IDS.length, rng)], REACTIONS.roundDraw, round, 0.48);
       }
       return;
     }
     if (event.type === 'match_won') {
       if (event.playerId === 'justme') {
-        const lines = { turbo: ['bon ok bien joué', 'j’étais pas prêt'], pixelgirl: ['GG JustMe :DDD', 'quelle partie !!'], luna: ['mérité', 'gg'] };
-        for (const id of NPC_IDS) chooseAndQueue(id, lines, round, id === 'turbo' ? 0.55 : 0.4);
+        for (const id of NPC_IDS) chooseAndQueue(id, REACTIONS.humanMatchWon, round, id === 'turbo' ? 0.55 : 0.4);
       } else if (NPC_IDS.includes(event.playerId)) {
         chooseAndQueue(event.playerId, REACTIONS.matchWon, round, 0.8);
         const loser = NPC_IDS.filter((id) => id !== event.playerId)[randomIndex(2, rng)];
-        chooseAndQueue(loser, { turbo: ['ouais bon ça va'], pixelgirl: ['bien jouééé'], luna: ['mérité'] }, round, 0.35);
+        chooseAndQueue(loser, REACTIONS.matchLost, round, 0.35);
       }
       return;
     }

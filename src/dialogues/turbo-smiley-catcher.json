@@ -77,7 +77,7 @@
     },
     "hobbies-anything-reply": {
       "messages": [
-        { "speaker": "contact", "text": "ah ouais le mec il a pas de vie xD", "delayMs": 250, "typingMs": 500 },
+        { "speaker": "contact", "text": "ah ouais {player.grammaticalGender:le mec il|la meuf elle} a pas de vie xD", "delayMs": 250, "typingMs": 500 },
         { "speaker": "contact", "text": "bienvenue au club", "delayMs": 300, "typingMs": 350 }
       ],
       "next": "computer-life"
@@ -123,7 +123,7 @@
     },
     "pc-parents-right-reply": {
       "messages": [
-        { "speaker": "contact", "text": "TRAITRE", "delayMs": 250, "typingMs": 350 },
+        { "speaker": "contact", "text": "{player.grammaticalGender:TRAITRE|TRAITRESSE}", "delayMs": 250, "typingMs": 350 },
         { "speaker": "contact", "text": "tu parles comme ma mere mdr", "delayMs": 300, "typingMs": 450 }
       ],
       "next": "pixelgirl-links"

@@ -26,7 +26,7 @@ function showInitialMenu(progression) {
     '.menu-logo', '.menu-tagline', '#menu-play', '#menu-new-game', '#menu-options',
     '.menu-checkpoint', '.menu-status', '#option-music', '#music-output',
     '#option-effects', '#effects-output', '#option-fullscreen', '.menu-home',
-    '.menu-options-panel',
+    '.menu-options-panel', '.menu-player-status',
   ]) {
     elements.set(selector, {
       hidden: false,
@@ -54,6 +54,7 @@ test('first menu show renders the configured labels with and without a saved gam
   assert.equal(freshMenu.elements.get('#menu-new-game').textContent, menuConfig.labels.newGame);
   assert.equal(freshMenu.elements.get('#menu-new-game').hidden, true);
   assert.equal(freshMenu.menu.element.hidden, false);
+  assert.equal(freshMenu.elements.get('.menu-player-status').textContent, '✉ CONNECTÉ À LA BONNE HUMEUR');
 
   fresh.begin();
   const savedMenu = showInitialMenu(fresh);
@@ -62,6 +63,9 @@ test('first menu show renders the configured labels with and without a saved gam
   assert.equal(savedMenu.elements.get('#menu-new-game').textContent, menuConfig.labels.newGame);
   assert.equal(savedMenu.elements.get('#menu-new-game').hidden, false);
   assert.equal(savedMenu.menu.element.hidden, false);
+  fresh.updatePlayerIdentity({ nickname: 'Pixe', identityGender: 'neither', grammaticalGender: 'female', completed: true });
+  savedMenu.menu.render();
+  assert.equal(savedMenu.elements.get('.menu-player-status').textContent, '✉ CONNECTÉE À LA BONNE HUMEUR');
 });
 
 function menuFixture(t, actions = {}) {

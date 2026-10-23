@@ -33,6 +33,9 @@ function setup() {
     setItem: (key, value) => values.set(key, value),
   };
   const progression = new Progression(story, storage);
+  progression.data.playerIdentity = {
+    nickname: 'JustMe', identityGender: 'boy', grammaticalGender: 'male', completed: true,
+  };
   progression.begin();
   progression.complete('arcade-1');
   const intro = new DialogueSession(definitions['pixelgirl-intro'], progression);
@@ -425,6 +428,7 @@ test('only PixelGirl first validated response connects Turb0, and it persists wi
   const choice = session.choices[0];
   assert.ok(choice);
   const view = {
+    progression,
     onChoiceValidated: (definition, { nodeId }) => {
       if (definition.id === dialogue.id && nodeId === definition.start)
         effects.triggerConnection('turbo', now + 10_001);

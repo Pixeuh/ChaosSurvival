@@ -122,10 +122,10 @@ function drawBonus(ctx, bonus, x, y, size, time) {
   ctx.restore();
 }
 
-export function renderCharacterRoster(ctx, canvas, time = 0) {
+export function renderCharacterRoster(ctx, canvas, time = 0, playerNickname = 'JustMe') {
   if (!ctx || !canvas) return;
   const players = [
-    { id: 'justme', name: 'JustMe', color: PLAYER_PALETTES.justme[0], shields: 0 },
+    { id: 'justme', name: playerNickname, color: PLAYER_PALETTES.justme[0], shields: 0 },
     { id: 'pixelgirl', name: 'PixelGirl', color: PLAYER_PALETTES.pixelgirl[0], shields: 0 },
     { id: 'turbo', name: 'Turbo', color: PLAYER_PALETTES.turbo[0], shields: 0 },
     { id: 'luna', name: 'Luna', color: PLAYER_PALETTES.luna[0], shields: 0 },

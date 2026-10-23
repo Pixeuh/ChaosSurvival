@@ -43,7 +43,7 @@ function randomBlocks(rng, round) {
   return cells;
 }
 
-export function createGame({ rng = Math.random, progress = null } = {}) {
+export function createGame({ rng = Math.random, progress = null, playerNickname = 'JustMe' } = {}) {
   const wins = progress?.scores && PLAYER_INFO.every(({ id }) => Number.isSafeInteger(progress.scores[id]) && progress.scores[id] >= 0)
     ? Object.fromEntries(PLAYER_INFO.map(({ id }) => [id, progress.scores[id]]))
     : Object.fromEntries(PLAYER_INFO.map(({ id }) => [id, 0]));
@@ -51,6 +51,7 @@ export function createGame({ rng = Math.random, progress = null } = {}) {
     ? Math.max(0, Math.min(progress.completedRounds, 128))
     : 0;
   const state = { difficulty: 'PRO', rng, round: completedRounds, wins, phase: 'ready', roundTime: 0, suddenIndex: 0, suddenClock: 0, seed: 0, message: '', messageMs: 0, matchWinnerId: null, lastMovementBlock: null };
+  state.playerNickname = typeof playerNickname === 'string' && playerNickname.trim() ? playerNickname.trim() : 'JustMe';
   startRound(state);
   state.phase = 'ready';
   state.countdownMs = 1600;
@@ -84,7 +85,7 @@ export function startRound(state) {
   state.bonuses = [];
   state.players = PLAYER_INFO.map((info, i) => {
     const position = cellCenter(...SPAWNS[i]);
-    return { ...info, ...position, alive: true, wins: state.wins[info.id], capacity: 1, range: 2, speed: 3.15, shields: 0, bombIds: new Set(), escapeBombs: new Set(), controls: {}, think: 0, route: [], target: null, anim: 0 };
+    return { ...info, ...(info.id === 'justme' ? { name: state.playerNickname } : {}), ...position, alive: true, wins: state.wins[info.id], capacity: 1, range: 2, speed: 3.15, shields: 0, bombIds: new Set(), escapeBombs: new Set(), controls: {}, think: 0, route: [], target: null, anim: 0 };
   });
   emit(state, { type: 'round_started' });
 }

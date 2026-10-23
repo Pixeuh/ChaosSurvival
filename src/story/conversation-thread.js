@@ -1,4 +1,4 @@
-import { DialogueSession, pendingChoices, hasPendingMessages } from './dialogue.js';
+import { DialogueSession, matches, pendingChoices, hasPendingMessages } from './dialogue.js';
 
 // JSON dialogues are event scripts. A contact owns one durable discussion.
 export class ConversationThread {
@@ -103,8 +103,25 @@ export class ConversationThread {
       ),
     );
   }
+  get hasPendingInput() {
+    return this.eligibleEvents().some((definition) => {
+      const state = this.progression.data.dialogues[definition.id];
+      return Boolean(
+        state &&
+          !state.finished &&
+          definition.nodes[state.node]?.input &&
+          matches(
+            definition.nodes[state.node].input.when,
+            this.progression.data.flags,
+            this.progression.data.choices,
+            this.progression.data.playerIdentity,
+          ) &&
+          state.cursor >= definition.nodes[state.node].messages.length,
+      );
+    });
+  }
   get availableResponses() {
-    return this.hasPendingMessages ? [] : this.pendingResponses;
+    return this.hasPendingMessages || this.hasPendingInput ? [] : this.pendingResponses;
   }
   sync() {
     const state = this.state;

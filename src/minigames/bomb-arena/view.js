@@ -2,6 +2,7 @@ import { createGame, drainGameEvents, finishMatchForDevelopment, setPlayerContro
 import { createBombArenaChat } from './chat-system.js';
 import { createArenaEffects, renderBombArena, renderCharacterRoster, renderCollisionDiagnostics } from './presentation.js';
 import { createBombArenaAudio } from './audio.js';
+import { resolvePlayerText } from '../../story/player-identity.js';
 
 const RAF = (callback) => globalThis.requestAnimationFrame(callback);
 const CANCEL_RAF = (id) => globalThis.cancelAnimationFrame(id);
@@ -39,14 +40,14 @@ function formatTime(ms) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-export function mountBombArena(instance, manager) {
+export function mountBombArena(instance, manager, playerNickname = 'JustMe', grammaticalGender = 'male') {
   const host = instance?.element?.querySelector?.('.window-body');
   if (!host) return null;
   const diagnosticButton = DEV_BUILD ? '<button type="button" class="ba-diagnostics" aria-pressed="false">DIAGNOSTIC COLLISIONS</button>' : '';
   host.innerHTML = `<section class="bomb-arena-app" aria-label="BombArena">
     <header class="ba-topbar"><div><b>BombArena</b><span class="ba-subtitle">ARCADE BATTLE · 2009</span></div></header>
     <main class="ba-layout"><div class="ba-stage">
-      <div class="ba-menu" data-screen="menu"><div class="ba-logo">BOMBARENA</div><canvas class="ba-roster" width="520" height="105" aria-label="JustMe, PixelGirl, Turbo et Luna"></canvas><p>Affrontez-vous en 8 manches</p>
+      <div class="ba-menu" data-screen="menu"><div class="ba-logo">BOMBARENA</div><canvas class="ba-roster" width="520" height="105" aria-label="Joueur, PixelGirl, Turbo et Luna"></canvas><p>Affrontez-vous en 8 manches</p>
         <button type="button" class="ba-start">COMMENCER</button><p class="ba-controls-hint">Flèches : bouger　 Espace : bombe　 Échap : pause</p></div>
       <canvas class="ba-canvas" width="780" height="660" tabindex="0" aria-label="Arène BombArena"></canvas>
       <div class="ba-overlay" hidden></div>
@@ -64,8 +65,9 @@ export function mountBombArena(instance, manager) {
   }
   const canvas = host.querySelector('.ba-canvas'), ctx = canvas.getContext('2d');
   const rosterCanvas = host.querySelector('.ba-roster'), rosterCtx = rosterCanvas.getContext('2d');
+  rosterCanvas.setAttribute('aria-label', `${playerNickname}, PixelGirl, Turbo et Luna`);
   const menu = host.querySelector('.ba-menu'), overlay = host.querySelector('.ba-overlay');
-  let game = null, chat = createBombArenaChat(), frameId = 0, lastTime = null, accumulator = 0, disposed = false;
+  let game = null, chat = createBombArenaChat({ playerNickname, grammaticalGender }), frameId = 0, lastTime = null, accumulator = 0, disposed = false;
   let showCollisionDiagnostics = false;
   let chatMenuOpen = false, selectedChatOption = 0, renderedMessageId = 0;
   const audio = createBombArenaAudio();
@@ -117,7 +119,10 @@ export function mountBombArena(instance, manager) {
         return `<span class="ba-result-row" style="--player:${player.color}">${rank + 1}. ${escapeHtml(player.name)} - ${score} manche(s)</span>`;
       })
       .join('<br>');
-    return `<strong>${escapeHtml(winner?.name.toUpperCase() ?? 'PARTIE TERMINÉE')} CHAMPION !</strong><span>${rankings}<br>${game.round} manche(s) jouée(s)</span>`;
+    const title = winner?.id === 'justme'
+      ? resolvePlayerText('{player.grammaticalGender:CHAMPION|CHAMPIONNE}', { nickname: playerNickname, grammaticalGender })
+      : 'CHAMPION';
+    return `<strong>${escapeHtml(winner?.name.toUpperCase() ?? 'PARTIE TERMINÉE')} ${title} !</strong><span>${rankings}<br>${game.round} manche(s) jouée(s)</span>`;
   };
 
   const setChatMenuOpen = (open) => {
@@ -154,7 +159,7 @@ export function mountBombArena(instance, manager) {
 
   const renderArena = () => {
     const now = globalThis.performance?.now?.() ?? Date.now();
-    renderCharacterRoster(rosterCtx, rosterCanvas, now);
+    renderCharacterRoster(rosterCtx, rosterCanvas, now, playerNickname);
     if (!ctx || !game) return;
     renderBombArena(ctx, canvas, game, effects, now);
     if (DEV_BUILD && showCollisionDiagnostics) renderCollisionDiagnostics(ctx, canvas, game);
@@ -171,13 +176,13 @@ export function mountBombArena(instance, manager) {
   };
 
   function startGame() {
-    chat.dispose(); chat = createBombArenaChat(); renderedMessageId = 0; effects.reset(); audio.unlock().then(() => audio.play('select')); goUntil = 0;
+    chat.dispose(); chat = createBombArenaChat({ playerNickname, grammaticalGender }); renderedMessageId = 0; effects.reset(); audio.unlock().then(() => audio.play('select')); goUntil = 0;
     matchId = createMatchId(); completionReported = false;
     host.querySelector('.ba-chat-log').replaceChildren(); host.querySelector('.ba-chat-toggle').disabled = false; setChatMenuOpen(false);
     const saved = instance.bombArenaProgress;
     game = createGame(saved?.status === 'IN_PROGRESS'
-      ? { progress: { completedRounds: saved.completedRounds, scores: saved.roundScores } }
-      : undefined);
+      ? { progress: { completedRounds: saved.completedRounds, scores: saved.roundScores }, playerNickname }
+      : { playerNickname });
     game.phase = 'countdown';
     game.countdownMs = 2100; menu.hidden = true; consumeEvents(); canvas.focus(); renderHud(); renderArena();
   }

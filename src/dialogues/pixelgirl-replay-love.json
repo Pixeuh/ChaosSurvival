@@ -20,7 +20,7 @@
       "messages": [
         {
           "speaker": "contact",
-          "text": "bon jvais finir par croire que t'es amoureux de ce jeu :')",
+          "text": "bon jvais finir par croire que t'es {player.grammaticalGender:amoureux|amoureuse} de ce jeu :')",
           "delayMs": 0,
           "typingMs": 500
         }
