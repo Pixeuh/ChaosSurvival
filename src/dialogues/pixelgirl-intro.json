@@ -212,7 +212,7 @@
           "typingMs": 650
         }
       ],
-      "next": "player-name"
+      "next": "table"
     },
     "sweet": {
       "messages": [
@@ -223,7 +223,7 @@
           "typingMs": 650
         }
       ],
-      "next": "player-name"
+      "next": "table"
     },
     "extra-xs": {
       "messages": [
@@ -236,87 +236,6 @@
         {
           "speaker": "contact",
           "text": "j'en aurais mis plus mais msn voulait pas :( ",
-          "delayMs": 500,
-          "typingMs": 650
-        }
-      ],
-      "next": "player-name"
-    },
-    "player-name": {
-      "messages": [
-        {
-          "speaker": "contact",
-          "text": "et toi c'est quoi ton nom ??",
-          "delayMs": 500,
-          "typingMs": 650,
-          "when": { "identity": { "completed": false } }
-        },
-        {
-          "speaker": "contact",
-          "text": "euuuh ton pseudo je veux dire lol",
-          "delayMs": 500,
-          "typingMs": 650,
-          "when": { "identity": { "completed": false } }
-        }
-      ],
-      "input": {
-        "id": "player-nickname",
-        "validator": "playerNickname",
-        "action": "setPlayerNickname",
-        "invalidMessage": "Choisis un pseudo de 3 à 16 lettres ou chiffres, sans espace.",
-        "when": { "identity": { "completed": false } },
-        "skipNext": "table",
-        "maxLength": 64,
-        "placeholder": "Ton pseudo",
-        "next": "ask-gender"
-      }
-    },
-    "ask-gender": {
-      "messages": [
-        {
-          "speaker": "contact",
-          "text": "aaaah ok :3",
-          "delayMs": 500,
-          "typingMs": 650
-        },
-        {
-          "speaker": "contact",
-          "text": "et t'es une fille ou un garçon ? :p",
-          "delayMs": 500,
-          "typingMs": 650
-        }
-      ],
-      "choices": [
-        { "id": "identity-boy", "text": "un garçon", "next": "identity-convergence", "identity": { "identityGender": "boy", "grammaticalGender": "male", "completed": true } },
-        { "id": "identity-girl", "text": "une fille", "next": "identity-convergence", "identity": { "identityGender": "girl", "grammaticalGender": "female", "completed": true } },
-        { "id": "identity-neither", "text": "aucun des deux", "next": "ask-pronoun", "identity": { "identityGender": "neither" } }
-      ]
-    },
-    "ask-pronoun": {
-      "messages": [
-        {
-          "speaker": "contact",
-          "text": "ah ok :3",
-          "delayMs": 500,
-          "typingMs": 650
-        },
-        {
-          "speaker": "contact",
-          "text": "et quand je parle de toi je dis il ou elle ?",
-          "delayMs": 500,
-          "typingMs": 650
-        }
-      ],
-      "choices": [
-        { "id": "pronoun-he", "text": "il", "next": "identity-convergence", "identity": { "identityGender": "neither", "grammaticalGender": "male", "completed": true } },
-        { "id": "pronoun-she", "text": "elle", "next": "identity-convergence", "identity": { "identityGender": "neither", "grammaticalGender": "female", "completed": true } }
-      ]
-    },
-    "identity-convergence": {
-      "messages": [
-        {
-          "speaker": "contact",
-          "text": "okiii :3",
           "delayMs": 500,
           "typingMs": 650
         }

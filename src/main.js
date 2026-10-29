@@ -1097,13 +1097,18 @@ function showArcadeVictory(result) {
     try {
       const acknowledged = acknowledgeArcadeVictory(progression);
       if (acknowledged?.firstCompletion && progression.current) {
-        progression.enterCurrent().catch(showStoryError);
+        showStoryDesktop(false, { connectPixelGirl: false });
+        beginPlayerSetup(() => { applyPlayerIdentity(progression.data.playerIdentity); progression.enterCurrent().catch(showStoryError); });
       }
       else showStoryDesktop(false);
     } catch (error) {
       showStoryError(error);
     }
   });
+}
+function beginPlayerSetup(onComplete) {
+  if (progression.data.playerIdentity?.completed) { onComplete(); return; }
+  buddy.startPlayerSetup(onComplete);
 }
 function restartDesktop() {
   returnToMenu();
@@ -1480,10 +1485,15 @@ function receiveReplayReactions() {
     requestAnimationFrame(receiveReplayReactions);
     return;
   }
-  const incoming = replayReactions.flush(Date.now(), { canReceive: phase === 'desktop' });
-  narrativeOrchestrator.update(Date.now(), phase !== 'menu');
-  messenger.update();
-  narrativeOrchestrator.afterMessengerUpdate(Date.now());
+  const savedSetup = progression.data.buddyOnboarding;
+  const identityGate = progression.data.completed.includes('arcade-1') &&
+    (!progression.data.playerIdentity?.completed || (savedSetup && !savedSetup.done));
+  const incoming = identityGate ? [] : replayReactions.flush(Date.now(), { canReceive: phase === 'desktop' });
+  if (!identityGate) {
+    narrativeOrchestrator.update(Date.now(), phase !== 'menu');
+    messenger.update();
+    narrativeOrchestrator.afterMessengerUpdate(Date.now());
+  }
   buddy.update();
   if (incoming.length) {
     const pixelGirl = messenger.contacts().find((entry) => entry.id === 'pixelgirl');
@@ -1506,6 +1516,12 @@ receiveReplayReactions();
 setInterval(updateClock, 10000);
 ui.trackTime.textContent = `00:00 / ${formatTime(chart.durationSeconds)}`;
 returnToMenu();
+if (progression.data.completed.includes('arcade-1') && progression.current?.id === 'pixelgirl-hello' &&
+  (!progression.data.playerIdentity?.completed || (progression.data.buddyOnboarding && !progression.data.buddyOnboarding.done)) &&
+  !progression.data.buddyOnboarding?.done) {
+  setPhase('desktop');
+  beginPlayerSetup(() => { applyPlayerIdentity(progression.data.playerIdentity); progression.enterCurrent().catch(showStoryError); });
+}
 if (bombArenaHandoffPending(progression))
   queueMicrotask(() => continueFromMenu());
 if (window.chaosWindow) {

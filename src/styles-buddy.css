@@ -19,6 +19,20 @@
     2px 3px 5px #0003,
     inset 0 1px #fff;
 }
+.buddy-question { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.buddy-question input { min-width: 0; flex: 1 1 130px; padding: 5px; border: 1px solid #7b9eb8; border-radius: 3px; }
+.buddy-question button { padding: 4px 8px; color: #17334d; background: linear-gradient(#fff,#d9eafa); border: 1px solid #82a9c8; border-radius: 3px; cursor: pointer; }
+.buddy-question .buddy-options { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; }
+.buddy-question [role="alert"] { width: 100%; color: #a20f22; font-size: 11px; }
+.buddy-setup-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 16px; background: #06152c99; }
+.buddy-setup-backdrop[hidden] { display: none; }
+.buddy-setup { display: grid; grid-template-columns: 104px minmax(0, 1fr); grid-template-rows: auto auto auto; align-content: center; column-gap: 18px; row-gap: 10px; width: min(550px, calc(100vw - 32px)); max-height: calc(100vh - 32px); min-height: 0; overflow: auto; padding: 0 20px 20px; color: #17334d; background: linear-gradient(145deg,#f5fbff,#c8e0f3); border: 1px solid #fff; border-radius: 8px; box-shadow: 0 18px 60px #00152c99,inset 0 0 0 1px #6c9bc0; }
+.buddy-setup header { grid-column: 1 / -1; margin: 0 -20px 4px; padding: 10px 16px; color: white; font-weight: bold; background: linear-gradient(#4d91c9,#1762a2); border-radius: 7px 7px 0 0; }
+.buddy-setup-mascot { grid-column: 1; grid-row: 2 / 4; width: 104px; min-height: 104px; display: grid; place-items: center; }
+.buddy-setup-mascot .buddy-character { width: 70px; height: 112px; }
+.buddy-setup-text { grid-column: 2; min-height: 0; margin: 2px 0; font-size: 15px; line-height: 1.5; }
+.buddy-setup .buddy-question { grid-column: 2; align-self: start; margin-top: 0; }
+@media (max-width: 480px) { .buddy-setup { grid-template-columns: 64px minmax(0,1fr); column-gap: 10px; padding: 0 14px 14px; } .buddy-setup header { margin: 0 -14px 2px; } .buddy-setup-mascot { width: 64px; } .buddy-setup-mascot .buddy-character { width: 52px; height: 90px; } }
 .buddy-bubble::after {
   content: '';
   position: absolute;

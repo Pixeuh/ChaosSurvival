@@ -206,16 +206,16 @@ test('player controls use real media events, one audio element, and stop cleanly
   assert.equal([...audio.listeners.values()].flatMap((set) => [...set]).length, 0);
 });
 
-test('psychedelic visualizer draws evolving audio reactive ribbons', () => {
-  let strokes = 0;
+test('visual spectrum bars are drawn from analyser samples and stay idle without a playing signal', () => {
+  const heights = [];
   const context = {
-    fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {},
-    stroke() { strokes++; },
+    createLinearGradient: () => ({ addColorStop() {} }),
+    fillRect: (_x, _y, _width, height) => heights.push(height),
   };
-  const energy = { bass: 0, mids: 0, treble: 0 };
-  drawSpectrum(context, 120, 60, new Uint8Array([0, 32, 64, 128, 255]), 1000, energy);
-  assert.equal(strokes, 6);
-  assert.ok(energy.bass > 0);
+  const measured = drawSpectrum(context, 120, 60, new Uint8Array([0, 32, 64, 128, 255]));
+  assert.deepEqual(measured, heights);
+  assert.ok(measured[0] < measured.at(-1));
+  assert.ok(measured.at(-1) > 50);
 });
 
 test('known MP3 files and media-play.exe delegate through the shared executable launcher', () => {
@@ -323,6 +323,7 @@ class FakeNode {
       createLinearGradient: () => ({ addColorStop() {} }),
       clearRect() {},
       fillRect(...rect) { this.fills.push(rect); },
+      beginPath() {}, moveTo() {}, lineTo() {}, stroke() {},
     };
     return this.context;
   }

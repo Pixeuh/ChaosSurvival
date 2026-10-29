@@ -14,6 +14,7 @@ import {
 import { createGame } from '../src/minigames/bomb-arena/engine.js';
 import { createBombArenaChat } from '../src/minigames/bomb-arena/chat-system.js';
 import { applyPlayerIdentity, playerIdentity } from '../src/ui/player-identity.js';
+import { buddyIdentitySelection } from '../src/ui/buddy.js';
 
 const STORAGE_KEY = 'chaos-survival-story-v1';
 function memoryStorage(initial = {}) {
@@ -71,6 +72,20 @@ test('nickname validation only accepts 3–16 ASCII letters or digits without tr
     assert.equal(normalizePlayerNickname(rejected), '');
   }
   assert.equal(normalizePlayerNickname('a'.repeat(16)), 'a'.repeat(16));
+});
+
+test('Buddy collects grammatical agreement independently for all six gender and agreement combinations', () => {
+  for (const identityGender of ['boy', 'girl', 'neither']) {
+    for (const grammaticalGender of ['male', 'female']) {
+      const patch = buddyIdentitySelection(identityGender, grammaticalGender);
+      assert.deepEqual(patch, { identityGender, grammaticalGender, completed: true });
+      const identity = normalizePlayerIdentity({ nickname: 'Player1', ...patch });
+      assert.equal(identity.identityGender, identityGender);
+      assert.equal(identity.grammaticalGender, grammaticalGender);
+      assert.equal(resolvePlayerText('{player.grammaticalGender:il est prêt|elle est prête}', identity),
+        grammaticalGender === 'male' ? 'il est prêt' : 'elle est prête');
+    }
+  }
 });
 
 test('dialogue text uses one stable player record for nickname and grammatical agreement', () => {
@@ -174,18 +189,8 @@ test('authored PixelGirl paths preserve existing introduction choices and share 
   const introduction = intro.nodes.introduction;
   assert.ok(introduction.choices.some((choice) => choice.text === "t'avais plus de place pour mettre des X ?"));
   assert.deepEqual(introduction.choices.map((choice) => choice.next), ['artist', 'sweet', 'extra-xs']);
-  for (const id of ['artist', 'sweet', 'extra-xs']) assert.equal(intro.nodes[id].next, 'player-name');
-  assert.equal(intro.nodes['player-name'].input.validator, 'playerNickname');
-  assert.deepEqual(intro.nodes['ask-gender'].choices.map((choice) => choice.text), [
-    'un garçon', 'une fille', 'aucun des deux',
-  ]);
-  assert.deepEqual(intro.nodes['ask-gender'].choices.map((choice) => choice.next), [
-    'identity-convergence', 'identity-convergence', 'ask-pronoun',
-  ]);
-  assert.deepEqual(intro.nodes['ask-pronoun'].choices.map((choice) => choice.next), [
-    'identity-convergence', 'identity-convergence',
-  ]);
-  assert.equal(intro.nodes['identity-convergence'].next, 'table');
+  for (const id of ['artist', 'sweet', 'extra-xs']) assert.equal(intro.nodes[id].next, 'table');
+  for (const id of ['player-name', 'ask-gender', 'ask-pronoun', 'identity-convergence']) assert.equal(id in intro.nodes, false);
 });
 
 test('fresh identity starts as Moi; old progressed saves retain their JustMe name and masculine grammar', () => {
@@ -202,21 +207,6 @@ test('fresh identity starts as Moi; old progressed saves retain their JustMe nam
     normalizePlayerIdentity({ nickname: 'JustMe', gender: 'male' }),
     LEGACY_PLAYER_IDENTITY,
   );
-});
-
-test('a legacy completed identity skips the newly introduced name prompt without replaying it', () => {
-  const progression = new Progression(story, memoryStorage());
-  progression.setPlayerIdentity({ nickname: 'OldNick', gender: 'female' });
-  const dialogue = structuredClone(intro);
-  const session = new DialogueSession(dialogue, progression);
-  session.state.node = 'player-name';
-  session.state.cursor = 0;
-  session.persist();
-  assert.equal(session.nextMessage(), null, 'the name question is gated for profiles already configured');
-  assert.equal(session.advance(), true);
-  assert.equal(session.state.node, 'table');
-  assert.equal(session.input, null);
-  assert.equal(session.state.transcript.length, 0);
 });
 
 test('New Game clears the nickname and declared and grammatical identity together', () => {
