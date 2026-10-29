@@ -7,24 +7,41 @@ export function formatMediaTime(seconds) {
   return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
 }
 
-export function drawSpectrum(context, width, height, samples) {
-  const bars = Math.min(48, samples.length);
-  const gap = Math.max(2, width / 180);
-  const barWidth = Math.max(2, (width - gap * (bars - 1)) / bars);
-  const heights = [];
-  for (let index = 0; index < bars; index++) {
-    const sample = samples[Math.floor(index * samples.length / bars)] / 255;
-    const barHeight = Math.max(2, sample * height * 0.88);
-    heights.push(barHeight);
-    const x = index * (barWidth + gap);
-    const gradient = context.createLinearGradient(0, height - barHeight, 0, height);
-    gradient.addColorStop(0, '#9eefff');
-    gradient.addColorStop(0.5, '#28a9e0');
-    gradient.addColorStop(1, '#194f9c');
-    context.fillStyle = gradient;
-    context.fillRect(x, height - barHeight, barWidth, barHeight);
+export function drawSpectrum(context, width, height, samples, time = 0, energy = { bass: 0, mids: 0, treble: 0 }) {
+  const count = samples.length || 1;
+  const band = (start, end) => {
+    let sum = 0;
+    for (let i = start; i < end; i++) sum += samples[i] || 0;
+    return sum / Math.max(1, end - start) / 255;
+  };
+  energy.bass += (band(0, Math.max(1, count * .12 | 0)) - energy.bass) * .12;
+  energy.mids += (band(count * .12 | 0, count * .55 | 0) - energy.mids) * .09;
+  energy.treble += (band(count * .55 | 0, count) - energy.treble) * .16;
+  context.fillStyle = 'rgba(2, 5, 20, 0.16)';
+  context.fillRect(0, 0, width, height);
+  const cx = width * (.5 + Math.sin(time * .00013) * .08);
+  const cy = height * (.5 + Math.cos(time * .00017) * .08);
+  const scale = Math.min(width, height) * (.23 + energy.bass * .15);
+  for (let ribbon = 0; ribbon < 6; ribbon++) {
+    const phase = time * (.00016 + ribbon * .000013) + ribbon * Math.PI / 3;
+    const hue = (time * .012 + ribbon * 58) % 360;
+    context.beginPath();
+    for (let i = 0; i <= 100; i++) {
+      const p = i / 100 * Math.PI * 4;
+      const radius = scale * (.35 + p / (Math.PI * 6)) * (1 + Math.sin(p * (1.2 + energy.mids) + phase) * (.18 + energy.treble * .12));
+      const angle = p + phase + Math.sin(p * .5 + phase) * .5;
+      const x = cx + Math.cos(angle) * radius;
+      const y = cy + Math.sin(angle * (1 + ribbon * .025)) * radius * (.5 + energy.mids * .25);
+      if (!i) context.moveTo(x, y); else context.lineTo(x, y);
+    }
+    context.lineWidth = 1 + (ribbon % 2) * 1.2;
+    context.strokeStyle = `hsla(${hue}, 100%, ${58 + ribbon % 3 * 8}%, .78)`;
+    context.shadowBlur = 12;
+    context.shadowColor = `hsla(${hue}, 100%, 60%, .7)`;
+    context.stroke();
   }
-  return heights;
+  context.shadowBlur = 0;
+  return energy;
 }
 
 export class AudioPlayback {
@@ -270,6 +287,7 @@ export class WindowsMediaPlay {
     this.visualFrame = 0;
     this.canvas = this.window.element.querySelector('.wmp-visualizer');
     this.canvasContext = this.canvas.getContext?.('2d') ?? null;
+    this.visualEnergy = { bass: 0, mids: 0, treble: 0 };
     this.playback = new AudioPlayback(this.audio, () => this.renderPlayback(), () => this.preparePlayback());
   }
   bindControls() {
@@ -372,9 +390,9 @@ export class WindowsMediaPlay {
     if (canvas.height !== height) canvas.height = height;
     const context = this.canvasContext;
     context.clearRect(0, 0, width, height);
-    const samples = new Uint8Array(this.analyser.frequencyBinCount);
+    const samples = this.frequencySamples ??= new Uint8Array(this.analyser.frequencyBinCount);
     this.analyser.getByteFrequencyData(samples);
-    drawSpectrum(context, width, height, samples);
+    drawSpectrum(context, width, height, samples, performance.now(), this.visualEnergy);
     this.visualFrame = this.requestFrame(() => this.drawVisualizer());
   }
   drawRestingVisualizer() {
