@@ -1,5 +1,6 @@
 import { icon } from './icons.js';
 import { createPopupContent } from './popup-content.js';
+import { popupContent } from '../config/popups.js';
 import { clamp } from '../utils/math.js';
 import { chooseWindowPosition } from './window-placement.js';
 
@@ -25,6 +26,7 @@ export class WindowManager {
       y,
       openedAt,
       content,
+      popupIndex,
       onDismiss,
       windowClass = '',
       resizable = false,
@@ -39,7 +41,10 @@ export class WindowManager {
     const element = document.createElement('article');
     element.className = `xp-window popup popup-${type}${preview ? ' preview-window' : ''}${windowClass ? ` ${windowClass}` : ''}`;
     element.dataset.windowId = id;
-    const { title, body, iconName } = content ?? createPopupContent(type);
+    const { title, body, iconName } = content ?? createPopupContent(type,
+      Number.isInteger(popupIndex) && popupContent[type]?.length
+        ? () => (Math.max(0, Math.min(popupContent[type].length - 1, popupIndex)) + 0.5) / popupContent[type].length
+        : Math.random);
     element.innerHTML = /* HTML */ `<header class="titlebar">
         <span class="window-title">${icon(iconName)}<span>${title}</span></span
         ><button class="close-button" aria-label="Fermer ${title}">×</button>

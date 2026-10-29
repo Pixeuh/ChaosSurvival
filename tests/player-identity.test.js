@@ -61,17 +61,18 @@ function inputDialogue() {
   };
 }
 
-test('nickname validation only accepts 3–16 ASCII letters or digits without trimming', () => {
-  for (const accepted of ['Pixe', 'Alex2009', 'DarkKiller59', 'JustMe', 'A1b'])
-    assert.equal(validatePlayerNickname(accepted), true, accepted);
-  for (const rejected of [
-    '', '  ', 'ab', 'a'.repeat(17), ' Jean', 'Jean Pierre', 'Élodie', 'Alex!',
-    '<script>', 'line\nbreak', 'A\u0000bc', '💜abc', 'abc ',
-  ]) {
-    assert.equal(validatePlayerNickname(rejected), false, JSON.stringify(rejected));
-    assert.equal(normalizePlayerNickname(rejected), '');
+test('nickname validation accepts Unicode and counts visible grapheme clusters', () => {
+  const accepted = ['Pixe', '\u00C9lodie', 'Jean Pierre', 'Jean-Pierre', 'Jean_Pierre', '\u0416\u0430\u043D\u043D\u0430', '\u3055\u304F\u3089', '\u73A9\u5BB6\u6635\u79F0', '\uBBFC\uC218\uC57C', '\u2728\uD83D\uDC9C\u2661', '\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67\u200D\uD83D\uDC66abc', '\uD83C\uDDEB\uD83C\uDDF7Ab'];
+  for (const value of accepted) assert.equal(validatePlayerNickname(value), true, value);
+  const rejected = ['', '  ', 'ab', 'a'.repeat(17), '\uD83D\uDC69\u200D\uD83D\uDCBBx', 'abc\nname', 'A\u0000bc', 'ab\u202Ecd', '\u200Babc', '\uD800abc'];
+  for (const value of rejected) {
+    assert.equal(validatePlayerNickname(value), false, JSON.stringify(value));
+    assert.equal(normalizePlayerNickname(value), '');
   }
-  assert.equal(normalizePlayerNickname('a'.repeat(16)), 'a'.repeat(16));
+  assert.equal(normalizePlayerNickname('e\u0301lo'), '\u00E9lo');
+  assert.equal(normalizePlayerNickname('  Jean Pierre  '), 'Jean Pierre');
+  assert.equal(normalizePlayerNickname('\u2728'.repeat(16)), '\u2728'.repeat(16));
+  assert.equal(normalizePlayerNickname('\u2728'.repeat(17)), '');
 });
 
 test('Buddy collects grammatical agreement independently for all six gender and agreement combinations', () => {
@@ -122,20 +123,20 @@ test('generic free text waits, rejects invalid input without progressing, and sa
       setPlayerNickname: (value, progress) => progress.updatePlayerIdentity({ nickname: value }),
     },
   };
-  for (const invalid of ['', 'ab', '<script>', 'Jean Pierre', 'a'.repeat(17)])
+  for (const invalid of ['', 'ab', 'a'.repeat(17), 'x\ny', 'abc\u202E'])
     assert.equal(session.submitInput(invalid, handlers), false);
   assert.equal(session.state.node, 'ask');
   assert.deepEqual(session.state.transcript, before);
   assert.equal(progression.data.playerIdentity.nickname, 'Moi');
 
-  assert.equal(session.submitInput('Pixe', handlers), true);
+  assert.equal(session.submitInput('Élodie??', handlers), true);
   assert.equal(session.state.node, 'gender');
-  assert.deepEqual(session.state.transcript.map((item) => item.text), ['Ton pseudo ?', 'Pixe']);
-  assert.equal(progression.data.playerIdentity.nickname, 'Pixe');
+  assert.deepEqual(session.state.transcript.map((item) => item.text), ['Ton pseudo ?', 'Élodie??']);
+  assert.equal(progression.data.playerIdentity.nickname, 'Élodie??');
   const restored = new Progression(story, storage);
   const resumed = new DialogueSession(dialogue, restored);
   assert.equal(resumed.state.node, 'gender');
-  assert.equal(resumed.state.transcript.filter((item) => item.text === 'Pixe').length, 1);
+  assert.equal(resumed.state.transcript.filter((item) => item.text === 'Élodie??').length, 1);
 });
 
 test('all three declared identity choices converge; only neither asks for grammatical preference', () => {
@@ -207,6 +208,18 @@ test('fresh identity starts as Moi; old progressed saves retain their JustMe nam
     normalizePlayerIdentity({ nickname: 'JustMe', gender: 'male' }),
     LEGACY_PLAYER_IDENTITY,
   );
+});
+
+test('Unicode nicknames are NFC-normalized and survive identity save and reload', () => {
+  const storage = memoryStorage();
+  const progression = new Progression(story, storage);
+  progression.updatePlayerIdentity({ nickname: 'e\u0301lodie ✨' });
+  progression.updatePlayerIdentity({ identityGender: 'neither', grammaticalGender: 'female', completed: true });
+  progression.save();
+  const restored = new Progression(story, storage);
+  assert.deepEqual(restored.data.playerIdentity, {
+    nickname: 'élodie ✨', identityGender: 'neither', grammaticalGender: 'female', completed: true,
+  });
 });
 
 test('New Game clears the nickname and declared and grammatical identity together', () => {

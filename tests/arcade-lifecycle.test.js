@@ -31,6 +31,8 @@ function harness() {
     musicAt,
     isOnBeat,
     WINDOW_TYPES,
+    selectMsnPopupIndex: () => 0,
+    msnQuarterCounts: [0, 0, 0, 0],
     phase: 'playing',
     duration: chart.durationSeconds,
     lastTime: 0,

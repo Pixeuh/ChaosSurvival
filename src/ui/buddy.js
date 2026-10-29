@@ -19,7 +19,7 @@ export class Buddy {
     this.bubble = this.element.querySelector('.buddy-bubble');
     this.text = this.element.querySelector('p');
     this.question = document.createElement('form'); this.question.className='buddy-question'; this.question.hidden=true;
-    this.question.innerHTML='<input maxlength="16" autocomplete="off" aria-label="Pseudonyme"><button type="submit">Valider</button><div class="buddy-options"></div><span role="alert"></span>';
+    this.question.innerHTML='<input autocomplete="off" aria-label="Pseudonyme"><button type="submit">Valider</button><div class="buddy-options"></div><span role="alert"></span>';
     this.bubble.append?.(this.question);
     this.setupModal = document.createElement('div');
     this.setupModal.className = 'buddy-setup-backdrop'; this.setupModal.hidden = true;
@@ -101,9 +101,10 @@ export class Buddy {
   answerSetup() {
     if (this.onboarding?.step === 'welcome') return this.saveSetup('nickname');
     if (this.onboarding?.step === 'done') { this.onboarding=null; this.progression.data.buddyOnboarding={done:true}; this.progression.save(); this.question.hidden=true; this.setupModal.hidden=true; this.setupComplete?.(); return; }
-    const nickname=this.question.querySelector('input').value.trim();
-    if (!validatePlayerNickname(nickname)) { this.question.querySelector('[role="alert"]').textContent='Le pseudonyme doit contenir de 3 à 16 lettres ou chiffres.'; return; }
-    this.progression.updatePlayerIdentity({nickname}); this.progression.save(); this.saveSetup('gender',{nickname});
+    const input=this.question.querySelector('input');
+    const nickname=input.value;
+    if (!validatePlayerNickname(nickname)) { this.question.querySelector('[role="alert"]').textContent='Saisissez un pseudonyme de 3 à 16 caractères visibles, sans caractère de contrôle.'; return; }
+    this.progression.updatePlayerIdentity({nickname}); this.progression.save(); this.saveSetup('gender',{nickname:this.progression.data.playerIdentity.nickname});
   }
   chooseSetup(value) {
     if (this.onboarding?.step==='gender') {

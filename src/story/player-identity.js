@@ -1,7 +1,8 @@
 export const PLAYER_NICKNAME_MIN_LENGTH = 3;
 export const PLAYER_NICKNAME_MAX_LENGTH = 16;
-export const PLAYER_NICKNAME_PATTERN = /^[A-Za-z0-9]{3,16}$/;
+export const PLAYER_NICKNAME_PATTERN = /^[^\p{Cc}\p{Cs}\u200B\u00AD\u061C\u200E\u200F\u2028\u2029\u202A-\u202E\u2066-\u2069]+$/u;
 export const DEFAULT_PLAYER_NICKNAME = 'Moi';
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 export const LEGACY_PLAYER_IDENTITY = Object.freeze({
   nickname: 'JustMe',
   identityGender: 'boy',
@@ -10,7 +11,14 @@ export const LEGACY_PLAYER_IDENTITY = Object.freeze({
 });
 
 export function normalizePlayerNickname(value) {
-  return typeof value === 'string' && PLAYER_NICKNAME_PATTERN.test(value) ? value : '';
+  if (typeof value !== 'string') return '';
+  const nickname = value.normalize('NFC').trim();
+  if (!nickname || !PLAYER_NICKNAME_PATTERN.test(nickname)) return '';
+  let length = 0;
+  for (const _segment of graphemes.segment(nickname)) {
+    if (++length > PLAYER_NICKNAME_MAX_LENGTH) return '';
+  }
+  return length >= PLAYER_NICKNAME_MIN_LENGTH ? nickname : '';
 }
 
 export function validatePlayerNickname(value) {
@@ -19,11 +27,7 @@ export function validatePlayerNickname(value) {
 
 export function normalizePlayerIdentity(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const nickname = normalizePlayerNickname(value.nickname) ||
-    (typeof value.nickname === 'string' && value.nickname.length <= 32 &&
-      value.nickname.trim() && !/[\u0000-\u001f\u007f-\u009f]/.test(value.nickname)
-      ? value.nickname.trim()
-      : '');
+  const nickname = normalizePlayerNickname(value.nickname);
   if (!nickname) return null;
   // Older versions stored only `gender`; retain their visible name and masculine agreement.
   const grammaticalGender = value.grammaticalGender ?? value.gender ?? 'male';

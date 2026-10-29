@@ -162,6 +162,33 @@ export const popupContent = {
         'le ventilateur fait la quatrième piste',
       ],
     },
+    {
+      name: 'oO_Cerise_Oo',
+      status: 'En ligne · jamais dehors :p',
+      messages: [
+        't\'as déjà rêvé que tu sortais de chez toi ?',
+        'moi ça m\'arrive tout le temps xD',
+        'mais je sais même plus à quoi ressemble ma rue lol',
+      ],
+    },
+    {
+      name: 'just_a_boy_92',
+      status: 'Occupé · cherche la sortie',
+      messages: [
+        'j\'ai essayé de partir hier',
+        'mais j\'arrive toujours au même endroit',
+        'tu sais comment on fait toi ?',
+      ],
+    },
+    {
+      name: 'xX_Mel0dy_Xx',
+      status: 'En ligne · nostalgie ♡',
+      messages: [
+        'tu te souviens de notre sortie samedi ?',
+        'j\'ai retrouvé les photos !!',
+        'mais pourquoi y\'a personne dessus ? o_O',
+      ],
+    },
   ],
   error: [
     {

@@ -21,6 +21,7 @@ import { AudioEngine } from './audio/engine.js';
 import { Timeline, compileChart, isOnBeat } from './game/timeline.js';
 import { musicAt } from './game/music.js';
 import { BeginnerDirector } from './game/director.js';
+import { selectMsnPopupIndex } from './game/msn-popup-schedule.js';
 import { WINDOW_TYPES } from './config/popups.js';
 import { GameState } from './game/state.js';
 import { WindowManager } from './ui/windows.js';
@@ -134,6 +135,7 @@ const menuMusic = new MenuMusic(() => settings.data.musicVolume);
 audio.setVolume(settings.data.musicVolume);
 let arcadeSequenceId = 'arcade-1';
 let arcadeReplay = false;
+let msnQuarterCounts = [0, 0, 0, 0];
 const sounds = new DesktopSounds(
   () => settings.data.effectsVolume,
   () => (menuMusic.active || phase === 'paused' ? menuMusic.context : audio.context),
@@ -912,6 +914,7 @@ async function startGame() {
     state.reset();
     timeline.reset();
     director.reset();
+    msnQuarterCounts = [0, 0, 0, 0];
     pauseGeneration++;
     lastLateness = null;
     maxLateness = 0;
@@ -984,7 +987,10 @@ function emitEvent(event, time) {
   if (event.type === 'notify') return notify(event.contact, event.message);
   if (event.type === 'wizz') return wizz();
   if (!director.allow(event, time, state)) return;
-  manager.spawn(event.type, { openedAt: audio.time });
+  const popupIndex = event.type === 'msn'
+    ? selectMsnPopupIndex(time, duration, msnQuarterCounts)
+    : undefined;
+  manager.spawn(event.type, { openedAt: audio.time, popupIndex });
   state.spawn();
   lastLateness = Math.max(0, time - event.time);
   maxLateness = Math.max(maxLateness, lastLateness);

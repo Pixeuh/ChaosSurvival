@@ -397,7 +397,7 @@ export class ConversationWindow {
       this.inputStatus.textContent = '';
       return;
     }
-    this.inputField.maxLength = input.maxLength ?? 64;
+    this.inputField.maxLength = input.validator === 'playerNickname' ? 256 : input.maxLength ?? 64;
     this.inputField.placeholder = input.placeholder ?? '';
   }
   submitDialogueInput() {

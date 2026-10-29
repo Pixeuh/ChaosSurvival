@@ -5,6 +5,8 @@ import { popupContent, WINDOW_TYPES } from '../src/config/popups.js';
 import { createPopupContent } from '../src/ui/popup-content.js';
 import { compileChart, Timeline } from '../src/game/timeline.js';
 import { GameState } from '../src/game/state.js';
+import { createHash } from 'node:crypto';
+import { selectMsnPopupIndex } from '../src/game/msn-popup-schedule.js';
 
 test('every popup variant renders its content and offers a way to dismiss non-MSN windows', () => {
   for (const type of WINDOW_TYPES) {
@@ -25,6 +27,27 @@ test('MSN messages display hearts and emoticons as text rather than HTML', () =>
   const conversation = createPopupContent('msn', () => 2.5 / popupContent.msn.length);
   assert.match(conversation.body, /&lt;3/);
   assert.equal((conversation.body.match(/dit :/g) ?? []).length, 3);
+});
+
+test('keeps all original MSN variants unchanged and adds the three specified contacts', () => {
+  assert.equal(popupContent.msn.length, 21);
+  assert.equal(createHash('sha256').update(JSON.stringify(popupContent.msn.slice(0, 18))).digest('hex'),
+    '300cff70cca4c8e47288bbef805b1ce20bd6ee95b912dcc41a03901e3b8a6e1e');
+  assert.deepEqual(popupContent.msn.slice(18), [
+    { name: 'oO_Cerise_Oo', status: 'En ligne · jamais dehors :p', messages: ["t'as déjà rêvé que tu sortais de chez toi ?", "moi ça m'arrive tout le temps xD", 'mais je sais même plus à quoi ressemble ma rue lol'] },
+    { name: 'just_a_boy_92', status: 'Occupé · cherche la sortie', messages: ["j'ai essayé de partir hier", "mais j'arrive toujours au même endroit", 'tu sais comment on fait toi ?'] },
+    { name: 'xX_Mel0dy_Xx', status: 'En ligne · nostalgie ♡', messages: ['tu te souviens de notre sortie samedi ?', "j'ai retrouvé les photos !!", "mais pourquoi y'a personne dessus ? o_O"] },
+  ]);
+});
+
+test('new MSN hints are scheduled outside the first quarter and guaranteed in their intended quarters', () => {
+  const counts = [0, 0, 0, 0];
+  assert.ok(selectMsnPopupIndex(1, 100, counts, () => 0) < 18);
+  assert.equal(selectMsnPopupIndex(30, 100, counts), 18);
+  assert.equal(selectMsnPopupIndex(31, 100, counts), 20);
+  assert.ok(selectMsnPopupIndex(32, 100, counts, () => 0) < 18);
+  assert.equal(selectMsnPopupIndex(55, 100, counts), 19);
+  assert.ok(selectMsnPopupIndex(80, 100, counts, () => 0) < 18);
 });
 
 test('virus and download events fire once and closing them rewards points and relieves chaos', () => {

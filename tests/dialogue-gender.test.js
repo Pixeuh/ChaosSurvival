@@ -133,20 +133,17 @@ test('group reminder factory and scheduled reception persist female pronouns wit
   assert.equal(restored.data.playerIdentity.identityGender, 'neither');
 });
 
-test('neither identity interrupted before pronoun selection stays incomplete after a reload', () => {
-  const storage = memory(); const progression = new Progression(story, storage);
+test('PixelGirl intro no longer collects or changes player identity', () => {
+  const progression = new Progression(story, memory());
   progression.updatePlayerIdentity({ nickname: 'PixelFan' });
-  const session = new DialogueSession(definitions['pixelgirl-intro'], progression);
-  Object.assign(session.state, { node: 'ask-gender', cursor: 2 }); session.persist();
-  session.choose('identity-neither');
-  const restored = new Progression(story, storage);
-  assert.equal(restored.data.playerIdentity.identityGender, 'neither');
-  assert.equal(restored.data.playerIdentity.completed, false);
-  const next = new DialogueSession(definitions['pixelgirl-intro'], restored);
-  while (next.nextMessage()) next.deliver();
-  assert.deepEqual(next.choices.map(({ id }) => id), ['pronoun-he', 'pronoun-she']);
-  next.choose('pronoun-she');
-  assert.deepEqual(restored.data.playerIdentity, profiles[3]);
+  const before = structuredClone(progression.data.playerIdentity);
+  const dialogue = definitions['pixelgirl-intro'];
+  assert.equal(dialogue.nodes['ask-gender'], undefined);
+  assert.equal(dialogue.nodes['ask-pronoun'], undefined);
+  assert.equal(dialogue.nodes['player-name'], undefined);
+  const session = new DialogueSession(dialogue, progression);
+  while (session.nextMessage()) session.deliver();
+  assert.deepEqual(progression.data.playerIdentity, before);
 });
 
 test('arcade popups resolve player agreements before escaping HTML without changing NPC names', () => {
